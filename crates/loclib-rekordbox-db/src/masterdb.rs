@@ -620,25 +620,10 @@ impl Db<'_> {
             Library { tracks, playlists, history_playlists: history.iter().filter(|h| !h.is_folder).count(), history };
 
         let mut cues: IndexMap<u32, Vec<Cue>> = IndexMap::new();
-        for r in self.select("djmdCue", &["ContentID", "InMsec", "OutMsec", "Kind", "ColorTableIndex", "Comment"])? {
+        let columns: Vec<&str> = std::iter::once("ContentID").chain(CUE_COLUMNS).collect();
+        for r in self.select("djmdCue", &columns)? {
             let Some(&track) = track_ids.get(&text(&r[0])) else { continue };
-            let start = int(&r[1]).max(0);
-            let end = int(&r[2]);
-            let kind = int(&r[3]);
-            let hot_cue = hot_cue_from_kind(kind);
-            let color_code = int(&r[4]);
-            cues.entry(track).or_default().push(Cue {
-                hot_cue,
-                start_ms: clamp(start),
-                end_ms: (end > start).then(|| clamp(end)),
-                comment: text(&r[5]),
-                color: hot_cue.and_then(|_| u8::try_from(color_code).ok()).and_then(hot_cue_palette),
-                // Memory cue colours, stored loop lengths and active loops aren't read from
-                // master.db yet.
-                color_id: 0,
-                loop_beats: None,
-                active_loop: false,
-            });
+            cues.entry(track).or_default().push(cue(&r[1..]));
         }
         for list in cues.values_mut() {
             list.sort_by_key(|c| (c.hot_cue.map_or(0, |h| h as u32 + 1), c.start_ms));
@@ -776,6 +761,29 @@ fn id_map(ids: impl Iterator<Item = String>) -> FxHashMap<String, u32> {
         ids.into_iter().zip(parsed.into_iter().flatten()).collect()
     } else {
         ids.into_iter().zip(1u32..).collect()
+    }
+}
+
+/// The `djmdCue` columns [`cue`] reads, in its order.
+pub(crate) const CUE_COLUMNS: [&str; 5] = ["InMsec", "OutMsec", "Kind", "ColorTableIndex", "Comment"];
+
+/// A `djmdCue` row ([`CUE_COLUMNS`]' values) as the model's cue. A write reads a track's rows
+/// through this too, to tell which cues an edit leaves as they are.
+pub(crate) fn cue(r: &[Value]) -> Cue {
+    let start = int(&r[0]).max(0);
+    let end = int(&r[1]);
+    let hot_cue = hot_cue_from_kind(int(&r[2]));
+    Cue {
+        hot_cue,
+        start_ms: clamp(start),
+        end_ms: (end > start).then(|| clamp(end)),
+        comment: text(&r[4]),
+        color: hot_cue.and_then(|_| u8::try_from(int(&r[3])).ok()).and_then(hot_cue_palette),
+        // Memory cue colours, stored loop lengths and active loops aren't read from master.db
+        // yet.
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
     }
 }
 

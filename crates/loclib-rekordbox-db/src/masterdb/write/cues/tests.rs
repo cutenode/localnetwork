@@ -8,12 +8,14 @@ fn a_cue_id_thats_taken_is_drawn_again() {
     assert_eq!(id, "8");
 }
 
-/// Reals are written as JSON numbers, and a time that isn't rekordbox's stays as it is.
+/// Reals are written as JSON numbers, and a time that isn't rekordbox's (another tool's, with its
+/// zone's name) stays as it is.
 #[test]
 fn a_list_holds_reals_and_odd_times_as_they_are() {
-    let row = vec![Value::Real(1.5), Value::Text("yesterday".into()), Value::Real(f64::NAN)];
+    let odd = "2025-04-12 19:11:29.274 -05:00 (Central Daylight Time)";
+    let row = vec![Value::Real(1.5), Value::Text(odd.into()), Value::Real(f64::NAN)];
     let json = cue_list_json(&["BeatLoopSize", "created_at", "CueMicrosec"], &[row]);
-    assert_eq!(json, r#"[{"BeatLoopSize":1.5,"created_at":"yesterday","CueMicrosec":null}]"#);
+    assert_eq!(json, format!(r#"[{{"BeatLoopSize":1.5,"created_at":"{odd}","CueMicrosec":null}}]"#));
 }
 
 /// A stored value goes to JSON and back; a blob, or JSON no column holds, is refused.
@@ -30,20 +32,9 @@ fn stored_values_go_to_json_and_back() {
     }
 }
 
-/// A list's cues read whether their numbers are numbers or text, a missing one as 0, and an id
-/// that isn't text as its JSON; a list that isn't one, or a cue without an id, can't be read.
-#[test]
-fn listed_cues_read_loosely() {
-    let json = r#"[{"ID":12,"InMsec":"1000","OutMsec":2.0},{"ID":"c2","InMsec":5,"Kind":"x"}]"#;
-    assert_eq!(listed_cues(json), None, "a Kind that isn't a number");
-    let json = r#"[{"ID":12,"InMsec":"1000","OutMsec":2.0},{"ID":"c2","InMsec":5,"Kind":1}]"#;
-    assert_eq!(listed_cues(json), Some(vec![("12".into(), 1000, 2, 0), ("c2".into(), 5, 0, 1)]));
-    assert_eq!(listed_cues("{}"), None);
-    assert_eq!(listed_cues(r#"[{"InMsec":1}]"#), None);
-}
-
-/// Tables without `rb_local_deleted` are read whole; a track with two lists disagrees; a
-/// database without `contentCue` (rekordbox 6) has nothing to disagree.
+/// Tables without `rb_local_deleted` are read whole; a list is the one its rows make, or it
+/// disagrees; a track with two lists disagrees; a database without `contentCue` has nothing to
+/// disagree.
 #[test]
 fn mismatches_in_tables_of_other_shapes() {
     let conn = Connection::open_in_memory().unwrap();
@@ -52,13 +43,14 @@ fn mismatches_in_tables_of_other_shapes() {
         "CREATE TABLE djmdContent (ID TEXT);
          CREATE TABLE djmdCue (ID TEXT, ContentID TEXT, InMsec INTEGER, OutMsec INTEGER, Kind INTEGER);
          CREATE TABLE contentCue (ContentID TEXT, Cues TEXT, rb_cue_count INTEGER);
-         INSERT INTO djmdContent VALUES ('1'), ('2'), ('3');
-         INSERT INTO djmdCue VALUES ('a', '1', 10, -1, 0), ('b', '2', 20, -1, 0);
-         INSERT INTO contentCue VALUES ('1', '[{\"ID\":\"a\",\"InMsec\":10,\"OutMsec\":-1,\"Kind\":0}]', 1),
-             ('2', '[]', 0), ('2', '[]', 0);",
+         INSERT INTO djmdContent VALUES ('1'), ('2'), ('3'), ('4');
+         INSERT INTO djmdCue VALUES ('a', '1', 10, -1, 0), ('b', '2', 20, -1, 0), ('c', '4', 30, -1, 0);
+         INSERT INTO contentCue VALUES ('1', '[{\"ID\":\"a\",\"ContentID\":\"1\",\"InMsec\":10,\"OutMsec\":-1,\"Kind\":0}]', 1),
+             ('2', '[]', 0), ('2', '[]', 0),
+             ('4', '[{\"ID\":\"c\",\"InMsec\":30,\"OutMsec\":-1,\"Kind\":0}]', 1);",
     )
     .unwrap();
-    assert_eq!(mismatches(&conn, false, None).unwrap(), ["2"]);
+    assert_eq!(mismatches(&conn, false, None).unwrap(), ["2", "4"]);
     let only: FxHashSet<String> = ["1".to_string()].into_iter().collect();
     assert_eq!(mismatches(&conn, false, Some(&only)).unwrap(), Vec::<String>::new());
 }
