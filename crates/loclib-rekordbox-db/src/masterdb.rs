@@ -34,7 +34,9 @@
 //! * `djmdCloudProperty` names the storage service Cloud Library Sync uses (`Reserved1`
 //!   `SyncService`, `Reserved2` `Dropbox`), and `contentFile` lists the analysis and artwork files
 //!   it syncs, with their sizes; a file there whose copy on this computer has another size (or
-//!   none) hasn't finished syncing.
+//!   none) hasn't finished syncing. Rows rekordbox keeps for a track's old analysis files, once
+//!   it has analysed the track again into new ones (5 tracks of one library of 2,050), name files
+//!   that are gone, and aren't taken to be syncing.
 //! * playlists and My Tags hang off `ParentID` `"root"`; a playlist's `Attribute` is 0 for a
 //!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`, see
 //!   [`smartlist`]) are read but not evaluated here, so it reads as empty.
@@ -645,6 +647,22 @@ impl Db<'_> {
         }
         cues.sort_unstable_keys();
 
+        // A track's analysis files sit beside its `AnalysisDataPath`. Rows for others of its files in
+        // `USBANLZ` are what rekordbox left when it analysed the track again into new ones (moving
+        // `ANLZ0000.*` to `ANLZ0001.*`), for files that are gone: nothing is syncing them.
+        let stem = |p: &str| paths::key(p.rsplit_once('.').map_or(p, |(s, _)| s)).to_lowercase();
+        let left = |track: &Value, path: &str| {
+            let analysis = track_ids.get(&text(track)).and_then(|id| library.track(*id)).map(|t| &t.analyze_path);
+            let in_analysis = stem(path).starts_with("pioneer/usbanlz/");
+            analysis.is_some_and(|a| !a.is_empty() && in_analysis && stem(a) != stem(path))
+        };
+        let synced_sizes = self
+            .select("contentFile", &["ContentID", "Path", "Size"])?
+            .into_iter()
+            .filter(|r| !left(&r[0], &text(&r[1])))
+            .map(|r| (text(&r[1]).to_lowercase(), int(&r[2]).max(0) as u64))
+            .collect();
+
         Ok(Collection {
             path: self.path.to_path_buf(),
             db_version: self.property("DBVersion")?,
@@ -659,11 +677,7 @@ impl Db<'_> {
                 .find(|r| text(&r[0]) == "SyncService")
                 .map(|r| text(&r[1]))
                 .filter(|v| !v.is_empty()),
-            synced_sizes: self
-                .select("contentFile", &["Path", "Size"])?
-                .into_iter()
-                .map(|r| (text(&r[0]).to_lowercase(), int(&r[1]).max(0) as u64))
-                .collect(),
+            synced_sizes,
         })
     }
 
