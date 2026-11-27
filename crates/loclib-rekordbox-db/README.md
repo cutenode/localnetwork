@@ -81,13 +81,16 @@ can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`Cl
 `Collection::audio_file`).
 
 `masterdb::write` (the `files` feature) writes the collection as ADR 0007 in locallibrary decides.
-It refuses while rekordbox or its agent runs, while a WAL beside `master.db` holds anything, and
-while Cloud Library Sync is on or might be. Otherwise it backs `master.db` up and reads the
-backup back, makes the edit on that decrypted copy in one transaction, and stamps what it changes
-with rekordbox's update counter. It then checks the copy, encrypts it again with the original's
-salt and swaps it in with one rename, if `master.db` hasn't changed meanwhile. A track's cues are
-written as rekordbox writes them (`djmdCue` rows, the `contentCue` list, `CueUpdated`). Each edit
-answers what it replaced, which a later write puts back as a new change.
+It refuses while rekordbox or its agent runs, while a WAL beside `master.db` holds anything,
+while Cloud Library Sync is on or might be, while another write holds the collection's lock, on a
+drive that may not replace a file in one rename, and for a rekordbox version whose layout hasn't
+been checked (`write::VERSIONS`). Otherwise it backs `master.db` up and reads the backup back,
+makes the edit on that decrypted copy in one transaction, and stamps what it changes with
+rekordbox's update counter. It then checks the copy, encrypts it again with the original's salt,
+reads it back and swaps it in with one rename, if `master.db` hasn't changed meanwhile. A track's
+cues are written as rekordbox lays them out, changing only the rows an edit changes, with the
+`contentCue` list made again from the rows and `CueUpdated` raised. Each edit answers what it
+replaced, which a later write puts back as a new change.
 
 ## Features
 

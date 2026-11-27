@@ -59,6 +59,32 @@ pub enum Error {
     /// A write of rekordbox's collection that wasn't made, and why; `master.db` is as it was.
     #[error("{0}")]
     Refused(Refusal),
+
+    /// Renaming the new collection over `master.db` failed. `master.db` is most likely as it was,
+    /// but on a drive that removes a file before renaming over it, it can be gone: the new
+    /// collection and the backup of the old one are both kept.
+    #[error(
+        "{} couldn't be replaced ({source}): check it's still there. The edited collection is kept at {}, and the \
+         backup from before at {}", master_db.display(), new.display(), backup.display()
+    )]
+    SwapFailed {
+        /// The `master.db`.
+        master_db: PathBuf,
+        /// The new collection, beside it.
+        new: PathBuf,
+        /// The backup of `master.db` from right before.
+        backup: PathBuf,
+        /// What the system said.
+        source: io::Error,
+    },
+
+    /// The edit was written, but rekordbox or its agent started (or wrote beside `master.db`) as it
+    /// was swapped in, so rekordbox may have the old collection open: the backup from right before.
+    #[error(
+        "the edit was written, but rekordbox started as it was: quit rekordbox without saving changes and check its \
+         collection (the backup from before is {})", .0.display()
+    )]
+    OpenedDuringSwap(PathBuf),
 }
 
 /// Why a write of rekordbox's collection (`master.db`) wasn't made. Nothing was written.
@@ -98,17 +124,21 @@ pub enum Refusal {
     #[error("master.db changed while the edit was being made (did rekordbox start?), so it wasn't written")]
     Changed,
 
+    /// Another write of the same collection is being made.
+    #[error("another write of rekordbox's collection is being made")]
+    Busy,
+
     /// Anything else that makes writing unsafe: what it is.
     #[error("{0}, so it wasn't written")]
     Odd(String),
 }
 
 impl Refusal {
-    /// Whether the write can be made later as it is, once rekordbox and its agent have quit: they
-    /// were running, or the file changed underneath. An edit refused so is worth keeping (staged)
-    /// and trying again.
+    /// Whether the write can be made later as it is, once rekordbox and its agent have quit (or
+    /// another write is done): they were running, the file changed underneath, or another write
+    /// was being made. An edit refused so is worth keeping (staged) and trying again.
     pub fn waits(&self) -> bool {
-        matches!(self, Refusal::RekordboxRunning | Refusal::AgentRunning | Refusal::Changed)
+        matches!(self, Refusal::RekordboxRunning | Refusal::AgentRunning | Refusal::Changed | Refusal::Busy)
     }
 }
 
