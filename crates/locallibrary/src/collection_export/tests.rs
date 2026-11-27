@@ -1334,3 +1334,23 @@ fn a_queue_added_to_a_drive_copies_only_the_tracks_it_lacks() {
     let planned = crate::api::queue_planned(&pc.collection(), &pc.cloud(), &target, again, &Ctx::silent()).unwrap();
     assert!(planned.new_tracks.is_empty() && planned.is_noop(), "{:?}", AnyPlanned::summary(&planned));
 }
+
+/// Adding a queue asks for one, and for it alone: not with playlists or the whole collection.
+#[test]
+fn adding_a_queue_needs_a_queue_and_nothing_else_chosen() {
+    let req = |options| crate::api::CollectionExportRequest {
+        collection: crate::api::CollectionRef { db: None, key: None },
+        drive: "/nowhere".into(),
+        options,
+    };
+    let refused = |options| crate::api::collection_queue_plan(&req(options), &Ctx::silent()).err().unwrap().to_string();
+    assert!(refused(CollectionExportOptions::default()).contains("there's no queue to add"));
+    let queue = Some(QueueExport { playlist: "Sets/Late".into(), tracks: vec![1] });
+    let with_playlists =
+        CollectionExportOptions { queue: queue.clone(), playlists: vec!["Shows/Friday".into()], ..Default::default() };
+    assert!(refused(with_playlists).contains("without playlists or all"));
+    assert!(
+        refused(CollectionExportOptions { queue, all: true, ..Default::default() })
+            .contains("without playlists or all")
+    );
+}

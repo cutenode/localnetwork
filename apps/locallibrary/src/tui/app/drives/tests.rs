@@ -444,3 +444,37 @@ fn the_queue_from_the_collection_packs_onto_a_drive_as_a_playlist() {
     assert_eq!(added.tracks.len(), 1);
     assert!(added.find_playlist("Sets/Friday").is_some() && added.find_playlist("Sets/Saturday").is_some());
 }
+
+#[test]
+fn a_playlist_from_the_collection_packs_onto_a_drive_as_an_export() {
+    let (mut app, dir) = blank(View::Library);
+    let target = dir.path().join("SET");
+    std::fs::create_dir_all(&target).unwrap();
+
+    // Without the collection on this computer, nothing is planned and it says why.
+    app.plan_collection_pack(target.clone(), Default::default());
+    assert_eq!((last_message(&app), app.job.is_none()), ("rekordbox's collection isn't on this computer", true));
+    app.toast = None;
+    app.plan_queue_pack(target.clone(), "Sets/Friday".into(), vec![1]);
+    assert_eq!((last_message(&app), app.job.is_none()), ("rekordbox's collection isn't on this computer", true));
+
+    app.collection_db = Some(master_db(dir.path()));
+    app.plan_pack(collection_root(), target, vec!["Shows/Friday".into()]);
+    let (op, summary) = confirming(&mut app);
+    assert_eq!(op, "collection export");
+    assert!(summary.contains("Shows/Friday"), "{summary}");
+}
+
+#[test]
+fn the_queues_playlist_needs_a_name() {
+    let (mut app, dir) = blank(View::Library);
+    let root = dir.path().join("SET");
+    app.modal = Some(Modal::Prompt(crate::tui::edits::Prompt {
+        label: "Name the queue's playlist on SET".into(),
+        text: " / ".into(),
+        purpose: crate::tui::edits::PromptFor::QueueForPack { tracks: vec![1] },
+        root,
+    }));
+    press(&mut app, "\n");
+    assert!(app.job.is_none(), "nothing is planned for a name with no parts");
+}
