@@ -174,7 +174,8 @@ pub fn undo(target: &Target, before: &AnalysisBefore) -> Result<Saved> {
 
 /// Places `auto`'s cues on `t` among the cues it `has`, on the grid and phrases of its analysis
 /// `files` (as the save left them), and writes them if they changed: what that replaced, and what
-/// to warn of.
+/// to warn of. A memory cue it takes as the first cue though it's off the grid's first downbeat
+/// is named, as a grid moved under rekordbox's own first cue leaves it there.
 fn place_cues(
     e: &mut Edit<'_>,
     track_id: &str,
@@ -190,7 +191,23 @@ fn place_cues(
         ))));
     };
     let placed = cue_edit::auto_placed(t, has.to_vec(), dat, files[1].as_deref(), auto).map_err(invalid)?;
-    let warnings = Vec::new();
+    let mut warnings = Vec::new();
+    let grid = anlz::beat_grid(dat).unwrap_or_default();
+    if let Some(first) = grid.iter().find(|b| b.beat_number == 1).or(grid.first()) {
+        // The style puts one on the downbeat unless a memory cue within a bar of it is there.
+        let memory: Vec<&CuePoint> = placed.iter().filter(|c| c.hot_cue.is_none() && c.end_ms.is_none()).collect();
+        let on_it = memory.iter().any(|c| c.start_ms.abs_diff(first.time_ms) <= 1);
+        let nearest = memory.iter().min_by_key(|c| c.start_ms.abs_diff(first.time_ms));
+        if let Some(c) = nearest.filter(|_| !on_it) {
+            warnings.push(format!(
+                "{}'s memory cue at {} is kept as its first cue, {} ms from the grid's first downbeat at {}",
+                t.display_name(),
+                cue_edit::clock(c.start_ms),
+                c.start_ms.abs_diff(first.time_ms),
+                cue_edit::clock(first.time_ms)
+            ));
+        }
+    }
     let entries = |c: &[CuePoint]| {
         let mut out: Vec<CueEntry> = c.iter().map(entry).collect();
         out.sort_by_key(|c| (c.hot_cue.map_or(0, |h| u32::from(h) + 1), c.start_ms));

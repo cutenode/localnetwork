@@ -290,3 +290,19 @@ fn cues_that_cant_be_placed_leave_the_rest_of_the_save() {
     let alone = CollectionAnalysis { key: None, ..edit };
     assert!(matches!(save(&lib.target, TRACK, &alone), Err(Error::Invalid(_))));
 }
+
+/// A memory cue within a bar of the new grid's first downbeat is kept as the first cue (no second
+/// one is added), and the save says which, as it's off the downbeat.
+#[test]
+fn a_first_cue_off_the_new_downbeat_is_named() {
+    let lib = Lib::new();
+    let edit = CollectionAnalysis {
+        analysis: NewAnalysis { beats: Some(grid()), ..NewAnalysis::default() },
+        cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
+        ..CollectionAnalysis::default()
+    };
+    let saved = save(&lib.target, TRACK, &edit).unwrap();
+    let said = "One More Time's memory cue at 0:00.500 is kept as its first cue, 500 ms from the grid's first downbeat at 0:01.000";
+    assert!(saved.warnings.iter().any(|w| w == said), "{:?}", saved.warnings);
+    assert!(saved.before.cues.is_none());
+}
