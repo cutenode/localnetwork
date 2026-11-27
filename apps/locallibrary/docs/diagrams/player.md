@@ -1,6 +1,6 @@
 # locallibrary diagrams: the player
 
-First run, views, panes, jobs, threads, playback and what it remembers. The rest are listed in the [README](../../README.md#diagrams).
+First run, views, panes, jobs, threads, playback, the queue, deck controls, plugins, dialogs waiting their turn and what it remembers. The rest are listed in the [README](../../README.md#diagrams).
 
 - [Player views](#player-views)
 - [First run](#first-run)
@@ -11,18 +11,22 @@ First run, views, panes, jobs, threads, playback and what it remembers. The rest
 - [Player threads](#player-threads)
 - [Opening a drive in the player](#opening-a-drive-in-the-player)
 - [Changing a drive from the player](#changing-a-drive-from-the-player)
+- [Dialogs waiting their turn](#dialogs-waiting-their-turn)
 - [An unplugged drive in the player](#an-unplugged-drive-in-the-player)
 - [Drives view rows](#drives-view-rows)
 - [Search and filter](#search-and-filter)
 - [Playback](#playback)
+- [The queue](#the-queue)
+- [Deck controls](#deck-controls)
 - [Output devices](#output-devices)
 - [Signing in from the player](#signing-in-from-the-player)
+- [Plugins in the player](#plugins-in-the-player)
 - [Identifying in the Recordings view](#identifying-in-the-recordings-view)
 - [What the player remembers](#what-the-player-remembers)
 
 ## Player views
 
-The player's five views and what crosses from one to another. `g` and a letter switches views (`g l`, `g p`, `g d`, `g r`, `g n`), and the digits jump to a pane, or play hot cues while the pads are on. `o` goes to the playing track, in the library or, for a recording, in Recordings; in Recordings with a recording open, it goes to the selected track in the library.
+The player's five views and what crosses from one to another. `1` to `5` switch views, unless the digits play hot cues (in player mode, or with the pads on, in `:`). "go to the playing track" (in `:`) goes there, in the library or, for a recording, in Recordings; in Recordings with a recording open, "show in library" (in `e`) goes to the selected track in the library.
 
 ```mermaid
 flowchart TD
@@ -34,11 +38,11 @@ flowchart TD
     drives -->|"enter opens a drive, or a<br/>list players recorded"| library
     drives -.->|"enter on a snapshot: a playlist back<br/>onto the open drive, staying here"| library
     prepare -.->|"enter: a job on the open<br/>drive, staying here"| library
-    recordings -->|"o goes to a track"| library
-    library -->|"o, playing a recording"| recordings
+    recordings -->|"show in library (in e) goes to a track"| library
+    library -->|"go to the playing track (in :),<br/>playing a recording"| recordings
     library -->|"mark playlists to pack"| drives
-    library -->|"m marks, q n plays next, q a adds, q q shows it"| crate["Queue (the crate)"]
-    crate -->|"w saves its tracks on the open drive as a playlist"| crate
+    library -->|"m marks, q plays next, a adds, t shows it"| crate["Queue (the crate)"]
+    crate -->|"save to drive (in e) saves its tracks<br/>on the open drive as a playlist"| crate
     crate -->|"packed onto a drive"| drives
 ```
 
@@ -73,7 +77,7 @@ The jobs that get a drive ready for a set, one row each, on the drive open in th
 flowchart TD
     rows["A row per job: check, set prep, sync, pack, pull,<br/>restore, replay, smart playlists, export, eject, refresh"]
     rows --> off["One that can't run now is dimmed and says why:<br/>no drive open, or another job to wait for"]
-    rows -->|"enter, or V W Y K E"| run["The job"]
+    rows -->|"enter, or the same in e"| run["The job"]
     run -->|"check, set prep, the smart playlists' rules"| report["Report: the results"]
     run -->|"pull, sync, replay,<br/>smart apply, eject"| plan["A plan, in the background"]
     run -->|"pack, restore, smart new"| ask["Pick or Prompt: what, or where"]
@@ -91,8 +95,7 @@ Where keys go in the Library view, and what takes them first, in the order it's 
 
 ```mermaid
 flowchart TD
-    first["Taken first, in order: the key after g, help ?,<br/>messages !, the output list d, a dialog,<br/>the search box, picking a playlist"] --> panes["Panes, tab or a digit to move: drive list,<br/>playlist tree, tracks, queue, details"]
-    panes -->|"g"| chord["A letter for a view, or g for the first row"]
+    first["Taken first, in order: the Keys screen, help ?, messages (in :),<br/>the outputs (in :), a dialog, the search box,<br/>picking a playlist"] --> panes["Panes, tab to move: drive list,<br/>playlist tree, tracks, queue, details"]
     panes -->|"e, or the right mouse<br/>button but on the drive list"| menu["Menu"]
     panes -->|":"| pick["Pick: the palette"]
     panes -->|"&"| jobs["Jobs: what's running"]
@@ -122,14 +125,14 @@ flowchart TD
     row -->|"a plan, a task, a write not yet past<br/>stopping, identifying, the profile, signing in"| stopped["Stops, saying stopping until it has"]
     row -->|"a write past stopping"| late["Too late to stop"]
     row -->|"a read, or signing out"| own["Finishes on its own"]
-    rows -->|"esc, q, &, or a click outside"| closed["Closed"]
+    rows -->|"esc, &, or a click outside"| closed["Closed"]
 ```
 
 Source: [`src/tui/jobs.rs`](../../src/tui/jobs.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/mouse.rs`](../../src/tui/app/mouse.rs), [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/account.rs`](../../src/tui/account.rs)
 
 ## Deck layout
 
-The Library view's two layouts. In the Deck layout the deck has the screen, as on a CDJ: the digits play hot cues and `enter` plays the pick of what mixes in next. Other views keep the deck strip under them.
+The Library view's two layouts. In the Deck layout the deck has the screen, as on a CDJ: the digits play hot cues (in Browse over it too) and `enter` plays the pick of what mixes in next. Other views keep the deck strip under them.
 
 ```mermaid
 stateDiagram-v2
@@ -221,6 +224,23 @@ stateDiagram-v2
 
 Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs)
 
+## Dialogs waiting their turn
+
+What happens to a dialog that work in the background opens while you're busy with something else. It waits in line, so nothing typed for one answers another.
+
+```mermaid
+flowchart TD
+    job["Work done in the background: a plan, results,<br/>a list a plugin asks you to choose from"]
+    job -->|"a plan u can take back"| applied["Made at once, saying u undoes it"]
+    job --> taken{"Do the keys go elsewhere? A dialog, the search box,<br/>picking a playlist, the outputs, help, messages,<br/>a path or handle being typed"}
+    taken -->|"no"| shown["Shown. A plan takes no keys for<br/>a moment, so it's read first"]
+    taken -->|"yes"| waiting["In line, the first in first out. The status<br/>line says it shows once this is closed"]
+    waiting -->|"each tick, once nothing has the keys"| shown
+    shown -->|"closed, with more in line"| waiting
+```
+
+Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/plugins.rs`](../../src/tui/plugins.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
+
 ## An unplugged drive in the player
 
 What the player does when the open drive goes away. It looks each second.
@@ -302,6 +322,57 @@ flowchart TD
 
 Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/audio/output.rs`](../../src/tui/audio/output.rs), [`src/tui/audio/device.rs`](../../src/tui/audio/device.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
 
+## The queue
+
+What plays next. The picks (`a` and `q`, shown with `t`) come first, then the rest of the list `enter` was pressed in.
+
+```mermaid
+flowchart TD
+    enter["enter on a track: it plays, then the rest of the list<br/>it's in (with shuffle, in :, in a random order)"] --> playing["Playing"]
+    picks["The picks: a adds to the end, q puts first,<br/>t shows them, shift ↑↓ moves, del takes out"]
+    saved["The next run on the same drive:<br/>the queue where it was, to 15 s"] -->|"space"| playing
+    playing -->|"it ends, or n"| next{"What's next"}
+    picks -->|"the first not played yet"| next
+    next -->|"a pick, else the list's next track,<br/>or with repeat (in :) on all, its first"| playing
+    playing -->|"it ends, with repeat one<br/>(in :) and no picks"| playing
+    next -->|"no picks, with fill (in :) on: the best<br/>match not played yet joins them"| picks
+    next -->|"nothing left"| stopped["Stopped"]
+    playing -->|"it ends, with single play (in :) on"| ready["Stopped, the next track ready"]
+    ready -->|"space"| playing
+    playing -->|"won't open, or breaks as it plays"| wont["Says why"]
+    wont -->|"moving through the queue"| next
+    wont -->|"started with enter, or each track<br/>in turn has failed"| stopped
+```
+
+Source: [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs), [`src/tui/app/saved.rs`](../../src/tui/app/saved.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/props.rs`](../../src/tui/app/props.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
+
+## Deck controls
+
+Hot cues, jumps and loops, as on a CDJ. Quantize (in `:`) is on until it's turned off.
+
+```mermaid
+flowchart TD
+    pads["1-8, in player mode (f) or with<br/>the pads on (in :): hot cue A-H"]
+    pads -->|"none there"| said["Says so"]
+    pads -->|"a hot cue: there, and plays"| cue
+    marks["c h: the next or previous cue,<br/>phrase jumps (in :)"] --> cue
+    beats[", .: a beat back or on,<br/>a bar or 8 bars (in :)"] --> beat
+    cue{"To a cue"}
+    cue -->|"playing, quantize on"| phase["As far from the beat as the playhead<br/>was, so the rhythm carries on"]
+    cue -->|"paused, or quantize off"| exact["On the cue"]
+    beat{"Along the beat grid,<br/>or the BPM without one"}
+    beat -->|"playing, quantize on"| phase
+    beat -->|"paused, quantize on"| landBeat["On a beat"]
+    beat -->|"quantize off"| asked["So many beats from the playhead"]
+    pads -->|"a hot cue saved as a loop"| looping["A loop playing"]
+    loopKey["l"] -->|"the loop the playhead is in, else 4 beats from<br/>the nearest bar (from the playhead, quantize off)"| looping
+    active["Playback reaching a loop<br/>rekordbox marked active"] --> looping
+    looping -->|"loop halve or double (in :)"| looping
+    looping -->|"l, or a seek out of it"| left["Left, playing on"]
+```
+
+Source: [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/deck/tests.rs`](../../src/tui/deck/tests.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
+
 ## Output devices
 
 The output the player plays through. Opening one never holds up the UI.
@@ -315,7 +386,7 @@ stateDiagram-v2
     None --> Opening: the player starting, a track to play, or space
     Opening --> Open: opened, or the default if the picked one is missing
     Opening --> None: none opens, the track stops where it was
-    Open --> Opening: d picks another, the track carries on
+    Open --> Opening: another picked from the outputs in the palette, the track carries on
     Opening --> Open: a pick that fails keeps the output there is
     Open --> None: it went away, the track waits where it was
 ```
@@ -324,7 +395,7 @@ Source: [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/deck.r
 
 ## Signing in from the player
 
-The Atmosphere account's sign-in in the localnetwork view, kept off the UI thread. `L` starts it there, and "sign in", in the empty library or the palette, goes there to start it.
+The Atmosphere account's sign-in in the localnetwork view, kept off the UI thread. "sign in/out" (in `e` there, or `:`) starts it, and "sign in", in the empty library or `:`, goes there to start it.
 
 ```mermaid
 stateDiagram-v2
@@ -336,7 +407,7 @@ stateDiagram-v2
     state "Signed out" as Out
     [*] --> Out
     [*] --> In: an account saved
-    Out --> Typing: L
+    Out --> Typing: sign in/out, in e or the palette
     Out --> Typing: sign in, from the empty library or the palette
     Typing --> Out: esc
     Typing --> Starting: enter
@@ -344,12 +415,38 @@ stateDiagram-v2
     Starting --> Out: esc, a cancel in the jobs list, or it failed
     Waiting --> In: the browser came back
     Waiting --> Out: esc, a cancel in the jobs list, or it failed
-    In --> SigningOut: L twice within a few seconds
+    In --> SigningOut: sign in/out twice within a few seconds
     SigningOut --> Out: done
     SigningOut --> In: it failed
 ```
 
 Source: [`src/tui/account.rs`](../../src/tui/account.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/first_run.rs`](../../src/tui/first_run.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/jobs.rs`](../../src/tui/jobs.rs)
+
+## Plugins in the player
+
+What a plugin suggests, what it asks of an account, and the panels it adds to a track's details.
+
+```mermaid
+flowchart TD
+    plugin["A plugin, as the player runs it,<br/>or the watch agent before"]
+    plugin -->|"tells you something"| said["The status line, and messages (in :)"]
+    plugin -->|"suggests something"| kept["Kept in the store until it's<br/>reviewed or dismissed"]
+    kept --> palette[": lists a review and a dismiss<br/>for each, the newest first"]
+    palette -->|"dismiss"| gone["Forgotten"]
+    palette -->|"review: forgotten, and started as you would"| what{"What it suggests"}
+    what -->|"one of its operations or commands"| run["Runs in the background, any question<br/>it asks first a list to choose from"]
+    what -->|"fetching or exporting"| form["Its form, filled in"]
+    what -->|"analyzing"| ask["Ask: yes or no"]
+    run & form & ask --> result["A plan to confirm, or results"]
+    plugin -->|"wants more of an account it can use"| access["Form: allow, sign in again to allow,<br/>or don't. The plugin waits for it"]
+    access -->|"esc"| unanswered["Not answered: the plugin is<br/>told how to give it instead"]
+    accessFor["access for PLUGIN… in :"] --> choose["Form: an account of each type it asks<br/>for, or sign in to another"]
+    choose --> defaults["Its defaults, saved in the background"]
+    details["i: the selected track's details"] -->|"the selection still for a moment"| panels["Each plugin's panel, asked for in the background,<br/>loading in the room its last answer took"]
+    panels -->|"failed"| failed["Says so, and why in messages (in :)"]
+```
+
+Source: [`src/tui/plugins.rs`](../../src/tui/plugins.rs), [`src/tui/plugins/events.rs`](../../src/tui/plugins/events.rs), [`src/tui/plugins/access.rs`](../../src/tui/plugins/access.rs), [`src/tui/plugins/panels.rs`](../../src/tui/plugins/panels.rs), [`src/tui/palette.rs`](../../src/tui/palette.rs), [`src/tui/form.rs`](../../src/tui/form.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
 
 ## Identifying in the Recordings view
 
@@ -363,7 +460,7 @@ stateDiagram-v2
     state "What went wrong" as Failed
     [*] --> List
     List --> List: not a recording, or no drive open, refused
-    List --> Busy: a recording picked, or O
+    List --> Busy: a recording picked, or a path from open… in e
     Busy --> List: esc, or back to the report<br/>or error shown before
     Busy --> Report: its tracks found, remembered
     Busy --> Failed: an error
@@ -390,6 +487,9 @@ flowchart TD
     tui --> prefs["Preferences: theme, colour tier, icons, sort, search scope,<br/>columns, visualiser, playback modes, key notation and colours,<br/>waveform bands, end warning, cover art, hints, recent commands"]
     beside --> prefs
     prefs --> export["settings export"]
+    key["A key changed, on the Keys screen<br/>or by an import"] --> keybinds["keybinds.json, beside tui.json, at once;<br/>never over one that can't be read"]
+    keybinds --> export
+    keybinds -->|"signed in, 2 s after the last change"| record["The account's keybinds record"]
 ```
 
-Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app/saved.rs`](../../src/tui/app/saved.rs), [`src/tui/first_run.rs`](../../src/tui/first_run.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs)
+Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app/saved.rs`](../../src/tui/app/saved.rs), [`src/tui/first_run.rs`](../../src/tui/first_run.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs), [`src/tui/keybinds.rs`](../../src/tui/keybinds.rs), [`crates/locallibrary/src/keybinds.rs`](../../../../crates/locallibrary/src/keybinds.rs)

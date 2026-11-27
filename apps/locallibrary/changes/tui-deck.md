@@ -17,7 +17,7 @@
   ends, at 30 seconds unless you change it. Under `LOCALLIBRARY_REDUCED_MOTION` it doesn't blink.
 - Cover art in the terminal's own graphics (kitty, iTerm2, sixel) where it has them.
   `LOCALLIBRARY_ART` names the graphics to use.
-- Tracks heard this session are dimmed in the track list, and `U` brings them back.
+- Tracks heard this session are dimmed in the track list, and "forget what's been played" in `:` brings them back.
 - Short fades as a track loads and a panel opens, with 24-bit colour and without
   `LOCALLIBRARY_REDUCED_MOTION`.
 - `settings export` takes the key notation, key colours, waveform colours, warning and cover art.
@@ -26,7 +26,8 @@
 
 - `f` switches layouts instead of going full screen. The Deck layout has no cue lane or progress bar:
   the waveforms say both.
-- `v` picks what shows beside the tempo in the Deck layout, where there's room.
+- "the next visualiser" in `:` picks what shows beside the tempo in the Deck layout, where there's
+  room.
 - In the track list, keys that mix have their mark with colours too, not only without them.
 - Cover art is resized off the screen's thread, so a new size can't hold up a frame.
 - A track's playlists show by their own names, then the folder they're in, so playlists in the same

@@ -6,13 +6,10 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
-/// How long `g` waits for what follows before showing what can.
-pub const CHORD_HINT: Duration = Duration::from_millis(400);
-
-/// How many messages the log (`!`) keeps.
+/// How many messages the log (messages, in `:`) keeps.
 pub(super) const LOG: usize = 200;
 
-/// What a message about a change `u` takes back ends with.
+/// What a message about a change undo takes back ends with: drawn as the undo key where it's shown.
 pub const UNDO_HINT: &str = " · u undo";
 
 /// How long an info message stays: five seconds, longer for long ones.
@@ -34,7 +31,7 @@ impl App {
         self.toast = Some((msg, level, Instant::now()));
     }
 
-    /// Keep a message in the log (`!`).
+    /// Keep a message in the log (messages, in `:`).
     pub(in crate::tui) fn remember(&mut self, msg: String, level: Level) {
         if self.log.len() >= LOG {
             self.log.pop_front();
@@ -99,6 +96,6 @@ impl App {
             || self.is_playing()
             || self.flash().is_some()
             || self.transitions.active()
-            || self.chord.is_some_and(|at| at.elapsed() < CHORD_HINT)
+            || self.quit_waiting()
     }
 }

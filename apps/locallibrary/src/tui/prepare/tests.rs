@@ -1,3 +1,5 @@
+use ratatui::crossterm::event::KeyCode;
+
 use super::super::app::View;
 use super::super::app::testing::*;
 use super::super::ui::screen;
@@ -8,13 +10,13 @@ use super::*;
 fn the_jobs_are_listed_with_what_they_do() {
     let (mut app, _dir) = blank(View::Prepare);
     let s = screen(&mut app, 160, 45);
-    assert!(s.contains("▸ 1 Prepare") && s.contains("no drive open"), "{s}");
+    assert!(s.contains("▸ Prepare") && s.contains("no drive open"), "{s}");
     for act in JOBS {
         assert!(s.contains(keymap::name(act)), "{act:?}: {s}");
     }
     assert!(s.contains("check the drive against the player models"), "{s}");
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "gp");
+    press(&mut app, "2");
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let drive = app.drive_label(&root);
     let s = screen(&mut app, 120, 40);
@@ -30,11 +32,11 @@ fn enter_runs_the_job_selected() {
     assert_eq!(last_message(&app), "no drive: plug one in, or open one in the library");
     press(&mut app, "jj");
     assert_eq!(app.prepare.selected(), Some(2));
-    press(&mut app, "G");
+    key(&mut app, KeyCode::End);
     assert_eq!(app.prepare.selected(), Some(JOBS.len() - 1));
     press(&mut app, "j");
     assert_eq!(app.prepare.selected(), Some(JOBS.len() - 1));
-    press(&mut app, "gg");
+    key(&mut app, KeyCode::Home);
     assert_eq!(app.prepare.selected(), Some(0));
     app.prepare.select(None);
     app.toast = None;
@@ -46,11 +48,13 @@ fn enter_runs_the_job_selected() {
 #[test]
 fn refresh_reads_the_drive_from_there() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "gpG\n");
+    press(&mut app, "2");
+    key(&mut app, KeyCode::End);
+    press(&mut app, "\n");
     assert!(app.loading.is_some(), "reading the drive");
     wait(&mut app, |a| a.loading.is_none());
-    press(&mut app, "R");
-    assert!(app.loading.is_some(), "R does the same");
+    key(&mut app, KeyCode::F(5));
+    assert!(app.loading.is_some(), "f5 does the same");
 }
 
 /// A click selects a row, and a second on it runs the job.

@@ -2,7 +2,7 @@
 //! shows about it, asked for in the background once the selection has settled (holding an arrow
 //! key asks for none) and drawn from what came back, never another track's. A panel under way
 //! says so in the room its last answer took, so the details don't jump as answers come; one that
-//! failed says so (the messages, `!`, say why), and so does one showing nothing. Nothing a plugin
+//! failed says so (the messages, in `:`, say why), and so does one showing nothing. Nothing a plugin
 //! does runs as a frame is drawn.
 
 use std::path::{Path, PathBuf};

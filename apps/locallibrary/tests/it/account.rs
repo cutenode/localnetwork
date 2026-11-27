@@ -4,6 +4,7 @@
 
 #![cfg(feature = "account")]
 
+use locallibrary::atmosphere::KEYBINDS_SCOPE;
 use serde_json::{Value, json};
 
 use crate::mock_pds::MockPds;
@@ -41,10 +42,11 @@ fn client_metadata_for_a_hosted_client() {
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["client_id"], id);
     assert_eq!(v["application_type"], "native");
-    // Every document allows publishing locallibrary's records (and uploading recordings) and filing
-    // bug reports, so sign-in can ask for them.
+    // Every document allows publishing locallibrary's records (and uploading recordings), publishing
+    // the player's keys, and filing bug reports, so sign-in can ask for them.
     let scope = "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
                  repo:app.example.thing repo:app.userinput.discussion?action=create \
+                 repo:computer.localnetwork.locallibrary.keybinds?action=create&action=update \
                  rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags";
     assert_eq!(v["scope"], scope);
     let file = env.outside("meta.json");
@@ -195,6 +197,10 @@ fn the_status_says_what_the_session_allows_and_until_when() {
         "{out}"
     );
     assert!(out.contains("session kept in atmosphere-session.json, readable only by you"), "{out}");
+    // Signed in from the player: it may publish the keys set there, and nothing else.
+    sign_in(&env.store, pds, &["atproto", KEYBINDS_SCOPE], json!({}));
+    let out = env.ok(&["account", "status"]);
+    assert!(out.contains("can publish the player's keys; can't post or change anything else"), "{out}");
     sign_in(&env.store, pds, &["atproto"], json!({ "sign_in_again_by": from_now(-2) }));
     let out = env.ok(&["account", "status"]);
     assert!(out.contains(" - the session has likely ended; sign in again\n"), "{out}");

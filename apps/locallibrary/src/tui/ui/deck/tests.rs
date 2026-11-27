@@ -12,6 +12,7 @@ use ratatui::style::{Color, Modifier};
 use crate::tui::app::testing::*;
 use crate::tui::app::{App, Focus, PhraseSpan, View};
 use crate::tui::deck::{BandMode, Loop};
+use crate::tui::keymap::Act;
 use crate::tui::keys::{Camelot, KeyPalette, Notation, Relation};
 use crate::tui::theme::{self, Tier};
 use crate::tui::ui::{draw, screen};
@@ -20,6 +21,9 @@ use super::*;
 
 /// The title over the tempo, which only the deck has.
 const FRAME: &str = "BPM ──";
+
+/// The drives pane's title, which only the Library layout's panes have.
+const PANES: &str = "Drives ─";
 
 fn drawn(app: &mut App, w: u16, h: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -51,23 +55,23 @@ fn on_deck() -> (App, tempfile::TempDir) {
 fn one_key_switches_the_layouts() {
     let (mut app, _dir) = on_deck();
     let library = screen(&mut app, 120, 40);
-    assert!(library.contains("All tracks") && library.contains("1 Drives"), "{library}");
+    assert!(library.contains("All tracks") && library.contains(PANES), "{library}");
     press(&mut app, "f");
     let deck = screen(&mut app, 120, 40);
-    assert!(deck.contains(FRAME) && !deck.contains("1 Drives"), "{deck}");
+    assert!(deck.contains(FRAME) && !deck.contains(PANES), "{deck}");
     assert_eq!(deck.matches(big_row("-4:40", 1).trim_end()).count(), 1, "large, in the frame\n{deck}");
     assert!(!deck.contains("-4:40"), "and nowhere else\n{deck}");
     assert!(app.saved_state().deck_layout);
 
-    press(&mut app, "gd");
+    app.perform(Act::ShowView(View::Drives), None);
     assert!(!screen(&mut app, 120, 40).contains(FRAME), "only the Library view has it");
-    assert!(!app.pads_on(), "the digits are the panes' again");
-    press(&mut app, "gl");
+    assert!(!app.pads_on(), "the digits are the views' again");
+    press(&mut app, "1");
     assert!(screen(&mut app, 120, 40).contains(FRAME));
 
     let saved = app.saved_state();
     press(&mut app, "f");
-    assert!(screen(&mut app, 120, 40).contains("1 Drives"));
+    assert!(screen(&mut app, 120, 40).contains(PANES));
     app.apply_saved(&saved, false);
     assert!(app.deck_showing(), "back from what's saved");
 }
@@ -80,9 +84,9 @@ fn browse_opens_over_the_deck_and_loading_closes_it() {
     press(&mut app, "fb");
     assert!(app.browsing && !app.deck_showing());
     let s = screen(&mut app, 120, 40);
-    assert!(s.contains("1 Drives") && s.contains(" BROWSE ") && !s.contains(FRAME), "{s}");
+    assert!(s.contains(PANES) && !s.contains(FRAME), "{s}");
     assert_ne!(app.areas.overview.height, 0, "the strip's under it");
-    assert!(!app.pads_on(), "digits go to panes");
+    assert!(app.pads_on(), "the digits stay hot cues while browsing");
     press(&mut app, "\u{1b}");
     assert!(app.deck_showing(), "esc: back at the deck");
     assert!(app.pads_on());
@@ -96,7 +100,8 @@ fn browse_opens_over_the_deck_and_loading_closes_it() {
     assert!(!app.deck_layout, "esc again: the Library layout");
 }
 
-/// The footer says what the deck's keys are, and `b` and `w` mean those things only on the deck.
+/// The footer says what the deck's keys are, and `b` and `w` mean those things only on the deck:
+/// in Browse they do nothing.
 #[test]
 fn the_decks_keys_are_its_own() {
     let (mut app, _dir) = on_deck();
@@ -107,8 +112,8 @@ fn the_decks_keys_are_its_own() {
     assert_eq!((app.deck.bands, app.sort), (Some(BandMode::Blue), sort));
     press(&mut app, "b");
     assert!(app.browsing);
-    press(&mut app, "b");
-    assert_ne!(app.sort, sort, "in Browse, b sorts");
+    press(&mut app, "wb");
+    assert_eq!((app.browsing, app.deck.bands, app.sort), (true, Some(BandMode::Blue), sort), "in Browse, nothing");
 }
 
 /// The tempo's in large digits, three rows high, at every size, and no pitch is claimed: nothing
@@ -195,7 +200,7 @@ fn the_tempo_is_named_at_every_size() {
     app.deck_layout = true;
     for (w, h) in [(60, 20), (80, 24), (100, 30), (110, 33), (110, 34), (120, 40), (160, 45), (200, 60)] {
         let s = screen(&mut app, w, h);
-        assert!(s.contains("BPM") && !s.contains("1 Drives"), "{w}x{h}\n{s}");
+        assert!(s.contains("BPM") && !s.contains(PANES), "{w}x{h}\n{s}");
     }
 }
 
@@ -275,24 +280,26 @@ fn the_readout_keeps_its_columns() {
 fn the_status_line_says_only_whats_on() {
     let (mut app, _dir) = on_deck();
     app.deck_layout = true;
-    let off = [format!("{} off", icons::REPEAT.get()), format!("{} off", icons::MIX.get()), "Q off".into()];
+    let off = [format!("{} off", icons::REPEAT.get()), format!("{} off", icons::MIX.get())];
     let row_of = |s: &str, said: &str| s.lines().collect::<Vec<_>>().iter().rposition(|l| l.contains(said));
     for (w, h) in SIZES {
         let s = screen(&mut app, w, h);
-        for said in ["vol 80%", "Q on"] {
+        for said in ["vol 80%", "quantize"] {
             assert!(s.contains(said), "{said} at {w}x{h}\n{s}");
         }
         for unsaid in ["0:20 / 5:00", "3Band", &off[0], &off[1]] {
             assert!(!s.contains(unsaid), "{unsaid} at {w}x{h}\n{s}");
         }
-        assert_eq!(row_of(&s, "vol 80%"), row_of(&s, " PLAYER "), "on the status line at {w}x{h}\n{s}");
+        assert_eq!(row_of(&s, "vol 80%"), Some(h as usize - 2), "on the status line at {w}x{h}\n{s}");
     }
     (app.volume, app.deck.quantize) = (1.0, false);
     let s = screen(&mut app, 120, 40);
-    assert!(!s.contains("vol ") && !s.contains(&off[2]), "full volume and Q off go unsaid\n{s}");
-    (app.deck.single, app.deck.auto_cue, app.shuffle) = (true, true, true);
+    assert!(!s.contains("vol ") && !s.contains("quantize"), "full volume and quantize off go unsaid\n{s}");
+    (app.deck.single, app.deck.auto_cue, app.shuffle, app.deck.quantize) = (true, true, true, true);
     let s = screen(&mut app, 80, 24);
-    assert!(s.contains("single") && s.contains("auto cue") && s.contains(&format!("{} on", icons::MIX.get())), "{s}");
+    for said in ["single", "auto cue", &format!("{} on", icons::MIX.get()), "quantize"] {
+        assert!(s.contains(said), "every chip fits at 80 columns: {said}\n{s}");
+    }
 }
 
 /// A phrase's name stays whole under the playhead, which shows as the letter in its colour,
@@ -487,7 +494,7 @@ fn the_table_says_how_far_from_the_master() {
     assert!(!screen(&mut app, 60, 20).contains("ΔBPM"), "no room for it");
 }
 
-/// The tracks heard this session are dimmed in the library until `U`. A few seconds' listen
+/// The tracks heard this session are dimmed in the library until forgotten (in :). A few seconds' listen
 /// doesn't count, nor does seeking through one.
 #[test]
 fn played_tracks_dim_until_they_are_reset() {
@@ -516,7 +523,7 @@ fn played_tracks_dim_until_they_are_reset() {
         (0..40).find(|y| (0..120).map(|x| buf[(x, *y)].symbol()).collect::<String>().contains(&next.title)).unwrap();
     assert!((0..120).any(|x| buf[(x, y)].modifier.contains(Modifier::DIM)), "{title}");
 
-    press(&mut app, "U");
+    app.perform(Act::ResetPlayed, None);
     assert!(app.played_tracks.is_empty());
     let buf = drawn(&mut app, 120, 40);
     let dim_text = (0..120).filter(|x| buf[(*x, y)].modifier.contains(Modifier::DIM)).count();
@@ -618,14 +625,14 @@ fn waveforms_are_coloured_as_the_drive_says_unless_told() {
     app.now.as_mut().unwrap().waves.bands = Some(BandMode::Rgb);
     assert_eq!(app.band_mode(), BandMode::Rgb);
     let rgb = drawn(&mut app, 120, 40);
-    press(&mut app, "w");
+    app.perform(Act::NextBands, None);
     assert_eq!(app.band_mode(), BandMode::Blue);
     assert_ne!(rgb, drawn(&mut app, 120, 40));
-    press(&mut app, "w");
+    app.perform(Act::NextBands, None);
     assert_eq!(app.band_mode(), BandMode::Rgb);
-    press(&mut app, "w");
+    app.perform(Act::NextBands, None);
     assert_eq!(app.band_mode(), BandMode::ThreeBand);
-    press(&mut app, "w");
+    app.perform(Act::NextBands, None);
     assert_eq!((app.deck.bands, app.band_mode()), (None, BandMode::Rgb), "as the drive says again");
 }
 
@@ -821,23 +828,23 @@ fn prop_an_empty_deck_says_what_comes_next(tc: hegel::TestCase) {
 }
 
 /// `f` opens player mode from any tab, and closing it, with `f` or esc, goes back to that tab. In
-/// the Library view it switches the layouts as it always has, and a tab picked while it's open is
-/// where the user stays.
+/// the Library view it switches the layouts as it always has, and a tab picked while it's open (its
+/// digits are hot cues, so from :) is where the user stays.
 #[test]
 fn player_mode_opens_from_any_tab_and_goes_back_there() {
     let (mut app, _dir) = on_deck();
-    press(&mut app, "gd");
+    press(&mut app, "3");
     press(&mut app, "f");
     assert!(app.deck_showing() && screen(&mut app, 120, 40).contains(FRAME));
     press(&mut app, "f");
     assert_eq!(app.view, View::Drives, "back where it was opened");
     assert!(!app.deck_layout);
 
-    press(&mut app, "gpf\u{1b}");
+    press(&mut app, "2f\u{1b}");
     assert_eq!((app.view, app.deck_layout), (View::Prepare, false), "esc closes it too");
 
-    press(&mut app, "gdf");
-    press(&mut app, "gl");
+    press(&mut app, "3f");
+    app.perform(Act::ShowView(View::Library), None);
     press(&mut app, "f");
     assert_eq!((app.view, app.deck_layout), (View::Library, false), "a tab picked is kept");
 
@@ -863,9 +870,9 @@ fn a_footer_hint_clicked_is_its_key() {
     mouse(&mut app, LEFT, (at.0 + 2, at.1));
     assert!(app.browsing, "the label: b");
     press(&mut app, "\u{1b}");
-    let at = spot(&mut app, "f back");
+    let at = spot(&mut app, "esc close");
     mouse(&mut app, LEFT, at);
-    assert!(!app.deck_layout, "the key: f, back to the Library layout");
+    assert!(!app.deck_layout, "esc's: back to the Library layout");
 }
 
 /// The loop chip under the waveforms ends the loop when clicked, as l does.

@@ -135,6 +135,7 @@ pub(super) fn draw_deck(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(rows.readout),
     ])
     .areas(area);
+    app.areas.deck_head = head;
     draw_head(f, app, head);
     draw_zoom(f, app, zoom, rows.zoom_cues);
     let phrases = app.now.as_ref().is_some_and(|n| !n.phrases.is_empty());
@@ -186,19 +187,7 @@ fn draw_head(f: &mut Frame, app: &mut App, area: Rect) {
 /// What three rows have room for: the track and what it's from. Where it is is the readout's.
 fn draw_brief(f: &mut Frame, app: &App, area: Rect) {
     let Some(now) = &app.now else {
-        let line = app.resumable().map_or_else(
-            || Line::styled("Pick a track and press enter.", dim()),
-            |(t, at)| {
-                Line::from(vec![
-                    Span::styled("space", theme::key()),
-                    Span::styled(
-                        format!(" carries on with {} from {}", t.display_name(), clock(at.as_secs_f64())),
-                        dim(),
-                    ),
-                ])
-            },
-        );
-        let lines = vec![Line::styled("Nothing playing", bold(theme::current().text)), line];
+        let lines = vec![Line::styled("Nothing playing", bold(theme::current().text)), idle_line(app)];
         return f.render_widget(Paragraph::new(lines), area);
     };
     let t = &now.track;
@@ -453,7 +442,7 @@ pub(super) fn deck_states(app: &App) -> Vec<Span<'static>> {
         state(format!("{} on", icons::MIX.get()), on);
     }
     if app.deck.quantize {
-        state("Q on".into(), fg(theme::current().warning));
+        state("quantize".into(), fg(theme::current().warning));
     }
     if app.deck.single {
         state("single".into(), on);

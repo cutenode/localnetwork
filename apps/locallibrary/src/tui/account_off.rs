@@ -1,5 +1,5 @@
 //! The Profile view without the Atmosphere account: this locallibrary was built without the
-//! `account` feature. The bar at the top says so, and so does `L`.
+//! `account` feature. The bar at the top says so, and so does signing in.
 
 use std::path::Path;
 
@@ -18,6 +18,10 @@ pub struct Account {}
 impl Account {
     pub fn load(&mut self, _store_root: &Path) {}
 
+    pub fn signed_in(&self) -> bool {
+        false
+    }
+
     pub fn handle(&self) -> Option<&str> {
         None
     }
@@ -29,6 +33,11 @@ impl Account {
     /// Nothing's ever under way.
     pub fn stop(&mut self) -> bool {
         false
+    }
+
+    /// What signing in is called: what the actions menu offers.
+    pub fn action(&self) -> String {
+        "sign in…".into()
     }
 
     /// No handle is ever typed.
@@ -52,7 +61,7 @@ pub fn on_input(_app: &mut App, _key: KeyEvent) -> bool {
     false
 }
 
-/// `L`: there's no account to sign in to.
+/// Signing in: there's no account to sign in to.
 pub fn press(app: &mut App) {
     app.toast(NONE, Level::Info);
 }

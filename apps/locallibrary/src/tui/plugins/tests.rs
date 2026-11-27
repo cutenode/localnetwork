@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::super::app::Msg;
 use super::super::app::testing::{
-    app_on, blank, confirming, demo_drive, echo_plugin, key, last_message, mounted, press, say_yes, wait,
+    app_on, blank, confirming, demo_drive, echo_plugin, esc_and_yes, key, last_message, mounted, press, say_yes, wait,
 };
 use super::super::palette::Picker;
 use super::super::ui::screen;
@@ -79,9 +79,9 @@ fn plugins_commands_are_in_the_drive_menu() {
     assert!(p.items.iter().any(|i| i.label == "analyze the tracks: file size"));
     assert!(p.items.iter().any(|i| i.label == "make a playlist…"));
     assert_eq!(entry(&app, "answer the params…").1, None);
-    press(&mut app, "wait until\n");
+    press(&mut app, "/wait until\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Wait until cancelled"));
-    press(&mut app, "\u{1b}");
+    esc_and_yes(&mut app);
     assert!(app.job.is_none());
 }
 
@@ -125,7 +125,9 @@ fn a_command_asks_for_its_params_and_answers_in_a_panel() {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
     press(&mut app, "x");
-    assert!(app.modal.is_none(), "any other key closes it");
+    assert!(app.modal.is_some(), "x leaves it open");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.modal.is_none(), "esc closes it");
     // Esc closes the form, running nothing.
     press(&mut app, ":answer the params\n\u{1b}");
     assert!(app.modal.is_none() && app.job.is_none());
@@ -222,7 +224,7 @@ fn a_command_runs_in_the_background_and_logs_to_the_messages() {
     press(&mut app, ":wait until\n");
     assert!(app.modal.is_none());
     assert!(screen(&mut app, 120, 30).contains("Wait until cancelled"), "the header says what's running");
-    press(&mut app, "\u{1b}");
+    esc_and_yes(&mut app);
     assert_eq!((app.job.is_none(), last_message(&app)), (true, "cancelled"));
 
     press(&mut app, ":answer the params\nAda");
@@ -451,7 +453,7 @@ fn planning_an_operation_is_stopped_with_esc() {
     let mut app = app_on(&root);
     press(&mut app, ":make a playlist…\nGone\n");
     assert!(app.job.is_some());
-    press(&mut app, "\u{1b}");
+    esc_and_yes(&mut app);
     assert_eq!((app.job.is_none(), last_message(&app)), (true, "cancelled"));
     press(&mut app, ":make a playlist…\nKept\n");
     assert_eq!(confirming(&mut app).1, "make the playlist Kept");
@@ -690,7 +692,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let f = settings_form(&mut app);
     assert_eq!(
         (f.title.as_str(), texts(f)),
-        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", "", ""].map(String::from).to_vec())
+        ("Echo settings", ["hello", "1.5", "false", "calm"].map(String::from).to_vec())
     );
     let s = screen(&mut app, 120, 40);
     for needle in ["Echo settings", "greeting", "Greeting (empty for hello)", "enter save · esc cancel"] {
@@ -719,7 +721,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(written, json!({ "greeting": "hi", "loud": true, "mood": "wild" }), "only what changed");
     // Open again: as set now. Nothing changed: nothing written.
-    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", "", ""]);
+    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild"]);
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");
@@ -1093,10 +1095,12 @@ fn move_to(app: &mut App, i: usize) {
         let at = p.state.selected().unwrap_or(0);
         // What's run lately comes first, so an item's place isn't its row.
         let row = p.shown.iter().position(|shown| *shown == i).unwrap();
+        // A page at a time while it's far.
+        let far = at.abs_diff(row) > 10;
         match at.cmp(&row) {
             std::cmp::Ordering::Equal => return,
-            std::cmp::Ordering::Less => key(app, KeyCode::Down),
-            std::cmp::Ordering::Greater => key(app, KeyCode::Up),
+            std::cmp::Ordering::Less => key(app, if far { KeyCode::PageDown } else { KeyCode::Down }),
+            std::cmp::Ordering::Greater => key(app, if far { KeyCode::PageUp } else { KeyCode::Up }),
         }
     }
     panic!("the arrows didn't get to {i}");
@@ -1183,11 +1187,13 @@ fn prop_the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
         }
         let name = tc.draw(gs::sampled_from(own));
-        press(&mut app, &name);
+        // The drive's menu runs its letters: `/` filters it first.
+        press(&mut app, &if in_menu { format!("/{name}") } else { name.clone() });
         let p = picker(&app);
         let first_shown = p.shown.first().map(|&i| &p.items[i].label);
         assert!(p.shown.first().is_some_and(|&i| i < first), "{name:?} typed: {first_shown:?} first");
-        press(&mut app, "\u{1b}");
+        // In the drive's menu, esc clears the filter, then closes it.
+        press(&mut app, if in_menu { "\u{1b}\u{1b}" } else { "\u{1b}" });
         press(&mut app, open);
 
         // Only what runs here and now: the echo plugin's hooks and analyzer, and signing in to a
@@ -1272,7 +1278,8 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
                 press(app, "\u{1b}");
             } else if n == "wait" {
                 assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some(title.as_str()));
-                press(app, "\u{1b}");
+                // Esc asks before stopping what's under way.
+                esc_and_yes(app);
                 assert_eq!(last_message(app), "cancelled");
             } else {
                 wait(app, |a| a.job.is_none());
@@ -1285,7 +1292,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
                         let shown: Vec<&str> = r.lines.iter().skip(1).map(|(_, l)| l.trim_end()).collect();
                         let titles: Vec<&str> = lib.tracks.iter().map(|t| t.title.as_str()).collect();
                         assert_eq!((r.title.clone(), shown), (app.drive_label(root), titles));
-                        press(app, "x");
+                        press(app, "\u{1b}");
                     }
                     _ => assert_eq!(last_message(app), format!("{title}: done")),
                 }
@@ -1328,19 +1335,12 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), (s.title.clone(), fields));
             press(app, "\u{1b}");
         }
-        // Its settings, its services' switches, then its commands' and operations' keys.
+        // Its settings, then its services' switches.
         Act::PluginSettings(p) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
             let c = &m.contributes;
             let services = c.services.iter().map(|s| format!("services.{}", s.name));
-            let hooks = c.commands.iter().map(|x| &x.name).chain(c.operations.iter().map(|x| &x.name));
-            let keys: Vec<String> = c
-                .settings
-                .iter()
-                .map(|s| s.key.clone())
-                .chain(services)
-                .chain(hooks.map(|n| format!("keys.{n}")))
-                .collect();
+            let keys: Vec<String> = c.settings.iter().map(|s| s.key.clone()).chain(services).collect();
             assert_eq!(form_open(app), (format!("{} settings", m.name), keys));
             press(app, "\u{1b}");
         }
@@ -1421,10 +1421,11 @@ fn to_field(tc: &TestCase, app: &mut App, to: usize) {
     use super::super::app::testing::{LEFT, mouse};
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
     let f = the_form(app);
-    let (n, at) = (f.fields.len(), f.selected);
-    let (code, times) = match tc.draw(gs::integers::<u8>().max_value(2)) {
-        0 => (tc.draw(gs::sampled_from(&[KeyCode::Down, KeyCode::Tab][..])), (to + n - at) % n),
-        1 => (tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::BackTab][..])), (at + n - to) % n),
+    let at = f.selected;
+    // The fields stop at the first and the last: down to one further on, up to one before.
+    let (code, times) = match tc.draw(gs::integers::<u8>().max_value(1)) {
+        0 if to >= at => (tc.draw(gs::sampled_from(&[KeyCode::Down, KeyCode::Tab][..])), to - at),
+        0 => (tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::BackTab][..])), at - to),
         _ => {
             screen(app, 120, 40);
             let r = app.areas.menu;
@@ -1802,7 +1803,9 @@ fn prop_a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
         assert_eq!(unspaced(&shown), unspaced(&want), "{w}x{h}");
     }
     press(&mut app, "x");
-    assert!(app.modal.is_none(), "any other key closes it");
+    assert!(app.modal.is_some(), "x leaves it open");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.modal.is_none(), "esc closes it");
 }
 
 /// The text inside the borders and padding of the panel `pw` columns wide, in the middle of the
@@ -1880,7 +1883,7 @@ fn prop_an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
     press(&mut app, "\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
     if tc.draw(gs::booleans()) {
-        press(&mut app, "\u{1b}");
+        esc_and_yes(&mut app);
         assert_eq!((app.job.is_none(), app.modal.is_none(), last_message(&app)), (true, true, "cancelled"));
         assert_eq!(on_drive(&drive.0), before);
         return;
@@ -1900,7 +1903,7 @@ fn prop_an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
     assert!(s.contains(&unspaced(&format!("Echo: make the playlist {name}"))), "{s}");
     if tc.draw(gs::booleans()) {
         settle(&mut app);
-        press(&mut app, tc.draw(gs::sampled_from(&["n", "\u{1b}", "q"][..])));
+        press(&mut app, tc.draw(gs::sampled_from(&["n", "\u{1b}"][..])));
         assert_eq!((app.modal.is_none(), last_message(&app)), (true, "nothing written"));
         assert_eq!(on_drive(&drive.0), before);
         return;
@@ -1977,7 +1980,7 @@ fn prop_an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     let was = |out: &std::path::Path| std::fs::read_to_string(out).ok();
     let left = if there { Some("mine".to_string()) } else { None };
     if !onto_drive && tc.draw(gs::booleans()) {
-        press(&mut app, "\u{1b}");
+        esc_and_yes(&mut app);
         assert_eq!((app.job.is_none(), last_message(&app), was(&out)), (true, "cancelled", left));
         return;
     }
@@ -2001,7 +2004,7 @@ fn prop_an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     assert!(s.contains(ask), "{ask:?} isn't in\n{s}");
     settle(&mut app);
     if tc.draw(gs::booleans()) {
-        press(&mut app, tc.draw(gs::sampled_from(&["n", "\u{1b}", "q"][..])));
+        press(&mut app, tc.draw(gs::sampled_from(&["n", "\u{1b}"][..])));
         assert_eq!((last_message(&app), was(&out)), ("nothing written", left));
         return;
     }
@@ -2026,8 +2029,7 @@ fn prop_settings_are_kept_as_the_form_has_them(tc: TestCase) {
     let loud = tc.draw(gs::booleans());
     let mood = tc.draw(gs::integers::<usize>().max_value(2));
     press(&mut app, ":echo plugin settings\n");
-    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.ensure", "keys.wait", "keys.playlist"];
-    assert_eq!(form_open(&app).1, [&["greeting", "speed", "loud", "mood"][..], &commands].concat());
+    assert_eq!(form_open(&app).1, ["greeting", "speed", "loud", "mood"]);
     for field in turns(&tc, 4) {
         to_field(&tc, &mut app, field);
         match field {
@@ -2090,9 +2092,7 @@ fn prop_settings_are_kept_as_the_form_has_them(tc: TestCase) {
     press(&mut app, ":echo plugin settings\n");
     let texts: Vec<String> = the_form(&app).fields.iter().map(|f| f.text.clone()).collect();
     let keys = ["greeting", "speed", "loud", "mood"];
-    // Then its commands' keys, none set.
-    let unset = std::iter::repeat_n(String::new(), commands.len());
-    assert_eq!(texts, keys.map(|k| cell(&kept[k])).into_iter().chain(unset).collect::<Vec<_>>());
+    assert_eq!(texts, keys.map(|k| cell(&kept[k])).to_vec());
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");

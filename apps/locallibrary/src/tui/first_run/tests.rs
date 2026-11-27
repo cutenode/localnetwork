@@ -68,7 +68,8 @@ fn no_drive_offers_at_most_three_next_steps() {
 #[test]
 fn the_last_step_signs_in() {
     let (mut app, _dir) = blank(View::Library);
-    press(&mut app, "G\n");
+    key(&mut app, KeyCode::End);
+    press(&mut app, "\n");
     assert_eq!((app.view, app.profile.account.typing()), (View::Profile, true));
 }
 

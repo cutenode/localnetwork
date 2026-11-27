@@ -167,6 +167,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         art,
         art_halfblocks,
         hints,
+        help_hint,
         recent_commands,
     } = saved.clone();
     Saved {
@@ -192,6 +193,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         art,
         art_halfblocks,
         hints,
+        help_hint,
         recent_commands,
         ..Default::default()
     }
@@ -237,6 +239,7 @@ fn prop_its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::Te
         bands: maybe("rgb"),
         end_warning: tc.draw(gs::optional(gs::integers::<u16>().max_value(60))),
         hints: maybe("compact"),
+        help_hint: tc.draw(gs::optional(gs::booleans())),
         recent_commands: on().then(|| "shuffle on or off".to_string()).into_iter().collect(),
         intro_seen: Some("0.1.0".into()),
         art: tc.draw(gs::optional(gs::booleans())),

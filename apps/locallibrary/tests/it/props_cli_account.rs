@@ -12,7 +12,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::{Value, json};
 
-use locallibrary::atmosphere::FLAGS_SCOPE;
+use locallibrary::atmosphere::{FLAGS_SCOPE, KEYBINDS_SCOPE};
 
 use crate::mock_pds::{MockPds, Writes, granted};
 use crate::support::account::{DID, PUBLISHING, flag_catalog, flag_states, flags_shown, sign_in};
@@ -25,21 +25,22 @@ const REPORTING: &str = "repo:app.userinput.discussion?action=create";
 fn allows(scopes: &[&str]) -> String {
     let scopes = granted(scopes);
     let publishing = granted(&PUBLISHING);
-    let publishes = scopes.iter().any(|s| s != "atproto" && publishing.contains(s));
+    let publishes = scopes.iter().any(|s| s != "atproto" && s != KEYBINDS_SCOPE && publishing.contains(s));
+    let keys = scopes.iter().any(|s| s == KEYBINDS_SCOPE);
     let reports = scopes.iter().any(|s| s == REPORTING);
     if !scopes.iter().all(|s| publishing.contains(s) || s == REPORTING || s == FLAGS_SCOPE) {
         return format!("allowed: {}", scopes.join(" "));
     }
-    match (publishes, reports) {
-        (false, false) => "knows who you are; can't post or change anything".into(),
-        (true, false) => {
-            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"
-                .into()
+    let records = "publish your My Settings, profile, sets and their recordings";
+    match (publishes, keys, reports) {
+        (false, false, false) => "knows who you are; can't post or change anything".into(),
+        (true, _, false) => format!("can {records}; can't post or change anything else"),
+        (false, true, false) => "can publish the player's keys; can't post or change anything else".into(),
+        (false, false, true) => "can post bug reports; can't post or change anything else".into(),
+        (true, _, true) => format!("can {records} and post bug reports; can't post or change anything else"),
+        (false, true, true) => {
+            "can publish the player's keys and post bug reports; can't post or change anything else".into()
         }
-        (false, true) => "can post bug reports; can't post or change anything else".into(),
-        (true, true) => "can publish your My Settings, profile, sets and their recordings and post bug reports; \
-                         can't post or change anything else"
-            .into(),
     }
 }
 

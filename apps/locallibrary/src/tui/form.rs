@@ -5,12 +5,13 @@
 //! rather than typed.
 
 use loclib_plugin::{Selection, check_params, is_path};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 use serde_json::{Map, Value};
 
-use super::app::{App, edit_line};
+use super::app::{App, edit_line, scrolled};
 use super::edits::Modal;
+use super::keymap::{self, Act, dialogs};
 use super::plugins::{AccessChoice, Run};
 use crate::plugins::params::{self, Takes, cell, properties, takes};
 
@@ -205,9 +206,11 @@ impl App {
         let n = f.fields.len();
         let field = &mut f.fields[f.selected];
         let picked = !field.choices().is_empty();
-        match key.code {
-            KeyCode::Esc => return,
-            KeyCode::Enter => match f.params() {
+        // A choice's field takes ←→ and space; a text field types them.
+        let act = keymap::dialog_act(&dialogs::FORM, &key).filter(|a| picked || !matches!(a, Act::Change(_)));
+        match act {
+            Some(Act::Escape) => return,
+            Some(Act::Activate) => match f.params() {
                 Ok(params) => {
                     return match f.then {
                         For::Run(run) => self.run_plugin(run, params),
@@ -231,10 +234,10 @@ impl App {
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),
             },
-            KeyCode::Down | KeyCode::Tab => f.selected = (f.selected + 1) % n,
-            KeyCode::Up | KeyCode::BackTab => f.selected = (f.selected + n - 1) % n,
-            KeyCode::Right | KeyCode::Char(' ') if picked => field.pick(1),
-            KeyCode::Left if picked => field.pick(-1),
+            Some(Act::Change(d)) => field.pick(d.into()),
+            Some(act @ (Act::Move(_) | Act::Page(_) | Act::End(_))) => {
+                f.selected = usize::from(scrolled(f.selected as u16, act)).min(n - 1);
+            }
             _ if !picked && edit_line(&mut field.text, key) => f.error = None,
             _ => {}
         }

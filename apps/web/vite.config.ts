@@ -6,9 +6,11 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 import type { Plugin, Rolldown } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type TestProjectInlineConfiguration } from 'vitest/config';
+import { resolve } from 'node:path';
 import { stubPlayers } from './.storybook/stub-players.ts';
-import { phone } from './src/lib/testing/viewports.ts';
+import { PINNED, TUI_BROWSER, TUI_BROWSER_ARGS } from './.storybook/tui-browser.ts';
+import { phone, tallPhone, wide } from './src/lib/testing/viewports.ts';
 
 // Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
 // matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
@@ -38,21 +40,92 @@ const browserTests = () =>
 		contextOptions: { locale: TEST_LOCALE, timezoneId: TEST_TIME_ZONE }
 	});
 
-const storybookProject = (name: string, options: Parameters<typeof storybookTest>[0] = {}) => ({
+type BrowserOptions = NonNullable<NonNullable<TestProjectInlineConfiguration['test']>['browser']>;
+
+const storybookProject = (
+	name: string,
+	options: Parameters<typeof storybookTest>[0] = {},
+	{
+		provider = browserTests(),
+		setupFiles = [],
+		globalSetup = [],
+		expect,
+		provide
+	}: Pick<BrowserOptions, 'provider' | 'expect'> & {
+		setupFiles?: string[];
+		globalSetup?: string[];
+		provide?: NonNullable<TestProjectInlineConfiguration['test']>['provide'];
+	} = {}
+): TestProjectInlineConfiguration => ({
 	extends: './vite.config.ts',
 	plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook`, ...options })],
 	server: BROWSER_TEST_SERVER,
 	test: {
 		name,
-		setupFiles: ['./.storybook/vitest.setup.ts'],
+		globalSetup,
+		setupFiles: ['./.storybook/vitest.setup.ts', ...setupFiles],
+		provide,
 		browser: {
 			enabled: true,
-			provider: browserTests(),
+			provider,
+			// Without the test runner's page around the story: Vitest turns it on off CI (the instance's `headless` doesn't
+			// count), and a story drawn inside it isn't the page CI draws, so a screenshot saved here wouldn't match CI's.
+			ui: false,
 			instances: [{ browser: 'chromium' as const, headless: true }],
-			commands: { stubPlayers }
+			commands: { stubPlayers },
+			expect
 		}
 	}
 });
+
+// How far a story's screenshot may stray from its saved one: not at all. Drawn by the same Chromium build everywhere
+// (`.storybook/tui-browser.ts`), with its font loaded and animations stopped, a story comes out the same to the pixel
+// each run, so any pixel of any other colour fails it, antialiased edges included.
+const TUI_SCREENSHOTS = { threshold: 0, includeAA: true, allowedMismatchedPixels: 0 };
+
+/** A screenshot's file name: the story's, then its project's without the browser vitest adds to it. */
+const shotName = (arg: string, project: string, ext: string) => `${arg}-${project.replace(/ \(.*\)$/, '')}${ext}`;
+
+// The TUI's stories (tagged `tui`), each screenshotted after its play test and compared with the one saved beside
+// it, in the browser `.storybook/tui-browser.ts` starts, so they look the same on every machine. Update the saved
+// screenshots with `pnpm test:tui-screens --update`.
+const tuiProject = (name: string, options: Parameters<typeof storybookTest>[0] = {}) =>
+	storybookProject(
+		name,
+		{ tags: { include: ['tui'] }, ...options },
+		{
+			globalSetup: ['./.storybook/tui-browser.ts'],
+			setupFiles: ['./.storybook/screens.setup.ts'],
+			// Without Docker, this machine's Chromium, and no comparing (`.storybook/screens.setup.ts`).
+			provide: { screens: PINNED },
+			provider: !PINNED
+				? browserTests()
+				: playwright({
+						connectOptions: {
+							wsEndpoint: TUI_BROWSER,
+							// The browser in the container reaches this machine's dev server as its own localhost.
+							exposeNetwork: '<loopback>',
+							headers: { 'x-playwright-launch-options': JSON.stringify({ args: TUI_BROWSER_ARGS }) }
+						},
+						// Room for the story's frame (`wide` or `tallPhone`, both 2400 tall) beside and above the test
+						// runner's own page, so it's drawn whole and at full size: a frame cut short took the runner's list
+						// of tests and their times into a tall story's screenshot.
+						contextOptions: { deviceScaleFactor: 1, viewport: { width: 1920, height: 2600 } }
+					}),
+			expect: {
+				toMatchScreenshot: {
+					comparatorName: 'pixelmatch',
+					comparatorOptions: TUI_SCREENSHOTS,
+					// One per story and project (desktop, phone), whatever platform ran the tests; a failure's actual
+					// and diff images too, which would otherwise overwrite the other project's.
+					resolveScreenshotPath: ({ root, testFileDirectory, testFileName, arg, ext, project }) =>
+						resolve(root, testFileDirectory, '__screenshots__', testFileName, shotName(arg, project.name, ext)),
+					resolveDiffPath: ({ root, attachmentsDir, testFileDirectory, testFileName, arg, ext, project }) =>
+						resolve(root, attachmentsDir, testFileDirectory, testFileName, shotName(arg, project.name, ext))
+				}
+			}
+		}
+	);
 
 // The most a module in the client build's shared group (below) may weigh, and our modules, which
 // the group takes with Lucide's icons.
@@ -297,10 +370,15 @@ export default defineConfig({
 				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
 			},
 			// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
-			storybookProject('storybook'),
+			storybookProject('storybook', { tags: { exclude: ['tui'] } }),
 			// Every story again at a phone's width, unless it's tagged `desktop-only` (with why beside it). A story
 			// that pins its own width keeps it.
-			storybookProject('storybook-phone', { initialGlobals: phone, tags: { exclude: ['desktop-only'] } })
+			storybookProject('storybook-phone', { initialGlobals: phone, tags: { exclude: ['desktop-only', 'tui'] } }),
+			// The TUI's stories, also checked against their saved screenshots, at each width.
+			// Wide enough for a 160 column widget whole, so its screenshot takes in every column; on a phone, a
+			// screenshot is what the phone shows before it scrolls.
+			tuiProject('storybook-tui', { initialGlobals: wide }),
+			tuiProject('storybook-tui-phone', { initialGlobals: tallPhone })
 		]
 	}
 });

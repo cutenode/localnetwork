@@ -6,16 +6,22 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::browse::{self, NodeId};
 use crate::tui::edits::Action;
-use crate::tui::keymap::{self, Act};
+use crate::tui::keymap::{self, Act, dialogs};
 
 use super::*;
 
 /// Above this many tracks, the search box waits for a pause in typing before narrowing the list.
 pub(super) const TYPE_AHEAD: usize = 5_000;
 
+/// How the question before quitting with anything under way (what the jobs list shows) ends.
+const QUIT_ANYWAY: &str = "quit anyway?";
+
+/// How long after an esc with nothing left to close a second one quits.
+pub const QUIT_AGAIN: Duration = Duration::from_secs(1);
+
 /// A letter typed with shift, as a terminal reporting keys by their codes sends it (CSI u, or
 /// xterm's modifyOtherKeys): the lowercase letter, and shift. Taken as the capital, as other
-/// terminals send it, so `Q` (quit) isn't `q` (the queue).
+/// terminals send it, which no key is, so shift and `n` isn't `n` (next track).
 fn capital(mut key: KeyEvent) -> KeyEvent {
     let typed = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
     if let KeyCode::Char(c) = key.code
@@ -67,9 +73,33 @@ pub fn typed_tail(text: &str, columns: usize) -> &str {
 }
 
 impl App {
-    /// `Q`, ctrl-q, ctrl-c, or the terminal closing: quit, except while the drive is being
-    /// written. Stopping a write halfway would leave the drive half edited (and marked as
-    /// interrupted), so the player waits for it and quits once it's done. Planning reads only,
+    /// Quitting as a key or the palette asks: with anything under way (what the jobs list
+    /// shows), asked first, and y or a second ctrl-c says yes. Already waiting for a write, there's
+    /// nothing to ask. A signal quits through [`App::request_quit`], with no one to answer.
+    fn ask_to_quit(&mut self) {
+        let asked = matches!(&self.modal, Some(Modal::Ask(q, _)) if q.ends_with(QUIT_ANYWAY));
+        let under_way = crate::tui::jobs::rows(self);
+        match under_way.first() {
+            Some(first) if !asked && !self.quit_after_write => {
+                let what = match under_way.len() {
+                    1 => format!("{} is", first.label),
+                    n => format!("{n} jobs are"),
+                };
+                let question = format!("{what} under way: {QUIT_ANYWAY}");
+                self.modal = Some(Modal::Ask(question, Box::new(|app: &mut App| app.request_quit())));
+            }
+            _ => {
+                if asked {
+                    self.modal = None;
+                }
+                self.request_quit();
+            }
+        }
+    }
+
+    /// Quit (esc twice with nothing open, ctrl-c, the palette's quit, or the terminal closing), except
+    /// while the drive is being written. Stopping a write halfway would leave the drive half edited (and
+    /// marked as interrupted), so the player waits for it and quits once it's done. Planning reads only,
     /// so it just stops.
     pub fn request_quit(&mut self) {
         match &self.job {
@@ -103,22 +133,19 @@ impl App {
         }
         self.intro = false;
         let key = capital(key);
+        // Only esc after esc quits.
+        if key.code != KeyCode::Esc {
+            self.quit_armed = None;
+        }
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
         self.follow_queue();
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('q')) {
-            self.request_quit();
-            return;
+        // The Keys screen takes every key but ctrl-c, which always quits: it's waiting for one.
+        if self.keys.is_some() && !keymap::K::Ctrl('c').matches(&key) {
+            return self.on_keys_key(key);
         }
-        if self.chord.take().is_some() {
-            // Whatever follows `g` (or `q`) ends it: what it names, or nothing.
-            let scope = if std::mem::take(&mut self.chord_queue) { keymap::Scope::Queue } else { keymap::Scope::Goto };
-            let goes =
-                (keymap::lookup(&[scope], &key)).filter(|_| scope == keymap::Scope::Queue || !self.picking_view(&key));
-            if let Some(b) = goes {
-                self.perform(b.act, Some(key));
-            }
+        if keymap::quits(&key) {
+            self.ask_to_quit();
             return;
         }
         if self.help {
@@ -126,12 +153,10 @@ impl App {
             return;
         }
         if self.show_log {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.log_scroll = self.log_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.log_scroll = self.log_scroll.saturating_add(1),
-                KeyCode::PageUp => self.log_scroll = self.log_scroll.saturating_sub(10),
-                KeyCode::PageDown | KeyCode::Char(' ') => self.log_scroll = self.log_scroll.saturating_add(10),
-                _ => self.show_log = false,
+            match keymap::dialog_act(&dialogs::MESSAGES, &key) {
+                Some(Act::Escape) => self.show_log = false,
+                Some(act) => self.log_scroll = scrolled(self.log_scroll, act),
+                None => {}
             }
             return;
         }
@@ -145,27 +170,21 @@ impl App {
             return;
         }
         if self.searching {
-            match key.code {
-                KeyCode::Esc => self.close_search(),
-                KeyCode::Enter => {
+            match keymap::dialog_act(&dialogs::SEARCH, &key) {
+                Some(Act::Escape) => self.close_search(),
+                Some(Act::Activate) => {
                     self.searching = false;
                     self.flush_search();
                     if let Some(e) = self.filter_error.clone() {
                         self.toast(e, Level::Error);
                     }
                 }
-                KeyCode::Tab | KeyCode::BackTab => {
+                Some(Act::SearchWhere) => {
                     self.search_all = !self.search_all;
                     self.refresh_visible();
                 }
-                KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
+                Some(act @ (Act::Move(_) | Act::Page(_) | Act::End(_))) => {
                     self.flush_search();
-                    let act = match key.code {
-                        KeyCode::Up => Act::Move(-1),
-                        KeyCode::Down => Act::Move(1),
-                        KeyCode::PageUp => Act::Page(-1),
-                        _ => Act::Page(1),
-                    };
                     self.perform(act, None);
                 }
                 _ => {
@@ -187,37 +206,34 @@ impl App {
             return;
         }
         let scopes = keymap::scopes(self);
-        // The player's own keys first, then those bound to plugins' commands.
-        if let Some(b) = keymap::lookup(&scopes, &key) {
-            self.perform(b.act, Some(key));
-        } else if let Some(act) = keymap::bound::lookup(&self.plugin_keys, &key) {
-            self.perform(act, Some(key));
+        if let Some(hit) = keymap::lookup(&scopes, &key) {
+            self.perform(hit.act, Some(key));
         }
     }
 
     /// Keys while the help is open: typing narrows it, the arrows move, enter runs the row selected
-    /// (with no key matching what's typed, searches the palette for it) and esc closes it (`?`
-    /// too, with nothing typed).
+    /// (with no key matching what's typed, searches the palette for it; never while picking a
+    /// playlist, which keeps its own keys) and esc closes it (`?` too, with nothing typed).
     fn on_help_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => self.help_row = self.help_row.saturating_sub(1),
-            KeyCode::Down => self.help_row = self.help_row.saturating_add(1),
-            KeyCode::PageUp => self.help_row = self.help_row.saturating_sub(10),
-            KeyCode::PageDown => self.help_row = self.help_row.saturating_add(10),
-            KeyCode::Esc => self.help = false,
-            KeyCode::Char('?') if self.help_query.is_empty() => self.help = false,
-            KeyCode::Enter => {
+        let typed = key.code == KeyCode::Char('?') && !self.help_query.is_empty();
+        match keymap::dialog_act(&dialogs::HELP, &key).filter(|_| !typed) {
+            Some(Act::Escape) => self.help = false,
+            Some(Act::Activate) if self.picking.is_some() => {}
+            Some(Act::Activate) => {
                 let rows = keymap::help_rows(self, &self.help_query);
                 if rows.is_empty() && !self.help_query.trim().is_empty() {
                     self.help = false;
                     let query = std::mem::take(&mut self.help_query);
                     return self.open_palette_with(&query);
                 }
-                let chosen = rows.get(self.help_row).map(|r| r.binding.act).filter(|a| keymap::runs(*a));
+                let chosen = rows.get(self.help_row).filter(|r| keymap::runs(r.binding)).map(|r| r.binding.act);
                 if let Some(act) = chosen {
                     self.help = false;
                     self.perform(act, None);
                 }
+            }
+            Some(act @ (Act::Move(_) | Act::Page(_) | Act::End(_))) => {
+                self.help_row = usize::from(scrolled(self.help_row.min(u16::MAX.into()) as u16, act));
             }
             _ => {
                 if edit_line(&mut self.help_query, key) {
@@ -227,24 +243,16 @@ impl App {
         }
     }
 
-    /// Picking a playlist stays in the library: `g` then only reaches the first row.
-    fn picking_view(&self, key: &KeyEvent) -> bool {
-        self.picking.is_some() && key.code != KeyCode::Char('g')
-    }
-
     /// Do what a key (or the command palette) asks for. `key` is the key that was pressed, for
     /// the actions that take something from it (which digit, whether shift was held).
     pub(in crate::tui) fn perform(&mut self, act: Act, key: Option<KeyEvent>) {
         use crate::tui::{deck, mix, profile};
         let shift = key.is_some_and(|k| k.modifiers.contains(KeyModifiers::SHIFT));
-        let digit = key.and_then(|k| match k.code {
-            KeyCode::Char(c) => c.to_digit(10).filter(|d| *d > 0),
-            _ => None,
-        });
         let (in_profile, in_mixes) = (self.view == View::Profile, self.view == View::Mixes);
         match act {
-            Act::None => {}
-            Act::Quit => self.request_quit(),
+            // A dialog's own, done by the dialog.
+            Act::None | Act::Answer(_) | Act::Change(_) | Act::CancelJob | Act::SearchWhere => {}
+            Act::Quit => self.ask_to_quit(),
             Act::Help => {
                 self.help = true;
                 self.help_row = 0;
@@ -257,18 +265,16 @@ impl App {
             Act::Snapshots => self.browse_snapshots(),
             Act::SignIn => self.sign_in(),
             Act::Hints(hints) => self.use_hints(hints),
+            Act::HelpHint(on) => self.use_help_hint(on),
             Act::Messages => {
                 self.show_log = true;
                 self.log_scroll = 0;
             }
-            Act::PaneKey => {
-                if let Some(d) = digit {
-                    self.jump_to_pane(d);
-                }
-            }
-            Act::Goto => (self.chord, self.chord_queue) = (Some(Instant::now()), false),
-            Act::QueueChord => (self.chord, self.chord_queue) = (Some(Instant::now()), true),
             Act::QueueNext => self.queue_picked(true),
+            Act::Edit(action) => match self.target() {
+                Some(t) => self.run_action(action, t),
+                None => self.toast("open a drive first", Level::Info),
+            },
             Act::Fill => {
                 self.fill = !self.fill;
                 self.queue_changed();
@@ -280,20 +286,18 @@ impl App {
             }
             Act::ShowView(v) => self.set_view(v),
             Act::Refresh => self.refresh(),
-            Act::PlayPause => {
-                if !(in_mixes && mix::play(self)) {
+            Act::PlayPause => self.toggle_pause(),
+            Act::MixPlay => {
+                if !mix::play(self) {
                     self.toggle_pause();
                 }
             }
             Act::Seek(dir) => self.seek_by(dir as f64 * if shift { 30.0 } else { 5.0 }),
-            Act::Next => {
-                if !(in_mixes && mix::track_jump(self, true)) {
-                    self.advance(false);
-                }
-            }
-            Act::Prev => {
-                if !(in_mixes && mix::track_jump(self, false)) {
-                    self.previous();
+            Act::Next => self.advance(false),
+            Act::Prev => self.previous(),
+            Act::MixTrack(forward) => {
+                if !mix::track_jump(self, forward) {
+                    self.perform(if forward { Act::Next } else { Act::Prev }, None);
                 }
             }
             Act::Stop => self.stop(),
@@ -321,15 +325,16 @@ impl App {
                 };
                 self.queue_changed();
             }
-            Act::GoTo => {
-                if !(in_mixes && mix::go_to(self)) {
+            Act::GoTo => self.locate_playing(),
+            Act::MixGoTo => {
+                if !mix::go_to(self) {
                     self.locate_playing();
                 }
             }
             Act::Pads => deck::toggle_pads(self),
             Act::HotCue => {
-                if let Some(d) = digit {
-                    deck::hot_cue(self, d as u8 - 1);
+                if let Some(pad) = key.as_ref().and_then(keymap::pad_of) {
+                    deck::hot_cue(self, pad);
                 }
             }
             Act::BeatJump(beats) => deck::beat_jump(self, beats as f64),
@@ -373,7 +378,11 @@ impl App {
             Act::Activate if in_profile => profile::switch_pane(self),
             Act::Activate if in_mixes => mix::enter(self),
             Act::Activate => self.activate(),
-            Act::Escape => self.escape(),
+            Act::Escape => {
+                if !self.escape() {
+                    self.arm_quit();
+                }
+            }
             Act::Focus(back) => match self.view {
                 View::Library => self.cycle_focus(back),
                 View::Profile => profile::switch_pane(self),
@@ -422,6 +431,16 @@ impl App {
             Act::Fix(i) => self.fix(i),
             Act::Run(job) => self.run_cli(job),
             Act::Copy(command) => self.copy_command(command),
+            Act::Keys => self.open_keys(),
+            #[cfg(feature = "account")]
+            Act::KeysImport => self.ask_keys_from(),
+            #[cfg(not(feature = "account"))]
+            Act::KeysImport => self.toast("this locallibrary was built without the Atmosphere account", Level::Info),
+            Act::KeysReset => self.reset_keys(),
+            Act::KeysPreset(preset) => {
+                use crate::tui::keybinds::presets;
+                self.preview_keys(presets::title(preset).into(), presets::keys(preset), None, 0);
+            }
             Act::Theme(key) => self.use_theme(key),
             Act::Colours(tier) => self.use_colours(tier),
             Act::Icons(set) => self.use_icons(set),
@@ -438,7 +457,7 @@ impl App {
             Act::MarkAll => self.mark_all(),
             Act::CrateAdd => self.queue_picked(false),
             Act::Actions => self.open_menu(None),
-            Act::Remove if in_mixes => mix::forget(self),
+            Act::MixForget => mix::forget(self),
             Act::Remove => match self.focus {
                 Focus::Crate => self.remove_from_crate(),
                 Focus::Tracks => self.quick(Action::RemoveFromList),
@@ -469,7 +488,7 @@ impl App {
         }
     }
 
-    /// `R` (or F5): read again what the view shows, and the drives.
+    /// f5: read again what the view shows, and the drives.
     pub(super) fn refresh(&mut self) {
         self.refresh_drives();
         match self.view {
@@ -491,13 +510,14 @@ impl App {
     }
 
     /// Esc: the view's own (closing the document, going back a pane, stopping an identification)
-    /// first; then staying when asked to quit after a write, leaving full screen, stopping the
-    /// job under way, hiding errors, clearing the search, and (pressed twice) the marks.
-    fn escape(&mut self) {
+    /// first; then staying when asked to quit after a write, leaving full screen, asking to stop
+    /// the job under way, hiding errors, clearing the search, closing the pane with focus, and
+    /// (pressed twice) the marks. Returns whether it closed anything.
+    fn escape(&mut self) -> bool {
         if (self.view == View::Profile && crate::tui::profile::escape(self))
             || (self.view == View::Mixes && crate::tui::mix::escape(self))
         {
-            return;
+            return true;
         }
         if self.quit_after_write {
             self.quit_after_write = false;
@@ -508,8 +528,16 @@ impl App {
             if !self.deck_layout {
                 self.leave_player_mode();
             }
-        } else if self.job.is_some() {
+        } else if self.deck.pads {
+            // The pads take the keys over: leaving them comes before anything else goes.
+            crate::tui::deck::toggle_pads(self);
+        } else if self.job.as_ref().is_some_and(|j| j.committed) {
+            // Too late to stop: it says so.
             self.cancel_job();
+        } else if let Some(j) = &self.job {
+            // Work stopped by a stray esc can take long to do again: asked first.
+            let question = format!("{} is under way: stop it?", j.label);
+            self.modal = Some(Modal::Ask(question, Box::new(|app: &mut App| app.cancel_job())));
         } else if self.dismiss_errors() {
             // The error was put away: that's all this esc does.
         } else if let Some(o) = self.replay_offer.take() {
@@ -518,6 +546,12 @@ impl App {
         } else if !self.query.is_empty() {
             self.query.clear();
             self.refresh_visible();
+        } else if self.view == View::Library && self.focus == Focus::Details {
+            self.toggle_details();
+        } else if self.view == View::Library && self.focus == Focus::Crate {
+            self.toggle_queue_panel();
+        } else if self.view == View::Drives && matches!(self.drive_pane, DrivePane::Snapshots | DrivePane::History) {
+            self.show_drive_pane(DrivePane::List);
         } else if !self.marks.is_empty() || !self.list_marks.is_empty() {
             // Marks can take a while to make: the first esc only says what a second does.
             if self.clear_marks_armed.take().is_some_and(|at| at.elapsed() < Duration::from_secs(4)) {
@@ -529,10 +563,27 @@ impl App {
                 let n = self.marks.len() + self.list_marks.len();
                 self.toast(format!("esc again clears the {}", plural_marks(n)), Level::Info);
             }
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// Esc with nothing left to close: the first says a second quits, and a second soon after does.
+    fn arm_quit(&mut self) {
+        if self.quit_armed.take().is_some_and(|at| at.elapsed() < QUIT_AGAIN) {
+            self.ask_to_quit();
+        } else {
+            self.quit_armed = Some(Instant::now());
         }
     }
 
-    /// `t` or `q q`: show or hide the queue. Over player mode it opens with Browse, and from another
+    /// Whether esc now would quit: what the footer says while it's so.
+    pub fn quit_waiting(&self) -> bool {
+        self.quit_armed.is_some_and(|at| at.elapsed() < QUIT_AGAIN)
+    }
+
+    /// `t`: show or hide the queue. Over player mode it opens with Browse, and from another
     /// view in the library, with focus.
     fn toggle_queue_panel(&mut self) {
         let away = self.view != View::Library || self.deck_showing();
@@ -630,7 +681,7 @@ impl App {
             self.profile.account.stop_typing();
         }
         // An error is about what was on screen when it came: leaving the view puts it away, as
-        // esc does (it's still in the log, `!`).
+        // esc does (it's still in the messages, in `:`).
         if v != self.view {
             self.dismiss_errors();
         }
@@ -786,3 +837,26 @@ impl App {
         *sel = Some((cur + delta).clamp(0, len as isize - 1) as usize);
     }
 }
+
+/// Where a dialog that scrolls is after `act`: a row, a page or an end.
+pub(in crate::tui) fn scrolled(at: u16, act: Act) -> u16 {
+    match act {
+        Act::Move(d) => at.saturating_add_signed(d.into()),
+        Act::Page(d) => at.saturating_add_signed(10 * i16::from(d)),
+        Act::End(d) if d < 0 => 0,
+        Act::End(_) => u16::MAX,
+        _ => at,
+    }
+}
+
+/// Move the selection of a dialog's list of `n` by `act` (a row, a page, an end), stopping at its ends.
+pub(in crate::tui) fn step_list(state: &mut ratatui::widgets::ListState, n: usize, act: Act) {
+    if n == 0 {
+        return;
+    }
+    let at = state.selected().unwrap_or(0).min(u16::MAX.into()) as u16;
+    state.select(Some(usize::from(scrolled(at, act)).min(n - 1)));
+}
+
+#[cfg(test)]
+mod tests;

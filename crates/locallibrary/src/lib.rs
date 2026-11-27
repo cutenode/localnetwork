@@ -19,6 +19,8 @@
 //! * `atmosphere`: sign in with an Atmosphere account (AT Protocol OAuth) and keep the session.
 //! * `publish`: the records locallibrary publishes to that account (My Settings, the profile,
 //!   sets).
+//! * [`keybinds`]: the keys set in the player (`keybinds.json`), and the record they're published
+//!   as.
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
 //! * [`onelibrary`]: a drive's `exportLibrary.db`, the only database newer players (CDJ-3000X,
@@ -87,6 +89,7 @@ pub mod fsutil;
 pub mod hash;
 pub mod import;
 mod incoming;
+pub mod keybinds;
 pub mod keychain;
 pub mod library_write;
 mod local_time;

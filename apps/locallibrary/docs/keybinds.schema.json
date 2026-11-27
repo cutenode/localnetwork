@@ -1,0 +1,34 @@
+{
+  "$id": "keybinds.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "locallibrary keybinds",
+  "description": "keybinds.json: the keys set in locallibrary's player, beside tui.json. Only the actions whose keys differ from the player's defaults, by id. An id the player doesn't know is kept and ignored, and a key it can't read is skipped when the file is applied.",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "description": "The actions whose keys differ from the player's defaults, by id, sorted: each one's keys in\norder (for `deck.hot-cue`, the nth key plays the nth hot cue), or none for no key. A key is\none character as typed (a capital is shift and the letter), `space`, `enter`, `tab`,\n`backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`,\n`right`, `f1` to `f12`, `shift-` and one of those names but the f keys, or `ctrl-` and a\nlowercase letter.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "default": {}
+    },
+    "from": {
+      "description": "The account some of these keys were imported from (a DID), for credit.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updatedAt": {
+      "description": "When they last changed.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

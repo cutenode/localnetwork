@@ -10,7 +10,7 @@ Write it as the changelog would, under the Keep a Changelog heading it goes in:
 ```markdown
 ### Fixed
 
-- `Q` in the player turns quantize off in a terminal that reports keys by their codes.
+- A capital letter set as a key in the player works in a terminal that reports keys by their codes.
 ```
 
 A change that rewords an entry already in `../CHANGELOG.md` edits it there.

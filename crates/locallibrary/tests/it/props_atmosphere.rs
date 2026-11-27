@@ -15,7 +15,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use jacquard_oauth::session::ClientSessionData;
 use locallibrary::api::{self, AccountLoginRequest};
-use locallibrary::atmosphere::lexicon::{PROFILE, RECORDING, SET, SETTINGS};
+use locallibrary::atmosphere::lexicon::{KEYBINDS, PROFILE, RECORDING, SET, SETTINGS};
 use locallibrary::atmosphere::store::{self, AccountFile, StoredAccount};
 use locallibrary::atmosphere::{
     self, AccountInfo, CallbackQuery, Client, FLAGS_SCOPE, PUBLISH_SCOPES, PUBLISH_SET, REPORT_SCOPE,
@@ -118,12 +118,12 @@ fn prop_the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
     let granted = crate::mock_pds::granted(&publish_scopes());
     let mut want: Vec<String> = PUBLISH_SCOPES.map(String::from).to_vec();
     // Servers write the `rpc` one with the audience jacquard leaves out.
-    want[4] += "?aud=*";
+    want[5] += "?aud=*";
     want.extend(["atproto".into(), FLAGS_SCOPE.into(), UPLOAD_SCOPE.into()]);
     assert_eq!(granted, want);
     let order = tc.draw(gs::permutations(granted));
     let account = info("did:plc:abc", None, order, Utc::now());
-    for c in [SETTINGS, PROFILE, SET, RECORDING] {
+    for c in [SETTINGS, PROFILE, SET, RECORDING, KEYBINDS] {
         assert_eq!(atmosphere::missing_scope(&account, c), None, "{c}");
     }
     // Audio files go up, and nothing else does.
@@ -304,8 +304,8 @@ fn prop_waits_are_said_in_seconds_or_rounded_up_minutes(tc: TestCase) {
 // The client metadata document
 // ---------------------------------------------------------------------------------------------
 
-/// The client metadata document allows `atproto`, the permission set and the extra ones asked
-/// for, each once; it's for a native app whose redirect is the loopback callback, named after
+/// The client metadata document allows `atproto`, the permission set, the player's keys and the
+/// extra ones asked for, each once; it's for a native app whose redirect is the loopback callback, named after
 /// its host; the API's document is the same one; and a client ID that isn't https, or a scope
 /// that can't be read, gets no document.
 #[hegel::test(test_cases = 200)]
@@ -342,7 +342,7 @@ fn prop_the_client_document_allows_what_it_should(tc: TestCase) {
     let doc = direct.unwrap();
     let allowed: Vec<&str> = doc["scope"].as_str().unwrap().split(' ').collect();
     let mut expected: Vec<String> = publish_scopes();
-    expected.push(REPORT_SCOPE.into());
+    expected.extend([REPORT_SCOPE.into(), atmosphere::KEYBINDS_SCOPE.into()]);
     expected.extend(extra.iter().cloned());
     expected.sort();
     expected.dedup();
