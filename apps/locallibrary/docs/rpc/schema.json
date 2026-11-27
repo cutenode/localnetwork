@@ -9007,7 +9007,20 @@
       "type": "object",
       "properties": {
         "drive": {
-          "type": "string"
+          "type": "string",
+          "description": "The drive or library whose cues to edit; left out with `collection`.",
+          "default": ""
+        },
+        "collection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CollectionRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Edit rekordbox's collection on this computer instead of a drive (`{}` for rekordbox's own\n`master.db`). It's written only while rekordbox and its agent are closed, over a fresh\nbackup in the store; an edit made while either runs waits in the store until both have quit."
         },
         "ids": {
           "type": "array",
@@ -9062,11 +9075,32 @@
           "$ref": "#/$defs/CueOp"
         }
       },
+      "description": "Which tracks an operation targets: the tracks that fit every field given, so a playlist and a\nfilter together pick the playlist's tracks the filter matches. At least one field must be set,\nand a blank query, filter, album, playlist or history list is refused rather than taken to\nmean every track.",
       "required": [
-        "drive",
         "edit"
-      ],
-      "description": "Which tracks an operation targets: the tracks that fit every field given, so a playlist and a\nfilter together pick the playlist's tracks the filter matches. At least one field must be set,\nand a blank query, filter, album, playlist or history list is refused rather than taken to\nmean every track."
+      ]
+    },
+    "CollectionRef": {
+      "type": "object",
+      "properties": {
+        "db": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]).",
+          "default": null
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox\n6/7 installation uses.",
+          "default": null
+        }
+      },
+      "description": "Which `master.db` to read, and how."
     },
     "CueOp": {
       "oneOf": [
@@ -11934,28 +11968,6 @@
         }
       },
       "description": "Getting drives ready for a set."
-    },
-    "CollectionRef": {
-      "type": "object",
-      "properties": {
-        "db": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]).",
-          "default": null
-        },
-        "key": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox\n6/7 installation uses.",
-          "default": null
-        }
-      },
-      "description": "Which `master.db` to read, and how."
     },
     "CollectionDiffRequest": {
       "type": "object",
@@ -20793,6 +20805,17 @@
           "format": "uint",
           "minimum": 0
         },
+        "collection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CollectionWrite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For an edit of rekordbox's collection: whether it was written or is waiting."
+        },
         "files_written": {
           "type": "array",
           "items": {
@@ -20833,6 +20856,68 @@
         "backup",
         "fingerprint"
       ]
+    },
+    "CollectionWrite": {
+      "type": "object",
+      "properties": {
+        "written": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Edits written now."
+        },
+        "waiting": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Edits still waiting to be written."
+        },
+        "why": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why they're waiting."
+        },
+        "count": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "integer",
+              "format": "int64"
+            },
+            {
+              "type": "integer",
+              "format": "int64"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "`localUpdateCount` before and after the write."
+        },
+        "backup": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The backup taken right before it."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Edits (or tracks of them) passed over: they no longer applied."
+        }
+      },
+      "required": [
+        "written",
+        "waiting"
+      ],
+      "description": "What came of writing the collection."
     },
     "CueRowChanges": {
       "type": "object",

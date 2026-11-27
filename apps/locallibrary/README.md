@@ -278,7 +278,7 @@ flowchart TD
     sidecar --> api
     watch --> api
     rekordbox["rekordbox"] -->|"Export"| drives[("USB drives")]
-    rekordbox --> master[("master.db<br/>read only")]
+    rekordbox --> master[("master.db<br/>cue edits only, rekordbox closed")]
     api --> drives
     api --> store[("Store")]
     api --> master

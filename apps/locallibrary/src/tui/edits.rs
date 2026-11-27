@@ -215,8 +215,9 @@ impl Menu {
     }
 }
 
-/// Why nothing is changed in rekordbox's collection from here.
-pub const COLLECTION_READ_ONLY: &str = "rekordbox's collection is read-only here: export it to a drive to edit";
+/// Why nothing but cues is changed in rekordbox's collection from here.
+pub const COLLECTION_READ_ONLY: &str =
+    "rekordbox's collection takes only cue edits here: export it to a drive to edit the rest";
 
 pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     let item = |key, label: String, action, unavailable: Option<String>| MenuItem { key, label, action, unavailable };
@@ -1133,6 +1134,9 @@ impl App {
     /// (the files, how the playlists and tracks change, the recorded edits it takes off the
     /// journal).
     pub(super) fn undo_on(&mut self, root: PathBuf) {
+        if root == super::app::collection_root() && self.collection_db.is_some() {
+            return self.undo_collection();
+        }
         let drive = root.display().to_string();
         self.plan(root, move |_| {
             Ok(Box::new(api::undo_plan(&api::UndoRequest { drive: Some(drive), ..Default::default() })?))
@@ -1166,12 +1170,33 @@ impl App {
         after: Option<After>,
         make: impl FnOnce(&Ctx<'_>) -> Result<Box<dyn AnyPlanned>, Error> + Send + 'static,
     ) {
+        if self.read_only(&root) {
+            return;
+        }
+        self.plan_on(root, after, make);
+    }
+
+    /// Plan a cue edit (or its undo) of rekordbox's collection, which takes those (see
+    /// `locallibrary::collection_write`): as [`Self::plan`] does a drive's.
+    pub(in crate::tui) fn plan_collection(
+        &mut self,
+        make: impl FnOnce(&Ctx<'_>) -> Result<Box<dyn AnyPlanned>, Error> + Send + 'static,
+    ) {
+        self.plan_on(super::app::collection_root(), None, make);
+    }
+
+    fn plan_on(
+        &mut self,
+        root: PathBuf,
+        after: Option<After>,
+        make: impl FnOnce(&Ctx<'_>) -> Result<Box<dyn AnyPlanned>, Error> + Send + 'static,
+    ) {
         if let Some(j) = &self.job {
             let msg = format!("wait for {} to finish", j.label.to_lowercase());
             self.toast(msg, Level::Info);
             return;
         }
-        if self.unplugged(&root) || self.read_only(&root) {
+        if self.unplugged(&root) {
             return;
         }
         let id = self.next_id();
@@ -1485,6 +1510,32 @@ impl App {
             Ok(Applied { operation, report }) if super::plugins::planned_command(&operation).is_some() => {
                 let (_, command) = super::plugins::planned_command(&operation).expect("checked above");
                 self.show_planned_answer(command, report);
+            }
+            Ok(Applied { operation, report }) if operation == "collection.undo" || !report["collection"].is_null() => {
+                let write = if operation == "collection.undo" { &report["write"] } else { &report["collection"] };
+                let waiting = write["waiting"].as_u64().unwrap_or(0) as usize;
+                self.collection_writes.waiting = waiting;
+                self.collection_writes.why = write["why"].as_str().map(str::to_string);
+                self.collection_writes.changed();
+                let msg = match (report["dropped"].as_bool() == Some(true), write["written"].as_u64().unwrap_or(0)) {
+                    (true, _) => "dropped the waiting cue edit: it was never written".to_string(),
+                    (false, 0) => format!(
+                        "kept: {} waiting for rekordbox and its agent to quit, then written to its collection",
+                        plural(waiting, "cue edit")
+                    ),
+                    (false, _) if operation == "collection.undo" => {
+                        "undone in rekordbox's collection: the cues as they were, written as a new change".into()
+                    }
+                    (false, n) => {
+                        format!("wrote {} to rekordbox's collection{UNDO_HINT}", plural(n as usize, "cue edit"))
+                    }
+                };
+                let warning = write["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str());
+                let msg = match warning {
+                    Some(w) => format!("{msg} · {w}"),
+                    None => msg,
+                };
+                self.toast(msg, Level::Info);
             }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");

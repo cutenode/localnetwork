@@ -16,7 +16,7 @@ rekordbox 6 and 7 keep the collection on the computer in `master.db`
 (`~/Library/Pioneer/rekordbox/` on macOS, `%APPDATA%\Pioneer\rekordbox\` on Windows):
 SQLite encrypted with SQLCipher 4 under a key every installation shares, which the
 [pyrekordbox](https://github.com/dylanljones/pyrekordbox) project publishes. `collection` reads
-it, never writes it: the database and its WAL are copied to a temporary folder, decrypted there
+it without writing it: the database and its WAL are copied to a temporary folder, decrypted there
 (the WAL's committed changes applied) and only that copy is opened, so rekordbox can stay open
 and nothing of its is locked. A read while rekordbox saves can miss its latest change.
 
@@ -28,6 +28,34 @@ title and length, and shows (with `+`) the tracks, playlists and playlist entrie
 lacks, (with `-`) what only the drive has, and the tracks whose details differ, such as a rating
 changed since the last export. `--db` (or `LOCALLIBRARY_MASTERDB`) reads another `master.db`;
 should rekordbox change its key, `LOCALLIBRARY_MASTERDB_KEY` gives the new one.
+
+### Editing its cues
+
+```bash
+locallibrary cues set collection --track 84935471 --hot B --at 1:02.5 --name Drop
+locallibrary cues rm collection --track 84935471 --hot B
+locallibrary collection apply        # write the edits waiting for rekordbox to quit
+locallibrary collection undo         # take back the latest, as a new change
+locallibrary collection repair --create-missing --dry-run
+```
+
+Cue edits are the one thing written to `master.db`. `collection` in place of a drive makes `cues
+set`, `rename`, `colour`, `rm`, `auto` and `copy` edit the collection's tracks (ids as `collection
+tracks --json` gives them). An edit is written only once rekordbox and its agent (`rekordboxAgent`,
+which can outlive rekordbox) have both quit, and only over a fresh backup of `master.db` kept in
+the store (`collection/backups`, the latest 10). It's laid out as rekordbox lays out its own cue
+edits: the cue rows, the track's cue list (`contentCue`) and its `CueUpdated`, stamped from
+`localUpdateCount`. A cue the edit leaves alone keeps its row. Made while rekordbox or its agent
+runs, an edit waits in the store; the player writes what's waiting once both have quit, or
+`collection apply` does. Nothing is written while Cloud Library Sync is on, or might be: what a
+synced write has to change hasn't been worked out, and the refusal says what made it look on. An
+edit made with sync on is refused there and then, even while rekordbox runs, rather than kept to
+wait.
+
+`collection undo` takes back the latest edit as a new change with new stamps (the count only
+rises), leaving a track whose cues changed in rekordbox since; one still waiting is dropped.
+`collection repair` rewrites each track's cue list where it disagrees with its cue rows, as older
+scripts left them; `--create-missing` gives one to tracks with cues and none.
 
 ### Exporting it without rekordbox
 

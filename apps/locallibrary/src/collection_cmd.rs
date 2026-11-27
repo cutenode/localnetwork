@@ -11,7 +11,8 @@ use console::style;
 use locallibrary::api;
 use locallibrary::collection_export::CollectionExportOptions;
 use locallibrary::collection_export::CollectionExportPlan;
-use locallibrary::op::Planned;
+use locallibrary::collection_write::{CollectionUndoReport, CollectionWrite};
+use locallibrary::op::{Operation, Planned};
 use locallibrary::plugin::SourceExport;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter};
@@ -23,8 +24,9 @@ use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, wa
 #[derive(Args)]
 #[command(
     after_help = "Reads rekordbox 6/7's master.db (~/Library/Pioneer/rekordbox on macOS, %APPDATA%\\Pioneer\\rekordbox \
-on Windows) from a decrypted copy in a temporary folder: nothing of rekordbox's is changed or locked, and rekordbox can \
-stay open. LOCALLIBRARY_MASTERDB names another master.db and LOCALLIBRARY_MASTERDB_KEY another key."
+on Windows) from a decrypted copy in a temporary folder: reading changes and locks nothing of rekordbox's, and rekordbox \
+can stay open. Cue edits (`locallibrary cues set collection ...`), repair, apply and undo write it only once rekordbox \
+and its agent have quit, over a backup kept in the store, and never while Cloud Library Sync is on. LOCALLIBRARY_MASTERDB names another master.db and LOCALLIBRARY_MASTERDB_KEY another key."
 )]
 pub struct CollectionArgs {
     /// The master.db to read [default: rekordbox's on this computer]
@@ -102,6 +104,29 @@ the folders you --grant it are copied, and cues and beat grids it brings are wri
         #[arg(long = "option", value_name = "KEY=VALUE", requires = "from")]
         options: Vec<String>,
     },
+    /// Make each track's cue list (contentCue) agree with its cue rows, where older scripts left them
+    /// disagreeing. Written only while rekordbox and its agent are closed, over a backup
+    Repair {
+        /// Also give a list to tracks with cues and none (cues set before rekordbox 7)
+        #[arg(long)]
+        create_missing: bool,
+        /// Show the plan without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Write the cue edits waiting for rekordbox and its agent to quit
+    Apply {
+        /// Show what's waiting without writing it
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Take back the latest cue edit made here: one waiting is dropped, one written is put back as a
+    /// new change
+    Undo {
+        /// Show the plan without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// What a drive lacks against the collection: tracks, playlists and playlist entries
     Diff {
         #[arg(help = crate::LIBRARY_HELP)]
@@ -170,6 +195,52 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             };
             return write(plan, &drive, dry_run, store, out, ctx);
         }
+        CollectionCommand::Repair { create_missing, dry_run } => {
+            let plan = api::collection_repair_plan(&req, create_missing)?;
+            if plan.noop {
+                return Ok(out.nothing(&plan, "every track's cue list agrees with its cue rows"));
+            }
+            if !out.json {
+                say!("{}", plan.summary.join("\n"));
+                for t in &plan.tracks {
+                    say!("  {}", dim(t));
+                }
+            }
+            if let Some(o) = out.decide_on(&plan, dry_run, "Rewrite these cue lists?")? {
+                return Ok(out.not_applied(&plan, o));
+            }
+            return apply(&plan, crate::open_store(store).ok().as_ref(), &out, ctx, written);
+        }
+        CollectionCommand::Apply { dry_run } => {
+            let s = crate::open_store(store)?;
+            let plan = api::collection_apply_plan(&s, &req)?;
+            if plan.noop {
+                return Ok(out.nothing(&plan, "no edits of rekordbox's collection are waiting"));
+            }
+            if !out.json {
+                for e in &plan.edits {
+                    say!("  {e}");
+                }
+            }
+            if let Some(o) = out.decide_on(&plan, dry_run, "Write these to rekordbox's collection?")? {
+                return Ok(out.not_applied(&plan, o));
+            }
+            return apply(&plan, Some(&s), &out, ctx, written);
+        }
+        CollectionCommand::Undo { dry_run } => {
+            let s = crate::open_store(store)?;
+            let plan = api::collection_undo_plan(&s, &req)?;
+            if plan.noop {
+                return Ok(out.nothing(&plan, "nothing to undo in rekordbox's collection"));
+            }
+            if !out.json {
+                say!("{}", plan.summary.join("\n"));
+            }
+            if let Some(o) = out.decide_on(&plan, dry_run, "Undo it?")? {
+                return Ok(out.not_applied(&plan, o));
+            }
+            return apply(&plan, Some(&s), &out, ctx, undone);
+        }
         CollectionCommand::Diff { drive, playlist } => {
             let d = api::collection_diff(&api::CollectionDiffRequest { collection: req, drive, playlist })?;
             out.emit_paged(&d, |d| {
@@ -193,6 +264,40 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Apply `plan` (a write of the collection), and say what came of it with `said`.
+fn apply<P: Operation<Request = ()> + serde::Serialize>(
+    plan: &Planned<P>,
+    store: Option<&locallibrary::Store>,
+    out: &Output,
+    ctx: &Ctx<'_>,
+    said: fn(&P::Report),
+) -> Result<ExitCode> {
+    let report = plan.apply(store, ctx)?;
+    Ok(out.applied(plan, &report, Outcome::Applied, || said(&report)))
+}
+
+/// What an undo of the collection came to.
+fn undone(r: &CollectionUndoReport) {
+    match r.dropped {
+        true => ok("dropped it: it was never written"),
+        false => written(&r.write),
+    }
+}
+
+/// What a write of the collection came to.
+fn written(w: &CollectionWrite) {
+    match (w.written, &w.why) {
+        (0, Some(why)) => warn(format!("{} edit(s) still waiting: {why}", w.waiting)),
+        (n, _) => ok(format!("wrote {n} change(s) to rekordbox's collection")),
+    }
+    for x in &w.warnings {
+        warn(x);
+    }
+    if let (Some(b), Some((was, now))) = (&w.backup, w.count) {
+        say!("  {}", dim(format!("backup {}; localUpdateCount {was} -> {now}", b.display())));
+    }
 }
 
 /// Building `drive` from `from`, a plugin's library source (`PLUGIN:SOURCE`), reading the folders
@@ -325,3 +430,6 @@ fn render_info(i: &CollectionInfo) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

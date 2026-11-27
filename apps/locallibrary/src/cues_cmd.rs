@@ -41,7 +41,7 @@ enum CuesCommand {
 locallibrary cues set Home --track 12 --memory --beat 129"
     )]
     Set {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -67,7 +67,7 @@ locallibrary cues set Home --track 12 --memory --beat 129"
     },
     /// Rename a cue ("" clears the name)
     Rename {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -81,7 +81,7 @@ locallibrary cues set Home --track 12 --memory --beat 129"
     /// Recolour cues: a name (red, aqua, violet...), #rrggbb, or none
     #[command(alias = "color")]
     Colour {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -94,7 +94,7 @@ locallibrary cues set Home --track 12 --memory --beat 129"
     },
     /// Delete cues
     Rm {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -118,7 +118,7 @@ locallibrary cues auto Home --track 12",
         after_help = crate::FILTER_HELP
     )]
     Auto {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         #[command(flatten)]
         select: SelectArgs,
@@ -134,7 +134,7 @@ locallibrary cues auto Home --track 12",
     },
     /// Replace tracks' cues with a copy of another track's (e.g. onto a duplicate)
     Copy {
-        #[arg(help = crate::LIBRARY_HELP)]
+        #[arg(help = EDIT_HELP)]
         drive: String,
         /// Track to copy from
         #[arg(long, value_name = "ID")]
@@ -275,18 +275,18 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         }
         CuesCommand::Set { drive, track, slot, position, snap, loop_beats, name, colour, dry_run } => {
             let set = SetCue { hot_cue: slot.get(), at: position.get(), snap, loop_beats, name, color: colour };
-            (EditCues { drive, tracks: track.selector(), edit: CueOp::Set(set) }, dry_run)
+            (request(drive, track.selector(), CueOp::Set(set)), dry_run)
         }
         CuesCommand::Rename { drive, track, which, name, dry_run } => {
             let update = UpdateCue { cue: which.get(), name: Some(name), color: None };
-            (EditCues { drive, tracks: track.selector(), edit: CueOp::Update(update) }, dry_run)
+            (request(drive, track.selector(), CueOp::Update(update)), dry_run)
         }
         CuesCommand::Colour { drive, track, which, colour, dry_run } => {
             let update = UpdateCue { cue: which.get(), name: None, color: Some(colour) };
-            (EditCues { drive, tracks: track.selector(), edit: CueOp::Update(update) }, dry_run)
+            (request(drive, track.selector(), CueOp::Update(update)), dry_run)
         }
         CuesCommand::Rm { drive, track, which, dry_run } => {
-            (EditCues { drive, tracks: track.selector(), edit: CueOp::Delete { cue: which.get() } }, dry_run)
+            (request(drive, track.selector(), CueOp::Delete { cue: which.get() }), dry_run)
         }
         CuesCommand::Auto { drive, select, style, overwrite, dry_run } => {
             let style = match style {
@@ -294,12 +294,12 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
                 None => pick_style(out, &mut std::io::stdin().lock())?,
             };
             let auto = AutoCues { style, overwrite };
-            (EditCues { drive, tracks: select.selector(), edit: CueOp::Auto(auto) }, dry_run)
+            (request(drive, select.selector(), CueOp::Auto(auto)), dry_run)
         }
         CuesCommand::Copy { drive, from, to, dry_run } => {
             let from = TrackSelector { ids: vec![from], ..Default::default() };
             let tracks = TrackSelector { ids: to, ..Default::default() };
-            (EditCues { drive, tracks, edit: CueOp::Copy { from } }, dry_run)
+            (request(drive, tracks, CueOp::Copy { from }), dry_run)
         }
     };
     let plan = api::cues_plan(&req, ctx)?;
@@ -322,6 +322,21 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     }
     let report = plan.apply(None, ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || render_report(&report, &req.drive)))
+}
+
+/// The help of an edit's drive argument.
+const EDIT_HELP: &str = "A library's name, or a drive's mount path, name or id prefix; or `collection` for \
+rekordbox's collection on this computer (written once rekordbox and its agent have quit, over a backup)";
+
+/// What the word naming rekordbox's collection on this computer is, where a drive is named.
+pub const COLLECTION: &str = "collection";
+
+/// An edit of `drive`'s cues: of rekordbox's collection when it's [`COLLECTION`].
+fn request(drive: String, tracks: TrackSelector, edit: CueOp) -> EditCues {
+    match drive == COLLECTION {
+        true => EditCues { drive: String::new(), collection: Some(Default::default()), tracks, edit },
+        false => EditCues { drive, collection: None, tracks, edit },
+    }
 }
 
 /// Ask which style to place cues in, in a terminal; elsewhere (`--json`, a pipe) say to pass one.
@@ -412,8 +427,13 @@ fn render_plan(p: &CuePlan) {
         for c in t.after.iter().filter(|c| !t.before.contains(c)) {
             say!("    {} {}", style("+").green().bold(), cue_line(c));
         }
-        let databases = if t.onelibrary { " and exportLibrary.db" } else { "" };
-        say!("    {}", dim(format!("{} analysis file(s){databases}", t.files.len())));
+        match p.collection.is_some() {
+            true => say!("    {}", dim("master.db, over a backup")),
+            false => {
+                let databases = if t.onelibrary { " and exportLibrary.db" } else { "" };
+                say!("    {}", dim(format!("{} analysis file(s){databases}", t.files.len())));
+            }
+        }
     }
     for w in &p.warnings {
         warn(w);
@@ -421,6 +441,24 @@ fn render_plan(p: &CuePlan) {
 }
 
 fn render_report(r: &CueReport, drive: &str) {
+    if let Some(w) = &r.collection {
+        match w.written {
+            0 => warn(format!(
+                "waiting: {} edit(s) of rekordbox's collection are kept in the store and written once rekordbox and \
+                 its agent have quit (the player writes them, or `locallibrary collection apply`){}",
+                w.waiting,
+                w.why.as_deref().map(|y| format!("\n  {y}")).unwrap_or_default()
+            )),
+            n => ok(format!("wrote {n} edit(s) to rekordbox's collection")),
+        }
+        for x in &w.warnings {
+            warn(x);
+        }
+        if let Some(b) = &w.backup {
+            crate::output::hint(format!("undo with: locallibrary collection undo (backup {})", b.display()));
+        }
+        return;
+    }
     ok(format!("updated the cues of {} track(s) ({} analysis file(s))", r.tracks_changed, r.files_written.len()));
     if let Some(c) = &r.onelibrary {
         say!(

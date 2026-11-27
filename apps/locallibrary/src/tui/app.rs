@@ -3,6 +3,7 @@
 
 mod background;
 mod chrome;
+mod collection_writes;
 mod drives;
 mod input;
 mod library;
@@ -263,6 +264,8 @@ pub struct App {
     pub(super) collection_seen: Option<drives::CollectionStamp>,
     pub(super) collection_change: Option<(drives::CollectionStamp, Instant)>,
     last_collection_poll: Instant,
+    /// Cue edits of the collection waiting to be written, and whether writes are off.
+    pub collection_writes: collection_writes::CollectionWrites,
     /// How far the Library view's sources are scrolled.
     pub source_offset: usize,
     /// The Drives view's rows, scrolled.
@@ -517,6 +520,7 @@ impl App {
             collection_seen: None,
             collection_change: None,
             last_collection_poll: Instant::now(),
+            collection_writes: Default::default(),
             source_offset: 0,
             drive_rows: ListState::default(),
             drive_pane: DrivePane::List,

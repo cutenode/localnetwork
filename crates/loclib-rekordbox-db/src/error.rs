@@ -55,6 +55,61 @@ pub enum Error {
     /// An id an edit gives a new row is taken already.
     #[error("{0}")]
     Exists(String),
+
+    /// A write of rekordbox's collection that wasn't made, and why; `master.db` is as it was.
+    #[error("{0}")]
+    Refused(Refusal),
+}
+
+/// Why a write of rekordbox's collection (`master.db`) wasn't made. Nothing was written.
+///
+/// New reasons may come: a `match` needs a `_` arm.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum Refusal {
+    /// rekordbox is open.
+    #[error("rekordbox is open: its collection is written only once rekordbox has quit")]
+    RekordboxRunning,
+
+    /// rekordbox's agent is still running, without rekordbox or with it.
+    #[error(
+        "rekordbox's agent (rekordboxAgent) is still running: it keeps rekordbox's collection open and writes to \
+         it, so the collection is written only once it has quit too (it quits when rekordbox asks it to, or quit \
+         it from its menu bar icon)"
+    )]
+    AgentRunning,
+
+    /// Cloud Library Sync is on, or might be: what made it look so.
+    #[error(
+        "Cloud Library Sync looks to be on ({0}). locallibrary doesn't write a synced collection yet: what a write \
+         has to change so it syncs, and isn't undone by the cloud's copy, hasn't been worked out"
+    )]
+    CloudSync(String),
+
+    /// A file beside `master.db` (its WAL, shared memory or journal) holds changes rekordbox hasn't
+    /// put into `master.db` yet.
+    #[error(
+        "{} holds changes rekordbox hasn't saved into master.db yet: open rekordbox and quit it again, then try \
+         again", .0.display()
+    )]
+    Unsaved(PathBuf),
+
+    /// `master.db` changed between its backup and the swap: rekordbox (or something else) wrote it.
+    #[error("master.db changed while the edit was being made (did rekordbox start?), so it wasn't written")]
+    Changed,
+
+    /// Anything else that makes writing unsafe: what it is.
+    #[error("{0}, so it wasn't written")]
+    Odd(String),
+}
+
+impl Refusal {
+    /// Whether the write can be made later as it is, once rekordbox and its agent have quit: they
+    /// were running, or the file changed underneath. An edit refused so is worth keeping (staged)
+    /// and trying again.
+    pub fn waits(&self) -> bool {
+        matches!(self, Refusal::RekordboxRunning | Refusal::AgentRunning | Refusal::Changed)
+    }
 }
 
 impl Error {

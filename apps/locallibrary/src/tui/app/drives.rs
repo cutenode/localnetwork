@@ -213,9 +213,12 @@ impl App {
         let load = self.load;
         let root = collection_root();
         let failed = root.clone();
+        let store_root = self.store_root.clone();
         let job = move || {
             let read = || -> Result<Box<Loaded>, locallibrary::Error> {
-                let c = masterdb::open(&db, &masterdb::resolve_key(None))?;
+                let mut c = masterdb::open(&db, &masterdb::resolve_key(None))?;
+                // Cue edits waiting to be written show as if they were.
+                super::collection_writes::with_waiting(&mut c, &store_root);
                 let library = c.library_from_root(&CloudFolders::this_computer());
                 let tags = TagsByTrack::from_collection(&c.tags, &library);
                 let mut l = Loaded::prepare(Device::open(&root)?, library);

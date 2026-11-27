@@ -1,4 +1,5 @@
-//! rekordbox's own collection on this computer: `master.db`, read only.
+//! rekordbox's own collection on this computer: `master.db`, read here, and written only through
+//! the `write` module (the `files` feature), over a fresh backup while rekordbox is closed.
 //!
 //! rekordbox 6 and 7 keep the collection (tracks, playlists, cues, My Tags, history) in
 //! `master.db` in rekordbox's settings folder: `~/Library/Pioneer/rekordbox/` on macOS,
@@ -9,10 +10,10 @@
 //! it obfuscated, and checks a key given instead starts `402fd`). Should a rekordbox release
 //! change it, [`KEY_ENV`] (or a key passed in) overrides [`DEFAULT_KEY`].
 //!
-//! Nothing here writes to rekordbox's files or opens them with SQLite: the database and its WAL
-//! are copied to a temporary folder and decrypted there (the WAL's committed transactions
-//! replayed, as for OneLibrary), and only that plain copy is opened, read only. rekordbox may keep
-//! running; a read while it saves can miss its latest changes.
+//! Nothing here but `write` writes to rekordbox's files, and nothing opens them with SQLite: the
+//! database and its WAL are copied to a temporary folder and decrypted there (the WAL's committed
+//! transactions replayed, as for OneLibrary), and only that plain copy is opened. A read opens it
+//! read only; rekordbox may keep running, and a read while it saves can miss its latest changes.
 //!
 //! Tables read, with the column names pyrekordbox gives them: `djmdContent` and its `djmdArtist`,
 //! `djmdAlbum`, `djmdGenre`, `djmdLabel` and `djmdKey` lookups, `djmdPlaylist` +
@@ -150,6 +151,11 @@ pub struct Collection {
     #[serde(skip)]
     #[cfg_attr(feature = "schemars", schemars(skip))]
     pub synced_sizes: FxHashMap<String, u64>,
+    /// Each track's `djmdContent.ID` by its id here, for a write to name it: the two
+    /// are the same number unless some `ID` isn't one.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
+    pub content_ids: FxHashMap<u32, String>,
 }
 
 /// The folders Cloud Library Sync keeps audio in on this computer: rekordbox's `rekordbox` folder
@@ -248,6 +254,12 @@ fn settings_path() -> Option<PathBuf> {
 /// rekordbox's agent's options, in `rekordboxAgent/storage/` there.
 fn agent_options_path() -> Option<PathBuf> {
     Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
+}
+
+/// rekordbox's agent's log, which says whether Cloud Library Sync is on (`sync mode: standalone`).
+#[cfg_attr(not(feature = "files"), allow(dead_code))]
+fn agent_log_path() -> Option<PathBuf> {
+    Some(pioneer_dir()?.join("rekordboxAgent").join("log.log"))
 }
 
 /// A My Tag category (`Genre`, `Situation`) and its tags.
@@ -657,6 +669,7 @@ impl Db<'_> {
                 .into_iter()
                 .map(|r| (text(&r[0]).to_lowercase(), int(&r[1]).max(0) as u64))
                 .collect(),
+            content_ids: track_ids.into_iter().map(|(id, n)| (n, id)).collect(),
         })
     }
 
@@ -895,6 +908,9 @@ impl Collection {
 #[cfg_attr(docsrs, doc(cfg(feature = "files")))]
 pub mod files;
 pub mod smartlist;
+#[cfg(feature = "files")]
+#[cfg_attr(docsrs, doc(cfg(feature = "files")))]
+pub mod write;
 
 #[cfg(test)]
 use loclib_testkit::sqlcipher;

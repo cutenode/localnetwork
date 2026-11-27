@@ -46,9 +46,14 @@ needs.
 - **rekordbox's collection**: choose it in pane 1 (`1`, then `enter`) to browse the collection
   rekordbox keeps on this computer, read from `master.db` as [`collection`](other-software.md#rekordboxs-collection)
   reads it: its playlists, folders and history lists, with each track played from where it is on
-  this computer and rekordbox's own waveforms, beat grids, cues, phrases and covers. It's
-  read-only: edits, My Tags and drive actions say so, and `collection export` puts it on a drive
-  to edit there. Intelligent playlists show empty. While it's open the player watches `master.db`
+  this computer and rekordbox's own waveforms, beat grids, cues, phrases and covers. It takes cue
+  edits only: they're written to `master.db` once rekordbox and its agent have both quit, over a
+  backup kept in the store. Made while either runs, they wait in the store and show on the deck at
+  once; the status line says how many wait, and the player writes them when both have quit (it
+  looks every few seconds, and when the collection opens). `u` takes the latest back as a new change
+  (one still waiting is just dropped). Nothing is written while Cloud Library Sync is on, and the
+  player says why, once: it tries again only after `master.db` changes. Other edits, My Tags and drive actions say the collection takes only cue edits,
+  and `collection export` puts it on a drive to edit there. Intelligent playlists show empty. While it's open the player watches `master.db`
   (and its WAL): a couple of seconds after rekordbox saves, it reads the collection again and keeps
   your place, and `r` reads it again at once. A drive holding a copy of the whole collection says
   `copy, <date>` in place of its track count. Choosing a drive in the same pane goes back to the

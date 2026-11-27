@@ -214,6 +214,7 @@ fn undo_shows_the_files_and_the_journal_entries_it_takes_back() {
     };
     let edit = api::EditCues {
         drive: root.display().to_string(),
+        collection: None,
         tracks: TrackSelector { ids: vec![2], ..Default::default() },
         edit: api::CueOp::Set(set),
     };

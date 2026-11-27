@@ -66,6 +66,7 @@ pub mod callback;
 pub mod catalog;
 pub mod check;
 pub mod collection_export;
+pub mod collection_write;
 mod commit;
 pub mod compare;
 pub mod convert;
