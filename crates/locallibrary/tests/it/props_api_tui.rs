@@ -3,8 +3,8 @@
 
 use crate::common::{self, path};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PullRequest};
 use locallibrary::compare::Relation;
 use locallibrary::progress::Ctx;
@@ -16,7 +16,7 @@ use locallibrary::store::Store;
 /// a library exactly when there's none to pull into, and has nothing to do exactly when the drive
 /// is as the store last saved it. Applied, with the store, another or none, the library has the
 /// drive as it is, so planning again has nothing to do.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_pull_plan_says_what_pulling_would_do(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");

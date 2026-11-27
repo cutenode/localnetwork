@@ -49,6 +49,10 @@ fn a_wal_claiming_pages_it_does_not_hold_is_refused() {
     assert_eq!(wal_pages(&codec, &c, 4).unwrap().len(), 2);
     let err = wal_pages(&codec, &c, 3).unwrap_err().to_string();
     assert_eq!(err, "the WAL's last commit says the database has 6 pages, but only 4 exist");
+    // Decrypting counts the main file's pages, not its bytes.
+    let main = codec.encrypt(&plain_db(3)).unwrap();
+    let err = decrypt(&codec, &main, Some(&wal)).unwrap_err().to_string();
+    assert_eq!(err, "the WAL's last commit says the database has 6 pages, but only 4 exist");
 
     let wal = wal::tests::build(PAGE_SIZE, (1, 2), &[(5, 0, page(5)), (3, 3, page(3))]);
     let c = wal::committed(&wal, PAGE_SIZE).unwrap().unwrap();

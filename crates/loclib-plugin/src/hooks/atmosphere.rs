@@ -116,3 +116,6 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

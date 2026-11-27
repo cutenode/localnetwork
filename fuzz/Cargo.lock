@@ -2275,6 +2275,7 @@ dependencies = [
  "loclib-tracklist",
  "rekordbox-pdb",
  "rusqlite",
+ "serde_json",
  "tempfile",
 ]
 

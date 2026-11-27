@@ -108,8 +108,8 @@ pub(crate) fn upload(
     let ctx = host.ctx();
     // The host reports the bytes it sends as this phase's progress.
     ctx.phase_start(Phase::Upload, session.part_count, size);
+    // Cancelled between parts, the next part's fetch fails as cancelled before it's sent.
     for (n, offset, length) in parts(size, part) {
-        ctx.check()?;
         let path = format!("/tracks/uploads/{id}/parts/{n}");
         let put = Fetch {
             body_blob: Some(recording.to_path_buf()),

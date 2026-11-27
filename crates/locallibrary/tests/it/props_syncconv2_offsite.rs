@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::offsite::{self, CopyOptions};
@@ -39,7 +39,7 @@ fn stopped(store: &Store, dest: &std::path::Path, at: usize) -> Error {
 /// written among its files and snapshots, and ends holding the store. Stopped while catching up,
 /// the copy may have been pulled into since (with `--store`): copying over the snapshots only it
 /// has is refused unless forced. Labels come along.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_stopped_copy_carries_on_from_where_it_stopped(tc: TestCase) {
     for later in [false, true] {
         a_stopped_copy_carries_on_from_where_it_stopped_with(&tc, later);
@@ -117,7 +117,7 @@ fn a_stopped_copy_carries_on_from_where_it_stopped_with(tc: &TestCase, later: bo
 /// A copy that can't be made says why, and leaves the way open: under a file (no folder, nor its
 /// marker, can go there), or with a record of the store's that can't be read (it says which, and
 /// once it can be, the copy carries on). A snapshot one of whose files the store lost is left out.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_copy_that_cant_be_made_says_why(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

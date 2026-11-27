@@ -103,6 +103,27 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "challenge"
+path = "fuzz_targets/challenge.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "callback"
+path = "fuzz_targets/callback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "peers"
+path = "fuzz_targets/peers.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
 arbitrary = { version = "1.5", features = ["derive"] }
 chrono = { version = "0.4.45", default-features = false }
@@ -121,4 +142,5 @@ loclib-rekordbox-db = { version = "0.1.0", path = "../crates/loclib-rekordbox-db
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }
 rusqlite = "0.41"
+serde_json = "1.0.154"
 tempfile = "3"

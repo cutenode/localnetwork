@@ -10,8 +10,8 @@ use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{
     self, CheckRequest, ClearPlayers, DiffRequest, DoctorRequest, DriveRef, ExportPlaylist, HistoryArchiveRequest,
     PlayStatsRequest, PullRequest, SetPlayers,
@@ -37,7 +37,7 @@ const MODELS: &[&str] = &["CDJ-3000X", "cdj-2000nxs2", " XDJ-AZ ", "CDJ-3000", "
 /// replaces a list with the models named (each once, as the table spells them), clear forgets
 /// it, a plan says when it changes nothing, and naming no model, an unknown one or a library the
 /// store lacks is refused with the models as they were.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_remembered_players_follow_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -177,7 +177,7 @@ fn stats_model(lib: &Library, limit: usize) -> StatsModel {
 /// what a model of play counts and history lists does, and what was played since the snapshot
 /// (by id, or by a date after it) is the history lists recorded since; the history archive is
 /// `plays`' for the library however it's named.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -353,7 +353,7 @@ fn prop_diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
 /// file's; files already there are refused unless replacing, and left as they were. A doctor
 /// report is `doctor`'s, and cleaning orphans deletes exactly the files planted where nothing
 /// uses them.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_outputs_write_what_they_say(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -472,7 +472,7 @@ fn prop_outputs_write_what_they_say(tc: TestCase) {
 
 /// Checking drives before a set is `check`'s report for the same drives; no drives, or a drive
 /// named twice, is refused.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_checks_agree_with_check(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -505,7 +505,7 @@ fn prop_checks_agree_with_check(tc: TestCase) {
 /// answered when no file is named. A cover given goes into the report and its document. Fetching
 /// a report that isn't kept is refused. One that can't be kept is answered with a warning, and
 /// one not asked to be kept with none.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_mix_reports_are_kept_once_per_save(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -706,7 +706,7 @@ fn credit(truth: &str, stored: &str) -> f64 {
 /// Scoring rekordbox's stored keys against annotations gives each track MIREX's credit, the
 /// score their mean, over the annotated tracks on the drive; annotations of tracks the drive
 /// lacks are counted unmatched.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_stored_keys_are_scored_as_mirex_scores_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);

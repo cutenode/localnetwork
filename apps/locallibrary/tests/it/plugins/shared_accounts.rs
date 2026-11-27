@@ -605,7 +605,7 @@ enum Step {
 /// answers what it restored and what's still remembered, a call about what isn't there is
 /// `not_found` and one giving or restoring access to an account signed out is `not_signed_in`,
 /// and no answer holds a token.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());

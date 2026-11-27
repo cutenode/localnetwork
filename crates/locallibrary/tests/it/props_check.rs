@@ -7,8 +7,8 @@ use crate::{common, drawn};
 use rustc_hash::FxHashSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::equipment::{self, Codec, MODELS};
@@ -43,7 +43,7 @@ fn files_of(lib: &Library, ids: &FxHashSet<u32>) -> usize {
     lib.tracks.iter().filter(|t| ids.contains(&t.id)).map(|t| t.file_path.clone()).collect::<FxHashSet<_>>().len()
 }
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_check_names_exactly_the_faults_put_in(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -229,7 +229,7 @@ fn prop_a_drive_without_an_export_is_one_problem(tc: TestCase) {
 
 /// Without models given, each drive is checked against those remembered for its library, else
 /// the default ones; a drive packed from the first is up to date until the first changes.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_remembered_players_and_packs_are_checked_against(tc: TestCase) {
     use locallibrary::check::PlayersFrom;
     use locallibrary::equipment::Remembered;

@@ -77,7 +77,7 @@ fn doctor_says_when_export_pdb_and_onelibrary_drift_apart() {
 /// that they differ (exiting with problems), or that OneLibrary can't be read; and cleaning up
 /// orphaned files is refused only when it can't be read, since which files are orphaned can't
 /// be known then.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_doctor_says_how_the_two_databases_stand(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();

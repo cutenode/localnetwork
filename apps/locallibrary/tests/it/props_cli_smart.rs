@@ -1,6 +1,5 @@
 //! `smart apply` given no drive: the drives it writes are those a rule is for.
 
-use hegel::HealthCheck;
 use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::Value;
@@ -11,7 +10,7 @@ use crate::support::Env;
 /// drive plans library A's drive (every rule is for it) and the club drive, which is in no
 /// library, only when a rule is for every library; a drive no rule is for is left out, not an
 /// error. With no rule at all, there's nothing to apply.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(only_a = Vec::<bool>::new())]
 #[hegel::explicit_test_case(only_a = vec![true])]
 #[hegel::explicit_test_case(only_a = vec![false, true])]

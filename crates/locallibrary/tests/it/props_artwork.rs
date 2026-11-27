@@ -9,8 +9,8 @@ use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
@@ -33,7 +33,7 @@ fn shown(d: &Device, lib: &Library, id: u32) -> Option<Vec<u8>> {
 /// Each batch of art set leaves every track of it showing that picture and every other track
 /// what it showed before. A batch that is exactly the tracks of one picture replaces its files
 /// in place; any other adds a row, so tracks that shared the old picture keep it.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -129,7 +129,7 @@ fn prop_art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
 /// `art auto` finds the art of tracks that have none, in their audio file or a cover image in
 /// its folder; tracks whose source is the same picture share one row. With a OneLibrary that
 /// can't be read, the art goes into export.pdb only, and that's said.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -203,7 +203,7 @@ fn prop_art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCa
 
 /// Art embedded in the computer's audio files comes back out as it went in, and taking it back
 /// puts back every file not changed since, byte for byte; only the latest embeds are kept.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_embedded_art_is_taken_back_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -303,7 +303,7 @@ fn shown_by_file(root: &std::path::Path, files: &[String]) -> Vec<Option<Vec<u8>
 /// Art set again on tracks that have some (as a new row, with its medium copy gone; or in
 /// place), is backed up first with the images it may replace: restoring that backup shows exactly
 /// the art from before.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_restoring_an_artwork_edit_shows_the_art_before_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -331,7 +331,7 @@ fn prop_restoring_an_artwork_edit_shows_the_art_before_it(tc: TestCase) {
 
 /// Replaying an artwork edit after rekordbox exports again without some of its tracks sets the
 /// rest, saying which went; without any of them, it's skipped, saying so, and sets nothing.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_replayed_artwork_edit_skips_the_tracks_that_went(tc: TestCase) {
     use locallibrary::edit::{self, EditOptions};
     let dir = tempfile::tempdir().unwrap();

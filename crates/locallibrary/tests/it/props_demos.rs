@@ -9,8 +9,8 @@ use crate::{common, demos, drawn};
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions};
@@ -35,7 +35,7 @@ fn entries(lib: &Library) -> Vec<(String, Vec<String>)> {
     out
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
@@ -187,7 +187,7 @@ fn prop_cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
 /// Edits deleting tracks, some leaving their files out of the backup: the backup leaves those
 /// files out only when nothing else is deleted with them, the space a plan asks for counts just
 /// what it holds, and what it left out it says.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_backup_leaves_out_only_what_nothing_else_deleted_needs(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");

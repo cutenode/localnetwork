@@ -54,7 +54,7 @@ mod destinations;
 mod events;
 mod exports;
 mod imports;
-mod net;
+pub(crate) mod net;
 mod operations;
 mod panels;
 mod process;

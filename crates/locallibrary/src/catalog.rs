@@ -10,6 +10,8 @@
 //! own. Libraries that changed on both keep their own latest; the other's is saved beside it, for
 //! `library push --snapshot`. Labels come along unless the name is taken.
 
+pub(crate) mod wire;
+
 use indexmap::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
@@ -19,6 +21,8 @@ use uuid::Uuid;
 use crate::hash::Hash;
 use crate::store::{LibraryRecord, Snapshot, SnapshotLabel, Store};
 use crate::{Error, Result};
+
+pub(crate) use wire::checked;
 
 /// What a store holds, as another sees it.
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,16 +137,6 @@ pub(crate) fn lacking(store: &Store, catalog: &Catalog, chosen: &[LibraryRecord]
         ids.contains(&s.library) && !store.snapshot_path(&s.id).is_file() && !pruned.contains_key(&s.id)
     };
     Ok(catalog.snapshots.iter().filter(lacks).map(|s| s.id).collect())
-}
-
-/// A snapshot's manifest as it came, once it reads and is the snapshot `id`; otherwise why not.
-pub(crate) fn checked(id: &Hash, bytes: &[u8]) -> std::result::Result<Snapshot, String> {
-    let snap: Snapshot =
-        serde_json::from_slice(bytes).map_err(|e| format!("snapshot {} can't be read: {e}", id.short()))?;
-    match snap.id == *id && snap.compute_id() == *id {
-        true => Ok(snap),
-        false => Err(format!("snapshot {} came back damaged", id.short())),
-    }
 }
 
 /// The stored files `manifests` list that `store` lacks (with their sizes), and how many it has.

@@ -147,7 +147,7 @@ fn importing(provides: &[&str]) -> String {
 /// sessions kept, what's left out) and writes nothing, nor does a run not confirmed; confirmed (or
 /// applied by the sidecar in one go), it's made, and the same file again has no edits left. What the importer's manifest doesn't say
 /// it provides, and an option it doesn't take, are refused.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // Mostly every kind, so most files are read.
@@ -284,7 +284,7 @@ fn prop_a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
 /// nothing; a file there already is overwritten only with `--replace` or once confirmed, never
 /// without a terminal to ask on; otherwise the plugin writes it. A set's format needs `-o`, and
 /// a mix's a single mix.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_set_or_a_mix_is_written_out_as_planned(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = tracklists_env();

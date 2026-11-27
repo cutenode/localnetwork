@@ -230,7 +230,7 @@ fn a_keys_account_is_signed_in_from_stdin_listed_and_never_shown() {
 /// there and each key is at least 8 printable ASCII characters without spaces once trimmed;
 /// otherwise it fails saying why and keeps nothing. The service is sent nothing, and no key is
 /// printed.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(
     access_key = "ak-0123".to_string(),
     access_space = 2u8,
@@ -310,7 +310,7 @@ enum Step {
 /// to restore what it didn't; a step about what isn't there fails `not_found`, one giving or
 /// restoring access to an account signed out says to sign in to it first, and one naming no
 /// account is refused; and nothing printed or answered holds a token.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
@@ -529,7 +529,7 @@ enum Using {
 /// terminal or in the sidecar: it's refused `account` (`no_access`), with an action to sign in
 /// for echo and one making each account its default, whose hints are commands that run; once one
 /// has, the destination is used.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_destination_without_access_asks_only_where_it_can(tc: TestCase) {
     let m = Mock::new();
     locallibrary::Store::open_or_init(&m.env.store).unwrap();
@@ -688,7 +688,7 @@ enum Keeping {
 /// access) and the destination is used; answered no, the destination is refused, unless the
 /// account only signs itself out soon. Nothing printed holds a token.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::LostTokens, yes = true)]
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::LostTokens, yes = false)]
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::Ungiven, yes = true)]
@@ -785,7 +785,7 @@ enum Asked {
 /// so it isn't asked again; with `--json`, `--yes` or no terminal nothing's asked, and it fails
 /// offering to give echo `write` or sign in again allowing it.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal(tc: TestCase) {
     let m = Mock::new();
     let granted = tc.draw(gs::booleans());
@@ -945,7 +945,7 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
 /// without `--with` is refused, naming them, and so is signing in for echo with a scope it doesn't
 /// ask for; an account plugin says what it provides and isn't served; and in a terminal, signing
 /// in takes the address the browser ended up on, pasted, but not one from another sign-in.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(
     two = true,
     revokes = false,
@@ -1236,7 +1236,7 @@ fn prop_every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase
 /// account plugin when two provide the type), offering to sign in to another through each: the
 /// account picked, or the one signed in to, becomes echo's default, and the destination is used.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_destination_asks_for_any_account_in_a_terminal(tc: TestCase) {
     let two = tc.draw(gs::booleans());
     let (m, providers) = providing(two, true);

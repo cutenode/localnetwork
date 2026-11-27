@@ -3,8 +3,8 @@
 
 use crate::common::{self, path};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PruneOptions, PullRequest, SnapshotLibraryRequest};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
@@ -13,7 +13,7 @@ use locallibrary::store::Store;
 /// library is the drive's as it was then, whole when no page is asked for, else the tracks from
 /// the offset on, at most the limit of them, saying how many there are in all. Pruning to the
 /// last `keep`, dry, says the older ones go and removes none; applied, it removes just those.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_snapshots_read_back_in_pages_and_prune_as_the_dry_run_says(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

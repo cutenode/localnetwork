@@ -8,8 +8,8 @@ use crate::props_api_drives::{saved_copy, saved_demo};
 
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, StepKind};
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::edit::Edit;
@@ -131,7 +131,7 @@ pub(crate) fn bare_export(root: &Path) {
 /// it), the default drive, what a read with no drive reads, the candidates listed, a write to
 /// every drive taken once per library and the group a group sync takes, all agree with a model of
 /// the mounted drives and their libraries.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_drive_meant_agrees_with_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().max_value(3));
@@ -399,7 +399,7 @@ impl Pair {
 /// changed onto the other (not when both did, or there's one), checks them and ejects them only
 /// when asked; applied, it runs those steps, stops at an eject that can't be done here, and
 /// leaves both drives holding the newest library, with nothing left to do but check them.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_set_job_runs_the_steps_the_drives_need(tc: TestCase) {
     let p = &Pair::new(&tc);
     let ctx = locallibrary::progress::Ctx::silent();
@@ -496,7 +496,7 @@ fn prop_a_set_job_runs_the_steps_the_drives_need(tc: TestCase) {
 /// copying it onto Backup when Main is the newer), every other says why it doesn't; applied, they
 /// run in order and do what they said. Without the demos plugin (the app's), rekordbox's demo
 /// sample stays.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
     let p = &Pair::new(&tc);
     let ctx = locallibrary::progress::Ctx::silent();
@@ -605,7 +605,7 @@ fn prop_a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
 /// the fleet view and the group list its primary first, then the others; the plan is refused when both drives changed
 /// (neither is the newest), and otherwise copies the newest onto the other (when they differ),
 /// after which they hold the same library.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_group_sync_copies_the_newest_onto_the_rest(tc: TestCase) {
     let p = &Pair::new(&tc);
     let ctx = locallibrary::progress::Ctx::silent();
@@ -653,7 +653,7 @@ fn prop_a_group_sync_copies_the_newest_onto_the_rest(tc: TestCase) {
 /// Main plans Backup as a clone it's copied onto, unless Backup changed too (then it's left
 /// alone, which the plan says); applied, Main loses the sample and Backup ends up holding Main's
 /// library, or as it was.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_write_to_a_clone_reaches_the_others(tc: TestCase) {
     let p = &Pair::new(&tc);
     let ctx = locallibrary::progress::Ctx::silent();
@@ -679,7 +679,7 @@ fn prop_a_write_to_a_clone_reaches_the_others(tc: TestCase) {
 /// both are), naming the one that matches it already; once they match, refreshing Main after the
 /// My Settings profile changed copies it onto both, as the refresh writes to it. Applied, every
 /// drive holds Main's library.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(backup_caught_up = false, spare_caught_up = false)]
 #[hegel::explicit_test_case(backup_caught_up = true, spare_caught_up = false)]
 fn prop_main_is_copied_onto_every_clone_behind_it(tc: TestCase) {
@@ -739,7 +739,7 @@ fn prop_main_is_copied_onto_every_clone_behind_it(tc: TestCase) {
 /// A write to Main that can't be copied onto Backup, whose database folder is read-only, still
 /// lands on Main, and warns that the change wasn't copied onto Backup, which keeps its library.
 #[cfg(unix)]
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_write_a_clone_cant_take_lands_on_the_lead_and_warns(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
@@ -785,7 +785,7 @@ impl<F: FnOnce() + Send> locallibrary::progress::Progress for AsStepBegins<F> {
 /// Main, after rekordbox exported to it, and Backup, a clone of it, getting ready for a set:
 /// Backup unplugged once Main is saved, or another drive mounted where it was, the job stops as
 /// the copy onto Backup begins, saying what's at Backup's mount path now, Main saved.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(swapped = true)]
 #[hegel::explicit_test_case(swapped = false)]
 fn prop_a_job_stops_once_a_drive_it_planned_for_is_gone(tc: TestCase) {
@@ -827,7 +827,7 @@ fn prop_a_job_stops_once_a_drive_it_planned_for_is_gone(tc: TestCase) {
 /// exported to Main: when, once Main is saved, Backup catches up with Main and gets an export of
 /// its own, the copy of Main, planned again as it runs, finds Backup newer and stops the job
 /// there, Backup keeping its export.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(spare = true)]
 #[hegel::explicit_test_case(spare = false)]
 fn prop_a_job_never_copies_over_a_drive_newer_by_then(tc: TestCase) {
@@ -867,7 +867,7 @@ fn prop_a_job_never_copies_over_a_drive_newer_by_then(tc: TestCase) {
 /// Refreshing Main and copying it onto its clone Backup after rekordbox exported to Backup (and
 /// to Main too, or not): the copy doesn't run, saying why, with a warning; Main is still saved,
 /// and Backup keeps its export.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(main_changed = false)]
 fn prop_a_refresh_never_copies_over_a_newer_or_diverged_clone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -899,7 +899,7 @@ fn prop_a_refresh_never_copies_over_a_newer_or_diverged_clone(tc: TestCase) {
 /// Saving Main and Backup, clones of the library Main, as their drive group, after rekordbox
 /// exported to either or neither: the drives the store doesn't hold are saved, each said; when
 /// it holds both already, the step says so for each and saves nothing.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_drive_group_saves_the_drives_the_store_lacks(tc: TestCase) {
     let p = &Pair::new(&tc);
     let ctx = locallibrary::progress::Ctx::silent();
@@ -933,7 +933,7 @@ fn prop_a_drive_group_saves_the_drives_the_store_lacks(tc: TestCase) {
 /// conflict says why), a write to both going to the first named alone (its plan says it can't
 /// copy onto the other). When Backup's database can't be read, there's no lead clone, primary or
 /// not, nor a drive for a write to both: the error says why.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_clones_that_cant_be_ordered_lead_from_their_primary(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = locallibrary::progress::Ctx::silent();

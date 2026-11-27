@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, TestCase};
 use locallibrary::api::{
     self, ClearEdits, CueOp, DeleteHistoryRequest, DriveRef, EditCues, EditRequest, ListCues, PullRequest,
     RemoveSmartPlaylist, RestoreBackup, SetSmartPlaylist, TagAction, TagsEdit, TracksQuery, UndoRequest,
@@ -116,7 +116,7 @@ fn an_edit(tc: &TestCase, lib: &Library) -> Edit {
 /// Undo takes the last batch back (its preview reads a drive database that can't be read as an
 /// empty library), a replay after rekordbox exports over the drive makes the batches still
 /// recorded again, and clearing the journal forgets them.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -234,7 +234,7 @@ const SORTS: &[&str] = &["bpm", "-rating", "key,bpm", "title", "-time"];
 /// entries, in its order, with one), ordered by its sort and cut to its page; cached and uncached
 /// agree, and an artist filter selects the tracks whose artist holds the text. A filter naming
 /// no field, a sort by nothing and a playlist the drive lacks are refused.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_queries_agree_with_their_filter(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -297,7 +297,7 @@ fn prop_queries_agree_with_their_filter(tc: TestCase) {
 /// Deleting history lists takes off exactly the lists named (every one when none are), and
 /// only once the store keeps them or when forced: otherwise it's a conflict naming the lists
 /// not saved, the drive left as it was. Lists the drive doesn't have are not found.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_history_is_deleted_only_once_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -348,7 +348,7 @@ fn prop_history_is_deleted_only_once_kept(tc: TestCase) {
 /// remove takes one off (an unknown path is not found), and an invalid filter is refused with
 /// the rules as they were. Applied to a drive, each rule's playlist holds what a query with its
 /// filter, sort and limit answers.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_smart_playlists_follow_their_rules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -419,7 +419,7 @@ fn prop_smart_playlists_follow_their_rules(tc: TestCase) {
 /// adding gives the tracks the tag, removing takes it off, renaming keeps its tracks, deleting
 /// takes it off every track; what's listed is the model, cached or not, and a plan that changes
 /// nothing says so.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_tag_edits_follow_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -493,7 +493,7 @@ fn prop_tag_edits_follow_a_model(tc: TestCase) {
 
 /// Cue edits through the service layer leave the analysis files as the same edits made with
 /// `cue_edit` on a copy of the drive, list what was set, and an edit refused is refused alike.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_cue_edits_agree_with_cue_edit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -557,7 +557,7 @@ fn prop_cue_edits_agree_with_cue_edit(tc: TestCase) {
 /// Replacing duplicates replaces each Sync Manager copy (`<name>-1.<ext>`, the same audio) with
 /// the other copy of its recording: one of each pair stays, playlist entries of the one that
 /// goes move to it, and its file goes. Two rows for one file, and nothing else alike, both stay.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_dedupe_keeps_one_of_each_copy(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -630,7 +630,7 @@ fn prop_dedupe_keeps_one_of_each_copy(tc: TestCase) {
 /// Tracks whose audio went missing get it back when exactly one file of its name is found: one
 /// moved elsewhere on the drive is pointed at where it is, one only on this computer is copied
 /// back to its path; after that there's nothing left to relocate.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_relocating_finds_each_moved_file(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -681,7 +681,7 @@ fn prop_relocating_finds_each_moved_file(tc: TestCase) {
 /// Packing a drive for a set puts exactly the chosen playlists and their tracks on the target,
 /// registers it in the store with its write, and packing again (as it was last packed) has
 /// nothing to copy.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_packing_puts_the_chosen_playlists_on_the_target(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -751,7 +751,7 @@ fn prop_packing_puts_the_chosen_playlists_on_the_target(tc: TestCase) {
 
 /// Rows with neither a title nor an artist (blank, or only spaces) are nobody's copies, though
 /// rekordbox's fingerprint has them alike; a row named as another, as long, is that one's copy.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_untitled_tracks_without_an_artist_are_nobodys_copies(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);

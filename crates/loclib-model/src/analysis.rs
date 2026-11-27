@@ -118,7 +118,8 @@ impl Bands {
         }
         let column = |i: usize| {
             let from = i * len / n;
-            let to = ((i + 1) * len).div_ceil(n).clamp(from + 1, len);
+            // Past `from` (its share is more than nothing) and at most `len` (as `i < n`).
+            let to = ((i + 1) * len).div_ceil(n);
             self.0[from..to].iter().fold([0u8; 3], |m, c| [m[0].max(c[0]), m[1].max(c[1]), m[2].max(c[2])])
         };
         Bands((0..n).map(column).collect())

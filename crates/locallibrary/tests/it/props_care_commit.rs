@@ -3,8 +3,8 @@
 
 use crate::common;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::progress::Ctx;
@@ -15,7 +15,7 @@ use locallibrary::{backup, paths};
 /// as it was, with no backup; one that fails just after it has the tag on those tracks, keeps
 /// the one backup made before the plan and says undoing takes back what it made, and restoring
 /// that backup puts every file back.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

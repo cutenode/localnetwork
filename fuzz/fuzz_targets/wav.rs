@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/wav.rs
+// paths: fuzz/seeds/wav/**
+// paths: crates/locallibrary/src/{recordings,recordings/wav}.rs
+// paths: crates/loclib-interop/src/serato.rs
+// coverage: crates/locallibrary/src/recordings/wav.rs
+// coverage: crates/loclib-interop/src/serato.rs
 //! WAV and AIFF chunk headers: the recordings list's WAV header reader, and the checks the Serato
 //! cue tag writer makes on a WAV or AIFF before writing into it, then the write itself, which a
 //! file the checks passed must take within the size they planned.

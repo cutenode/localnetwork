@@ -147,3 +147,12 @@ deny contains msg if {
 	not name in dev_optimised
 	msg := sprintf("Cargo.toml: add \"%s\" to dev_optimised in tools/policy/cargo.rego, so the policies notice if it goes missing", [name])
 }
+
+# Cargo concatenates an alias written as an array with the same alias in a parent directory's
+# .cargo/config.toml, so in a worktree inside the main checkout an array alias runs its arguments
+# twice. A string alias overrides the parent's instead.
+deny contains msg if {
+	some name, alias in object.get(lib.file(".cargo/config.toml"), "alias", {})
+	not is_string(alias)
+	msg := sprintf(".cargo/config.toml: write the `%s` alias as one string (\"a b c\"), not an array; cargo appends a parent directory's array alias to it", [name])
+}

@@ -139,8 +139,8 @@ fn prop_a_write_leaves_the_drive_holding_the_library_it_wants(tc: hegel::TestCas
 }
 
 /// Whichever way a run of copies goes (any size of file, the small ones at once), each comes out
-/// once, and an error stops the run: nothing starts after it among the large files, and the first
-/// error is the one given back.
+/// once, and an error stops the run: every other small file is still copied, nothing starts after
+/// it among the large files, and the first error is the one given back.
 #[hegel::test(test_cases = 50)]
 fn prop_every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -174,6 +174,8 @@ fn prop_every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
             assert!(matches!(&stopped, Some(Error::Invalid(m)) if *m == format!("copy {n}")), "{stopped:?}");
             assert!(!done.contains(&n));
             let is_small = |i: usize| items[i].1 <= SMALL_FILE;
+            let small: Vec<usize> = (0..items.len()).filter(|i| is_small(*i) && *i != n).collect();
+            assert!(small.iter().all(|i| done.contains(i)), "a small copy left out: {done:?}");
             if !is_small(n) {
                 let last_large = tried.iter().rev().find(|i| !is_small(**i));
                 assert_eq!(last_large, Some(&n), "large copies are made in order, and stop at the failure");
@@ -228,6 +230,73 @@ fn a_copy_under_way_when_another_fails_finishes() {
     );
     assert_eq!(done, [0]);
     assert!(matches!(&stopped, Some(Error::Invalid(m)) if m == "copy 1"), "{stopped:?}");
+}
+
+/// Waits for `flag`, or panics after 10 s saying it was waiting for `what`: a copy that waits on
+/// another fails the test instead of hanging it when the other never comes.
+fn wait_for(flag: &AtomicBool, what: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !flag.load(Ordering::Relaxed) {
+        assert!(std::time::Instant::now() < deadline, "waited 10 s for {what}");
+        std::thread::yield_now();
+    }
+}
+
+/// A small copy failing while the others wait their turn: the others are all still made, so a run
+/// stopped part way leaves the same files whichever thread was quickest, and the audio after them
+/// doesn't start.
+#[test]
+fn small_copies_queued_when_one_fails_are_all_made() {
+    let failed = AtomicBool::new(false);
+    let mut items: Vec<(usize, u64)> = (0..=20).map(|n| (n, 1)).collect();
+    items.push((21, SMALL_FILE + 1));
+    let (done, stopped) = copy_each(
+        &items,
+        |i| i.1,
+        |&(n, _)| match n {
+            0 => {
+                failed.store(true, Ordering::Relaxed);
+                Err(Error::invalid("copy 0"))
+            }
+            // The others go on once it has failed, and a moment later: a copy_each that skips the
+            // copies queued after a failure notes it only once the failing copy has returned,
+            // which nothing here can wait on. Whatever that moment, all of them are made.
+            n => {
+                wait_for(&failed, "copy 0 to fail");
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                Ok(n)
+            }
+        },
+    );
+    assert_eq!(done, (1..=20).collect::<Vec<_>>());
+    assert!(matches!(&stopped, Some(Error::Invalid(m)) if m == "copy 0"), "{stopped:?}");
+}
+
+/// Two small copies failing, the later one first: the error given back is the earlier one's in the
+/// plan, whichever thread got there first.
+#[test]
+fn the_first_failure_in_the_plan_is_the_one_given_back() {
+    // Copy 2 waits for copy 7, which another writer takes meanwhile (with a single writer, copy 7
+    // would be queued behind it, and the wait fails saying so).
+    let later_failed = AtomicBool::new(false);
+    let items: Vec<(usize, u64)> = (0..=10).map(|n| (n, 1)).collect();
+    let (done, stopped) = copy_each(
+        &items,
+        |i| i.1,
+        |&(n, _)| match n {
+            2 => {
+                wait_for(&later_failed, "copy 7 to fail");
+                Err(Error::invalid("copy 2"))
+            }
+            7 => {
+                later_failed.store(true, Ordering::Relaxed);
+                Err(Error::invalid("copy 7"))
+            }
+            n => Ok(n),
+        },
+    );
+    assert!(matches!(&stopped, Some(Error::Invalid(m)) if m == "copy 2"), "{stopped:?}");
+    assert_eq!(done, [0, 1, 3, 4, 5, 6, 8, 9, 10]);
 }
 
 /// Release reads already under way and remove the names so a late open fails instead of blocking.

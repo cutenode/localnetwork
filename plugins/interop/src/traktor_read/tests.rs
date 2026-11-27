@@ -361,6 +361,10 @@ fn a_collection_is_a_library_source() {
     let a = Track {
         key: "Am".into(),
         genre: "House".into(),
+        album: "Al".into(),
+        label: "La".into(),
+        remixer: "Re".into(),
+        comment: "Co".into(),
         duration_secs: 4,
         rating: 3,
         year: 2019,
@@ -368,8 +372,9 @@ fn a_collection_is_a_library_source() {
     };
     let b = Track { duration_secs: 0, ..track(2, "", "B", "/music/sub/b.mp3") };
     let c = track(3, "", "C", "/elsewhere/c.mp3");
+    let d = Track { duration_secs: 0, ..track(4, "", "D", "/music/d.mp3") };
     let library = Library {
-        tracks: vec![a, b, c],
+        tracks: vec![a, b, c, d],
         playlists: vec![
             list(1, None, "Sets", vec![], true),
             list(2, Some(1), "Friday", vec![1, 3], false),
@@ -400,12 +405,13 @@ fn a_collection_is_a_library_source() {
     let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({})).unwrap();
     let at = |p: &str| s.dir.path().join(p);
     let paths: Vec<&Path> = page.tracks.iter().map(|t| t.path.as_path()).collect();
-    assert_eq!(paths, [at("music/a.mp3"), at("music/sub/b.mp3"), at("elsewhere/c.mp3")]);
-    let [a, b, c] = &page.tracks[..] else { panic!("three tracks") };
+    assert_eq!(paths, [at("music/a.mp3"), at("music/sub/b.mp3"), at("elsewhere/c.mp3"), at("music/d.mp3")]);
+    let [a, b, c, _] = &page.tracks[..] else { panic!("four tracks") };
     assert_eq!(
         (a.title.as_str(), a.artist.as_str(), a.genre.as_str(), a.key.as_deref(), a.bpm, a.rating, a.year),
         ("A", "Art", "House", Some("8A"), Some(128.0), 3, 2019)
     );
+    assert_eq!([&a.album, &a.label, &a.remixer, &a.comment], ["Al", "La", "Re", "Co"]);
     let cues = [
         SourceCue { hot_cue: Some(0), start_ms: 1000, end_ms: None, name: "Drop".into(), color: Some("blue".into()) },
         SourceCue {
@@ -426,7 +432,8 @@ fn a_collection_is_a_library_source() {
         SourcePlaylist { path: "All".into(), tracks: vec![at("music/sub/b.mp3")] },
     ];
     assert_eq!((page.playlists.as_slice(), page.next, page.blob), (&playlists[..], None, None));
-    assert_eq!(page.warnings, ["1 beat grid(s) left out: the track's length isn't known, or is over a day"]);
+    // b's and d's, counted together.
+    assert_eq!(page.warnings, ["2 beat grid(s) left out: the track's length isn't known, or is over a day"]);
     s.stop();
 }
 
@@ -476,19 +483,94 @@ fn a_collection_is_read_in_pages() {
 }
 
 /// A page past what a message holds (a day-long track's grid at a fast tempo) goes in a blob in
-/// the scratch folder, holding the page.
+/// the scratch folder, holding the page, with the cursor of the page after it.
 #[test]
 fn a_big_page_is_a_blob() {
     let s = start();
     let music = s.granted("music");
     let long = Track { duration_secs: 86_400, bpm: 600.0, ..track(1, "", "Long", "/music/long.mp3") };
-    let library = Library { tracks: vec![long], ..Library::default() };
+    let after = track(2, "", "After", "/music/after.mp3");
+    let library = Library { tracks: vec![long, after], ..Library::default() };
     let file = s.built(&library, &|_| TrackAnalysis { beats: grid(600.0, 0, 1), ..TrackAnalysis::default() });
     let scratch = s.granted("scratch");
-    let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({ "scratch": scratch })).unwrap();
-    assert_eq!(page, LibraryPage { blob: Some("page.json".into()), ..LibraryPage::default() });
+    let read = |cursor| s.read_library(&file, std::slice::from_ref(&music), cursor, json!({ "scratch": scratch }));
+    let page = read(None).unwrap();
+    let next = page.next.clone().expect("a page after it");
+    assert_eq!(
+        page,
+        LibraryPage { blob: Some("page.json".into()), next: Some(next.clone()), ..LibraryPage::default() }
+    );
     let held: LibraryPage = serde_json::from_slice(&std::fs::read(scratch.join("page.json")).unwrap()).unwrap();
     assert_eq!(held.tracks[0].beats.len(), 864_000);
+    let last = read(Some(&next)).unwrap();
+    assert_eq!((last.tracks[0].title.as_str(), last.next), ("After", None));
+    s.stop();
+}
+
+/// A page goes in a message when it fits: as big as a message holds and no bigger.
+#[test]
+fn a_page_as_big_as_a_message_is_one() {
+    let s = start();
+    let music = s.granted("music");
+    let scratch = s.granted("scratch");
+    let page_of = |title: usize, scratch: Option<&Path>| {
+        let named = track(1, "", &"t".repeat(title), "/music/a.mp3");
+        let file = s.built(&Library { tracks: vec![named], ..Library::default() }, &|_| TrackAnalysis::default());
+        s.read_library(&file, std::slice::from_ref(&music), None, json!({ "scratch": scratch })).unwrap()
+    };
+    let bytes = |page: &LibraryPage| serde_json::to_vec(page).unwrap().len();
+    // Each letter of the title one byte more.
+    let fits = 1 + MESSAGE - bytes(&page_of(1, None));
+    let whole = page_of(fits, Some(&scratch));
+    assert_eq!((bytes(&whole), whole.blob), (MESSAGE, None));
+    assert_eq!(page_of(fits + 1, Some(&scratch)).blob.as_deref(), Some("page.json"));
+    s.stop();
+}
+
+/// A first page is read from the file afresh, though a read of it was under way: what it left
+/// out is counted once.
+#[test]
+fn a_first_page_starts_the_read_again() {
+    let s = start();
+    let music = s.granted("music");
+    // The first track has a grid and no length to lay it down to.
+    let length = |id| if id == 1 { 0 } else { 300 };
+    let tracks =
+        (1..=1001).map(|id| Track { duration_secs: length(id), ..track(id, "", "T", &format!("/music/{id}.mp3")) });
+    let library = Library { tracks: tracks.collect(), ..Library::default() };
+    let unlaid = |t: &Track| match t.id {
+        1 => TrackAnalysis { beats: grid(120.0, 0, 1), ..TrackAnalysis::default() },
+        _ => TrackAnalysis::default(),
+    };
+    let file = s.built(&library, &unlaid);
+    let read = |cursor| s.read_library(&file, std::slice::from_ref(&music), cursor, json!({})).unwrap();
+    read(None);
+    let next = read(None).next.unwrap();
+    assert_eq!(
+        read(Some(&next)).warnings,
+        ["1 beat grid(s) left out: the track's length isn't known, or is over a day"]
+    );
+    s.stop();
+}
+
+/// A cursor is read in the file it's given with: another of the same size, changed at the same
+/// time, is read for itself.
+#[test]
+fn a_cursor_reads_the_file_its_given_with() {
+    let s = start();
+    let nml = |name: char| {
+        let entry =
+            |i: usize| format!(r#"<ENTRY TITLE="{i}"><LOCATION DIR="/:" FILE="{name}{i}.mp3" VOLUME="USB"/></ENTRY>"#);
+        format!("<NML><COLLECTION>{}</COLLECTION></NML>", (0..1001).map(entry).collect::<String>())
+    };
+    let (a, b) = (s.dir.path().join("a.nml"), s.dir.path().join("b.nml"));
+    std::fs::write(&a, nml('a')).unwrap();
+    std::fs::write(&b, nml('b')).unwrap();
+    let changed = std::fs::metadata(&a).unwrap().modified().unwrap();
+    std::fs::File::options().write(true).open(&b).unwrap().set_modified(changed).unwrap();
+    let next = s.read_library(&a, &[], None, json!({})).unwrap().next.unwrap();
+    let last = s.read_library(&b, &[], Some(&next), json!({})).unwrap();
+    assert_eq!(last.tracks[0].path.file_name(), Some(std::ffi::OsStr::new("b1000.mp3")));
     s.stop();
 }
 

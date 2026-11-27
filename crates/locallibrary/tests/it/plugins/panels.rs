@@ -158,7 +158,7 @@ fn a_panel_stops_when_cancelled() {
 /// takes the view answered (an image given on as a PNG), or says how the plugin failed: a kind
 /// the feature brings from a plugin without it, a question (or one in a section), an image whose
 /// file isn't there or isn't a picture, or the plugin's own failure.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_panels_answer_is_its_view_or_why_it_isnt(tc: TestCase) {
     let views = tc.draw(gs::booleans());
     let f = Fixture::panelled(if views { &[] } else { &["--without", "views"] });

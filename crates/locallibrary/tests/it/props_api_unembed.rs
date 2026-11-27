@@ -3,8 +3,8 @@
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Store;
 use locallibrary::api;
 use locallibrary::op::Operation;
@@ -25,7 +25,7 @@ enum Since {
 /// the reason for each ("changed since the art went in", "gone"), has nothing to do when none is
 /// untouched, and applied (refused without the store, which holds the copies), gives the untouched
 /// files their bytes from before the art and leaves the others as they were left.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(since = vec![Since::Untouched, Since::Rewritten, Since::Removed])]
 fn prop_embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();

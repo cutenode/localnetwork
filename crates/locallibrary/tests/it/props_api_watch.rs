@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, TestCase};
 use locallibrary::api::{
     self, AutoPull, DriveRef, EjectDrives, PullRequest, WatchAction, WatchOptions, Watched, Watching,
 };
@@ -134,7 +134,7 @@ impl Due {
 
 /// Whatever drives a poll sees plugged in, changed and unplugged, the drives looked at are
 /// those plugged in or whose databases changed since, and not unplugged, once they've settled.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_drives_are_looked_at_as_the_model_says(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -163,7 +163,7 @@ fn about<'a>(did: &'a [WatchAction], root: &Path) -> Vec<&'a WatchAction> {
 /// no patience). Beside it, a drive never pulled is skipped, and a clone back from a set after a
 /// newer export is saved beside the library's newest snapshot, then up to date. An archive or
 /// retired drive is left alone. The terminal player's pull plan agrees with each look.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_plugged_in_drives_are_saved_as_they_differ(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -343,7 +343,7 @@ fn prop_plugged_in_drives_are_saved_as_they_differ(tc: TestCase) {
 /// Pulling into a store that isn't there yet plans to start a library and makes no store; the
 /// plan applied makes it, after which there's nothing to pull. A folder isn't ejected, a blank
 /// one isn't pulled, and My Tags by track are read as `tags` reads them.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_pull_plans_start_a_store_and_folders_are_not_ejected(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
@@ -416,7 +416,7 @@ enum Standing {
 /// it), or the default: the plan says which library and whether it's new, how the drive and
 /// the library's latest snapshot compare, and warns of a pull that will be refused; applied, it
 /// pulls as planned (nothing new for a drive saved already) or is refused as warned.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(standing = Standing::Diverged, library = None::<&str>, new_library = false)]
 #[hegel::explicit_test_case(standing = Standing::Unlinked, library = None::<&str>, new_library = false)]
 fn prop_a_pull_plan_says_what_pulling_does(tc: TestCase) {

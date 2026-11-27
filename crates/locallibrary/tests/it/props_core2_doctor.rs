@@ -7,8 +7,8 @@ use crate::common;
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Section};
 use locallibrary::paths;
@@ -21,7 +21,7 @@ const ORDERS: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2,
 /// On the twelve-track drive, two rows for one file and a row with the same artist and title in another file are one group,
 /// whatever order they were exported in, with both reasons and nothing else in it. A file of
 /// 4 GiB or more is listed as too big for FAT32, with its track.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_copies_linked_through_another_copy_are_one_group(tc: TestCase) {
     let first_big = tc.draw(gs::booleans());
     for (n, order) in ORDERS.into_iter().enumerate() {
@@ -71,7 +71,7 @@ fn prop_copies_linked_through_another_copy_are_one_group(tc: TestCase) {
 
 /// A folder that isn't an export, or a drive with only a OneLibrary database that can't be read,
 /// isn't checked: there's nothing to check it against.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_drives_without_a_readable_database_are_not_checked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let blank = common::blank(dir.path(), "Blank");
@@ -91,7 +91,7 @@ fn prop_drives_without_a_readable_database_are_not_checked(tc: TestCase) {
 
 /// Orphans planned for removal that a track uses by the time they'd be removed aren't removed:
 /// the plan is stale, and the drive is left as it was.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_orphans_a_track_came_to_use_are_not_removed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -136,7 +136,7 @@ enum TempoTrack {
 /// such, and a finding for a track that isn't on the drive is refused. A folder with no library
 /// has nothing to fix. Planned through the API (`doctor_tempo_plan`), the plan holds those edits
 /// and warns with those notes, or is refused alike.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_tempo_fixes_follow_each_findings_track(tc: TestCase) {
     use locallibrary::analysis_edit::NewAnalysis;
     use locallibrary::anlz::{self, Beat};
@@ -304,7 +304,7 @@ fn prop_tempo_fixes_follow_each_findings_track(tc: TestCase) {
 /// Orphans whose backup wouldn't fit in the drive's free space: the plan says so and how much
 /// it needs, and removing them is refused with the drive left as it was. Ones that fit are
 /// removed.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_orphans_too_big_to_back_up_are_not_removed(tc: TestCase) {
     // 8 TiB is past any drive tests run on, and under ext4's and NTFS's largest file.
     let size = tc.draw(gs::sampled_from(vec![1u64 << 10, 1 << 43]));
@@ -343,7 +343,7 @@ fn prop_orphans_too_big_to_back_up_are_not_removed(tc: TestCase) {
 /// The audio of copies in MPEG-4 files is lossless only when the file's header says Apple
 /// Lossless; a file the header can't be read from, or with no extension, isn't. Rows for a file
 /// with no extension are still one group, with one reason however many rows link it.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_copies_in_mpeg4_files_are_lossless_by_their_header(tc: TestCase) {
     let audio = |name: &str| fs::read(common::fixtures().join("audio").join(name)).unwrap();
     let (content, alac) = tc.draw(gs::sampled_from(vec![
@@ -377,7 +377,7 @@ fn prop_copies_in_mpeg4_files_are_lossless_by_their_header(tc: TestCase) {
 /// A OneLibrary database beside export.pdb that can't be read, as a database or as a file (its
 /// WAL a folder): the doctor checks export.pdb alone and says so, and orphans aren't planned,
 /// saying why.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_orphans_arent_planned_beside_an_unreadable_onelibrary(tc: TestCase) {
     let unreadable_file = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();

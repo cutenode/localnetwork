@@ -1,0 +1,3 @@
+403
+Bearer realm="x", error="insufficient_scope", scope="a b"
+

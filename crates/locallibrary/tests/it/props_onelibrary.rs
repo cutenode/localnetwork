@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
+use hegel::{Generator, PrintableGenerator, TestCase};
 use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::{paths, pdb};
 use loclib_model::test_util::tracks_like;
@@ -819,7 +819,7 @@ impl Built {
 /// as what was built, and edits of what isn't there are refused as not found. Removing
 /// tracks removes them from every list (keeping the rest in order) and takes exactly as many
 /// lookup rows with them as `unused_lookup_rows` said.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_built_libraries_read_back(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
@@ -1178,7 +1178,7 @@ fn prop_my_tags_follow_edits(tc: TestCase) {
 /// changes with the name; any edit to the library changes both. The files read back from a
 /// drive's folder as written, and a database rekordbox wouldn't have written (no `content`
 /// table, a view or a trigger) is refused when opened.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_content_hashes_name_the_library(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let (a, b) = (one.to_encrypted().unwrap(), one.to_encrypted().unwrap());

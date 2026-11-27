@@ -9,8 +9,8 @@ use crate::common;
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::offsite::{self, CopyOptions};
 use locallibrary::progress::Ctx;
@@ -68,7 +68,7 @@ fn pulled(tc: &TestCase, dir: &std::path::Path) -> Store {
     store
 }
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_pruning_removes_exactly_its_plan_and_keeps_every_history_list(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());
@@ -108,7 +108,7 @@ fn prop_pruning_removes_exactly_its_plan_and_keeps_every_history_list(tc: TestCa
     assert_eq!(again.removed_snapshots, 0);
 }
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());
@@ -191,7 +191,7 @@ fn prop_a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
 /// A copy goes only where it can: not inside the store or around it, not over another store or a
 /// folder of other things, not under a folder that isn't there (an unmounted share). Over a copy
 /// of it, a stored file that rotted there is put right when verifying.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());

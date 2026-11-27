@@ -32,3 +32,15 @@ fn an_intact_database_is_not_damaged() {
     let conn = database("CREATE TABLE t (a); INSERT INTO t VALUES (1), (2);");
     assert_eq!(damaged(&conn).unwrap(), None);
 }
+
+/// Two tables on one b-tree (a schema someone edited by hand) is damage, said as SQLite says it.
+#[test]
+fn two_tables_sharing_a_root_page_are_damaged() {
+    let conn = database(
+        "CREATE TABLE t (a); CREATE TABLE u (b); INSERT INTO t VALUES (1); PRAGMA writable_schema = ON; \
+         UPDATE sqlite_master SET rootpage = (SELECT rootpage FROM sqlite_master WHERE name = 't') WHERE name = 'u'; \
+         PRAGMA writable_schema = RESET;",
+    );
+    let found = damaged(&conn).unwrap();
+    assert!(found.as_deref().is_some_and(|f| f.starts_with("SQLite finds it damaged: ") && f.len() > 25), "{found:?}");
+}

@@ -280,7 +280,7 @@ fn rows(read: &CollectionTracks) -> Vec<(String, String, bool)> {
 
 /// Whatever the page size, paging through the tracks reads every row once, in order, each page
 /// saying how many there are in all.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_tracks_pages_read_every_row_once(tc: TestCase) {
     let (f, expected) = drawn(&tc);
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(10));
@@ -301,7 +301,7 @@ fn prop_tracks_pages_read_every_row_once(tc: TestCase) {
 
 /// A copy, asked for credentials or not, holds every track row as the collection does, and
 /// every registry row but the sign-in ones, which it keeps only when asked.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_copy_round_trips_the_rows(tc: TestCase) {
     let (f, expected) = drawn(&tc);
     f.exec(&format!(

@@ -1229,7 +1229,7 @@ const LISTS: &[&str] = &["Sets/Sunday", "Old", "Warm-up", "Peak", "Closing"];
 /// more), the history lists it drops and its warnings; an undo how playlists and tracks go back,
 /// the files it puts back (the first four, then how many more) and the recorded edits that come
 /// off the journal; any other plan its summary and warnings, and whether it deletes.
-#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_a_confirmation_lists_all_its_plan_does(tc: hegel::TestCase) {
     // An edit, an undo and another plan, in each case.
     for kind in 0..3u8 {
@@ -1645,7 +1645,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
 /// it says so, and what reading the store says when it can't. A library's row lists its clones
 /// plugged in and not (each with where it stands), and the store's latest snapshot of it. The
 /// Snapshots view says when they're being read, can't be, or there are none.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     use chrono::TimeZone;
     use hegel::generators as gs;

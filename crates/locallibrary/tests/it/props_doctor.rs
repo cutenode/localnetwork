@@ -8,8 +8,8 @@ use crate::{common, drawn};
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Problem};
 use locallibrary::paths;
@@ -21,7 +21,7 @@ fn folded(keys: impl IntoIterator<Item = String>) -> BTreeSet<String> {
     keys.into_iter().map(|k| k.to_lowercase()).collect()
 }
 
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_doctor_finds_exactly_what_was_broken(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");

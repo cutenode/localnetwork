@@ -6,8 +6,8 @@ use crate::common::{self, media::png};
 use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::artwork::{self, ImageSource};
 use locallibrary::device::Device;
@@ -227,7 +227,7 @@ fn undoing_art_replaced_in_place_removes_the_medium_copy_it_added() {
 /// Art replaced in place, then undone, leaves each database's image files as they were, whichever
 /// of the thumbnail and medium copy rekordbox didn't leave: what the edit wrote where there was
 /// none goes again, as the undo plan says.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_undoing_art_replaced_in_place_leaves_its_files_as_they_were(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");

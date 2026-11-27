@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/onelibrary.rs
+// paths: crates/locallibrary/tests/fixtures/onelibrary/**
+// paths: fuzz/seeds/onelibrary/**
+// paths: crates/loclib-rekordbox-db/src/**
+// paths: crates/loclib-sqlcipher/src/**
+// paths: crates/loclib-model/src/{analysis,model,paths}.rs
 //! OneLibrary's `exportLibrary.db` and its WAL: the SQLCipher codec, WAL replay, the content hash,
 //! and `OneLibrary` with the library read from what decrypts.
 //!

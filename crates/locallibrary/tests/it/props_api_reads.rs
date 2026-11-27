@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use base64::prelude::*;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::{WaveColumn, WaveLayer, Waveform, WaveformStyle};
 use locallibrary::api::{
     self, AnalysisRequest, ArtworkRequest, DriveRef, LibraryCache, LibraryRef, LibraryRequest, ListCues,
@@ -80,7 +80,7 @@ fn assert_tree(tree: &[PlaylistNode], lists: &[Playlist], lib: &Library) {
 
 /// The library in pages, the playlist tree, tracks by id, track details, harmonic matches,
 /// analysis views and artwork, read through the cache, agree with the library read directly.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_reads_agree_with_the_library(tc: TestCase) {
     let drive = drive(&tc);
     let lib = drive.library();
@@ -279,7 +279,7 @@ fn prop_reads_agree_with_the_library(tc: TestCase) {
 
 /// The cached reads of My Tags, cues and play history agree with the uncached ones, and with
 /// what the drive's history lists hold.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_cached_and_uncached_lists_agree(tc: TestCase) {
     let drive = drive(&tc);
     let lib = drive.library();
@@ -429,7 +429,7 @@ impl CacheMachine {
 /// Any sequence of reads, exports, invalidations and clears leaves the cache keeping the
 /// libraries a least-recently-used list of its capacity would, and every read answers the
 /// drive's library as it is now.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_the_cache_is_a_least_recently_used_list(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);

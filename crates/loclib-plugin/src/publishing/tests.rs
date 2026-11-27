@@ -135,6 +135,9 @@ fn lines_that_dont_fit_are_counted() {
     assert_eq!(fit_lines(&lines, 18, str::len), (1, format!("{}\n+ 2 more", lines[0])));
     assert_eq!(fit_lines(&lines, 3, str::len), (0, "+ 3 more".into()));
     assert_eq!(fit_lines(&[], 0, str::len), (0, String::new()));
+    // A line kept beside "+ 9 more" fits where "+ 10 more" alone wouldn't.
+    let ten = vec!["a".to_string(); 10];
+    assert_eq!(fit_lines(&ten, 10, str::len), (1, "a\n+ 9 more".into()));
 }
 
 /// Whatever the lines, and room for at least the line saying how many more there are, what's kept

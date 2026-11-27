@@ -16,3 +16,7 @@
 # pnpm writes these, and their context lines keep the patched files' own whitespace. `git diff
 # --check` still reports conflict markers in them.
 patches/*.patch -whitespace
+
+# Fuzz seeds are inputs, kept byte for byte (the callback target's HTTP requests end their lines
+# in CRLF, which `git diff --check` would call trailing whitespace).
+fuzz/seeds/** -text -whitespace

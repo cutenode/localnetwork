@@ -9,7 +9,7 @@ use locallibrary::progress::Ctx;
 /// track count, the adopted drive's name (which the drive keeps, and which confirms the erase),
 /// and whether the library is safe in the store, with a warning for every one that isn't. A
 /// disk holding a protected path is refused.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[cfg_attr(
     target_os = "linux",
     ignore = "a plan on Linux asks lsblk what's mounted on the disk, and this one isn't there"
@@ -138,7 +138,7 @@ fn stick(mount: &std::path::Path) -> locallibrary::format::Disk {
 
 /// Tracks of 4 GB or more (which a OneLibrary database, unlike export.pdb, can hold) are
 /// counted in a warning that they won't fit when the plan is FAT32, and only then.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[cfg(any(target_os = "macos", windows))]
 fn prop_plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
     use crate::common;
@@ -173,7 +173,7 @@ fn prop_plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
 /// own error before the disk is asked anything, leaving the drive as it was. With a store, the
 /// plan says the library is safe in it exactly when nothing was exported to the drive since its
 /// pull; without one, that nobody knows.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[cfg(any(target_os = "macos", windows))]
 fn prop_applying_refuses_before_the_disk_is_asked_anything(tc: TestCase) {
     use crate::common;

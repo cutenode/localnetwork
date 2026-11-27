@@ -108,7 +108,7 @@ fn an_export_names_what_its_exporter_writes_out() {
 /// only one of what its manifest's `source` lists, named, and found; anything else is
 /// refused, saying what's wrong first. A set's and a mix's are written out as the plugin read
 /// them.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &tracklists(), &[])], Options::default());
@@ -194,7 +194,7 @@ fn prop_an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
 /// For any sizes an exporter says its files are, near `u64::MAX` or not: the plan sums them,
 /// and sizes adding up to more than a `u64` holds are the plugin misbehaving, not a panic or a
 /// total that wrapped. Regression: they were summed unchecked.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::exporting();

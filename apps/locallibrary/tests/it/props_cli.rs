@@ -7,8 +7,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, Run, path};
@@ -273,7 +273,7 @@ const READS: &[&[&str]] = &[
 /// Reads, every one of them with any arguments and flags, keep the output contract and leave
 /// every file on the drives as it was.
 // One case runs every command in the list: each run tries other arguments, flags and order.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_reads_keep_the_contract_and_change_no_drive(tc: TestCase) {
     let fx = Env::from_template();
     let before = Env::files_in(&fx.volumes);
@@ -322,7 +322,7 @@ const WRITES: &[&[&str]] = &[
 /// says it wasn't confirmed (status 3), that there's nothing to do, or why it can't, and the
 /// drives and the store are as they were.
 // One case runs every command in the list: each run tries other arguments, flags and order.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_writes_wait_for_yes(tc: TestCase) {
     let fx = Env::from_template();
     let before = fx.files();
@@ -408,7 +408,7 @@ const CHANGES: &[&[&str]] = &[
 /// contract: applied or not as its outcome says. Whatever they did, drive A's library still
 /// reads, and `doctor` still runs on it.
 // One case runs every command in the list: each run tries other arguments, flags and order.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_changes_keep_the_contract_and_the_library_readable(tc: TestCase) {
     let fx = Env::from_template();
     let all: Vec<&[&str]> = WRITES.iter().chain(CHANGES).copied().collect();

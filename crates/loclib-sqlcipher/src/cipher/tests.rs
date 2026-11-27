@@ -41,6 +41,9 @@ fn tampering_and_wrong_salt_are_detected() {
     assert!(keyed(2).decrypt_page(2, &enc[PAGE_SIZE..]).is_err());
     // A page wiped to zeros (a torn write on a FAT drive, say) is damage, as in SQLCipher.
     assert!(codec.decrypt_page(2, &[0; PAGE_SIZE]).is_err());
+    // An empty file isn't a database, and isn't one decrypted to nothing.
+    let err = codec.decrypt(&[], |_| true).unwrap_err().to_string();
+    assert!(err.contains("0 bytes is not a whole number of pages"), "{err}");
 }
 
 #[test]
@@ -79,6 +82,10 @@ fn only_sqlcipher_layouts_are_plain_databases() {
     assert_eq!(err, "unsupported layout: 1024-byte pages with 80 reserved bytes");
     assert!(check_plain_header(&plain_db(1)[..99]).is_err());
     assert!(check_plain_header(&[0; PAGE_SIZE]).is_err());
+    assert!(check_plain_header(&[]).is_err());
+    let mut longer = plain_db(1);
+    longer.push(0);
+    assert!(check_plain_header(&longer).is_err(), "a page and a byte");
     // The lock-byte page is the one holding byte 2^30.
     assert_eq!((LOCK_PAGE as usize - 1) * PAGE_SIZE, 1 << 30);
 }

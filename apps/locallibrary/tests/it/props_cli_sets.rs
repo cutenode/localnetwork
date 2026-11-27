@@ -3,8 +3,8 @@
 //! suggest`, `sets played`, `sets export`, `plays`, `plays stats`...) printed for people says
 //! what its `--json` does on the same store.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, Run, path, play};
@@ -90,7 +90,7 @@ fn set_is_printed(set: &Value, out: &str, said: &str) {
 /// dropped, moved, unnamed and named again; renamed) and deleted, in any order and printed or
 /// as JSON: each succeeds as the model says, `sets --json` lists what the model holds, and the
 /// printed list, `sets show` and `sets export` say what their JSON does.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_sets_agree_with_a_model_and_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -340,7 +340,7 @@ fn prop_sets_agree_with_a_model_and_print_what_their_json_says(tc: TestCase) {
 /// the command that declares it; dismissing sessions takes their candidates away and
 /// `--undismiss` brings them back; and a track played in sets is found by a word of its name,
 /// printed as its JSON lists it.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_suggestions_and_plays_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -415,7 +415,7 @@ fn prop_suggestions_and_plays_print_what_their_json_says(tc: TestCase) {
 /// each (with `--all`, those only the store has too), one session prints its tracks in any
 /// format, `plays stats` prints its JSON's counts, and a session written to a file holds what
 /// it printed.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_plays_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -548,7 +548,7 @@ fn prop_plays_print_what_their_json_says(tc: TestCase) {
 /// set made from the recording holds the tracks it plays, in that order, each heard in it and
 /// timed from its start; asked for a file that isn't there or isn't one mix reads, it's refused
 /// saying which.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_set_from_a_recording_holds_what_it_plays(tc: TestCase) {
     use loclib_testkit::audio::{synth, wav_of};
     const RATE: u32 = 11_025;
@@ -596,7 +596,7 @@ fn prop_a_set_from_a_recording_holds_what_it_plays(tc: TestCase) {
 /// its kind beside its day, the sessions and the recording it came from, and its tracks; its
 /// tracklist for 1001Tracklists prints what the JSON export's text is; and deleted with `--yes`,
 /// it says which set went, and `sets` no longer lists it.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_set_shows_where_it_came_from_and_goes_when_deleted(tc: TestCase) {
     let fx = Env::new();
     locallibrary::Store::open_or_init(&fx.store).unwrap();
@@ -662,7 +662,7 @@ fn prop_a_set_shows_where_it_came_from_and_goes_when_deleted(tc: TestCase) {
 /// the store, named with the drive it was kept from. `plays stats --since` the pull's snapshot
 /// names the lists played since and how much more each track was played (its play count raised,
 /// or not).
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_plays_say_what_the_store_has_and_what_was_played_since(tc: TestCase) {
     let fx = Env::new();
     let club = fx.club("Club");
@@ -753,7 +753,7 @@ fn prop_plays_say_what_the_store_has_and_what_was_played_since(tc: TestCase) {
 /// session (`--quiet` leaving out the tip to make a set of it): a set made from it is timed, `sets
 /// show` prints each start, and its Mixcloud and YouTube tracklists and chapters print what its JSON
 /// export does, the chapters a chapter per track at its start.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_timed_log_makes_a_timed_set(tc: TestCase) {
     let fx = Env::from_template();
     let names = club_names(&fx);
@@ -840,7 +840,7 @@ fn prop_a_timed_log_makes_a_timed_set(tc: TestCase) {
 /// Sessions a player recorded on the club drive since it was last saved: saving it (`pull`, or
 /// the `refresh` job's pull) says how many are new, in a hint (none when none are), and `sets
 /// suggest` is where to look for sets among them.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_saving_says_how_many_sessions_are_new(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");

@@ -6,15 +6,15 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::plays;
 use locallibrary::progress::Ctx;
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
@@ -85,7 +85,7 @@ fn prop_a_history_list_reads_back_its_database(tc: TestCase) {
 
 /// A list first seen in a snapshot with no drive, a drive known only by name, or of a library the
 /// store no longer names is credited to just that: no drive, the name, or the library's id.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_list_is_credited_to_what_its_first_snapshot_knows(tc: TestCase) {
     use locallibrary::store::{SnapshotSource, Store};
     let dir = tempfile::tempdir().unwrap();

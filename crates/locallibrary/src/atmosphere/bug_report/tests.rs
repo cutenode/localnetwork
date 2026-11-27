@@ -231,7 +231,7 @@ fn prop_reports_fit_a_discussion_or_say_what_is_too_long(tc: TestCase) {
 /// has (or not): too long, nothing is sent; a space the directory hasn't got is not found; a
 /// server refusing it says so; otherwise it's a discussion in the account's repository, pointing
 /// at the space's version, shown at its userinput.app link.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_report_is_posted_to_the_space_or_says_why_not(tc: TestCase) {
     let pds = MockPds::start();
     crate::testing::directory_on_this_thread(Some(pds.url.clone()));

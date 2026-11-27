@@ -1477,27 +1477,23 @@ pub fn bpm_range(lo: f64, hi: f64) -> String {
     if lo == hi { format!("{lo:.0} BPM") } else { format!("{lo:.0}–{hi:.0} BPM") }
 }
 
-/// The generated headline, from the sections `shows` lets through: the main genres, the tempo
-/// range ([`bpm_range`]), and how many sets or sessions (or, without either, tracks in the
-/// collection), each count written by `count`.
-pub fn headline(r: &ProfileReport, shows: impl Fn(Section) -> bool, count: impl Fn(usize) -> String) -> String {
+/// The generated headline: the main genres, the tempo range ([`bpm_range`]), and how many sets or
+/// sessions (or, without either, tracks in the collection).
+fn headline(r: &ProfileReport) -> String {
     let mut parts = Vec::new();
     let genres: Vec<&str> = r.genres.top.iter().filter(|s| s.share >= 0.1).take(2).map(|s| s.name.as_str()).collect();
-    if !genres.is_empty() && shows(Section::Genres) {
+    if !genres.is_empty() {
         parts.push(crate::op::and_list(&genres));
     }
-    if let Some(core) = r.tempo.core
-        && shows(Section::Tempo)
-    {
+    if let Some(core) = r.tempo.core {
         parts.push(bpm_range(core.low, core.high));
     }
     let n = r.sets.count;
     match r.basis {
-        Basis::Collection if shows(Section::Collection) => parts.push(format!("{} tracks", count(r.collection.tracks))),
-        Basis::Plays | Basis::Sessions if shows(Section::Sets) => {
-            parts.push(format!("{} {}{}", count(n), r.basis.unit(), if n == 1 { "" } else { "s" }))
+        Basis::Collection => parts.push(format!("{} tracks", r.collection.tracks)),
+        Basis::Plays | Basis::Sessions => {
+            parts.push(format!("{n} {}{}", r.basis.unit(), if n == 1 { "" } else { "s" }))
         }
-        _ => {}
     }
     parts.join(" · ")
 }
@@ -1601,7 +1597,7 @@ fn summarise(r: &ProfileReport) -> Summary {
             tag("wide_tempo", "Wide pitch range".into(), format!("tempo range {} ({})", v.value_label, s.source));
         }
     }
-    Summary { headline: headline(r, |_| true, |n| n.to_string()), tags }
+    Summary { headline: headline(r), tags }
 }
 
 // ---------------------------------------------------------------------------------------------

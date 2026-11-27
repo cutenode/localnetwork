@@ -370,7 +370,7 @@ fn a_plugin_suggests_one_of_its_commands() {
 /// For any params a planned command is planned with, the plan shown is the one the plugin
 /// answered, and applying it runs the request its dry run was, but for `dry_run` (each request
 /// has a scratch folder of its own), with the same params.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_planned_command_runs_with_what_it_was_planned_with(tc: TestCase) {
     let f = Fixture::planning(Options::default());
     // Named apart from what the test plugin reads in its params (`plan`, `fail`, `exit`...).

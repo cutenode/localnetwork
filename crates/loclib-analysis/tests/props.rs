@@ -32,7 +32,7 @@ fn clicks(rate: u32, bpm: f64, secs: f64) -> Vec<f64> {
 
 /// A click track at any tempo DJs play is heard at that tempo, or at half or double it (the
 /// octave errors every tempo estimator makes).
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_click_tracks_are_heard_at_their_tempo(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
     let dir = tempfile::tempdir().unwrap();
@@ -81,7 +81,7 @@ fn prop_a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 /// anything is decoded, whatever's asked, as that file's audio error; below it only the loudness
 /// meter refuses a rate, one under the 16 Hz it takes, as that file's analyzer error. A cancelled
 /// analysis is cancelled, and a file that isn't there is that file's error.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 // A last column of one sample, and a last column filled exactly.
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 2_048usize, level = 0.5f64)]
