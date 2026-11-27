@@ -33,14 +33,15 @@ fn locations_are_where_rekordbox_keeps_its_files() {
     assert_eq!(settings, cfg!(any(target_os = "macos", windows)).then_some(true));
 }
 
+/// Anything named for rekordbox is taken for it (a false one only holds a write back), but its agent.
 #[test]
-fn only_rekordbox_itself_is_rekordbox() {
+fn whatever_is_named_for_rekordbox_but_its_agent_is_rekordbox() {
     for (name, is) in [
         ("rekordbox", true),
         ("rekordbox.exe", true),
         ("REKORDBOX.EXE", true),
         ("rekordboxAgent", false),
-        ("rekordbox Helper", false),
+        ("rekordbox Helper", true),
         ("sleep", false),
     ] {
         assert_eq!(is_rekordbox(OsStr::new(name)), is, "{name}");

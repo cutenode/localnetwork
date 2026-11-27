@@ -53,17 +53,24 @@ pub struct Running {
     pub agent: bool,
 }
 
-/// Whether rekordbox and its agent are running now.
-pub fn running_now() -> Running {
+/// Whether rekordbox and its agent are running now; `None` when the processes can't all be listed
+/// (the list doesn't even hold this one).
+pub fn running_now() -> Option<Running> {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
     let mut system = System::new();
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    system.process(sysinfo::get_current_pid().ok()?)?;
     let mut out = Running::default();
     for p in system.processes().values() {
         out.rekordbox |= is_rekordbox(p.name());
         out.agent |= is_agent(p.name());
     }
-    out
+    Some(out)
+}
+
+/// rekordbox's version on this computer, as [`status`] finds it.
+pub fn rekordbox_version() -> Option<String> {
+    status().version
 }
 
 /// Whether a process named `name` is rekordbox's agent (`rekordboxAgent`, `rekordboxAgent.exe`) or
@@ -82,11 +89,11 @@ fn running() -> Option<Option<PathBuf>> {
     Some(found.exe().map(Path::to_path_buf))
 }
 
-/// Whether a process named `name` is rekordbox itself (`rekordbox`, `rekordbox.exe`), not its
-/// agent (`rekordboxAgent`) or a helper.
-fn is_rekordbox(name: &OsStr) -> bool {
-    let name = name.to_string_lossy().to_lowercase();
-    name == "rekordbox" || name == "rekordbox.exe"
+/// Whether a process named `name` is rekordbox (`rekordbox`, `rekordbox.exe`, or anything else
+/// named for it, a helper or a later version), not its agent (`rekordboxAgent`) or the agent's
+/// helpers. One taken for rekordbox that isn't only holds a write back.
+pub(crate) fn is_rekordbox(name: &OsStr) -> bool {
+    name.to_string_lossy().to_lowercase().starts_with("rekordbox") && !is_agent(name)
 }
 
 /// rekordbox's version: its app's (see [`app_version`]), else the one its agent last recorded in
