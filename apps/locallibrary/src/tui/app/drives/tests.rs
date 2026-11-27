@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 
 use crate::tui::app::background::Msg;
 use crate::tui::app::testing::*;
-use crate::tui::edits::COLLECTION_READ_ONLY;
+use crate::tui::edits::{COLLECTION_READ_ONLY, Modal};
+use crate::tui::keymap::Act;
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::*;
 
@@ -370,4 +372,75 @@ fn a_track_from_the_collection_plays_with_its_cues_from_master_db() {
     assert_eq!(got, [(None, 500, String::new()), (Some(0), 1500, "Start".into())]);
     wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     assert_eq!(app.position(), Duration::from_millis(500), "auto cue: the memory cue");
+}
+
+/// The queue arranged from rekordbox's collection packs onto a drive as a playlist of its own,
+/// named first: exported, as the collection is read-only here, even with nothing open in the
+/// library.
+#[test]
+fn the_queue_from_the_collection_packs_onto_a_drive_as_a_playlist() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    let here = app.loaded.as_ref().unwrap().library.tracks.iter().find(|t| t.title == "Here").unwrap().clone();
+    app.crate_list.add(&collection_root(), "rekordbox", [here]);
+    let target = dir.path().join("SET");
+    std::fs::create_dir_all(&target).unwrap();
+    let target = locallibrary::Device::open(&target).unwrap();
+    app.drives = vec![target.info()];
+    // With the collection open, its playlists are exported too; the queue isn't saved on it.
+    app.perform(Act::Pack, None);
+    let Some(Modal::Pick(p)) = app.modal.take() else { panic!("no choice: {}", last_message(&app)) };
+    let labels: Vec<&str> = p.items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(
+        labels[labels.len() - 2..],
+        [
+            "the queue's 1 track from rekordbox's collection (added as a playlist)",
+            "what the drive was exported with last time"
+        ]
+    );
+    assert!(!labels.iter().any(|l| l.contains("saved as a playlist first")), "{labels:?}");
+    app.loaded = None;
+
+    app.perform(Act::Pack, None);
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no choice: {}", last_message(&app)) };
+    let labels: Vec<&str> = p.items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["the queue's 1 track from rekordbox's collection (added as a playlist)"]);
+    press(&mut app, "\n");
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no drives to pick") };
+    assert_eq!(p.items.len(), 1);
+    press(&mut app, "\n");
+    let Some(Modal::Prompt(p)) = &app.modal else { panic!("no prompt") };
+    assert_eq!(p.label, "Name the queue's playlist on SET");
+    app.on_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    press(&mut app, "Sets/Friday\n");
+    let (op, summary) = confirming(&mut app);
+    assert_eq!(op, "collection export");
+    assert!(summary.contains("Sets/Friday") && summary.contains("1 track(s)"), "{summary}");
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("packed onto SET"), "{said}");
+    let packed = locallibrary::Device::open_export(target.root()).unwrap().library().unwrap();
+    let set = packed.find_playlist("Sets/Friday").unwrap();
+    assert_eq!(set.track_ids.len(), 1);
+    assert_eq!(packed.tracks.len(), 1);
+    assert!(packed.find_playlist("Shows/Friday").is_none(), "only the queue");
+
+    // Added again under another name, now that the drive has a library: nothing's copied twice,
+    // and what it has stays.
+    app.drives = vec![locallibrary::Device::open(target.root()).unwrap().info()];
+    app.perform(Act::Pack, None);
+    press(&mut app, "\n");
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no drives to pick") };
+    assert_eq!(p.title, "Add the queue to which drive? (what's on it stays)");
+    press(&mut app, "\n");
+    app.on_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    press(&mut app, "Sets/Saturday\n");
+    let (op, _) = confirming(&mut app);
+    assert_eq!(op, "collection queue");
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("added the queue to SET: 0 tracks copied, 1 already there"), "{said}");
+    let added = locallibrary::Device::open_export(target.root()).unwrap().library().unwrap();
+    assert_eq!(added.tracks.len(), 1);
+    assert!(added.find_playlist("Sets/Friday").is_some() && added.find_playlist("Sets/Saturday").is_some());
 }

@@ -8,8 +8,11 @@
 
 use std::path::{Path, PathBuf};
 
-use locallibrary::api::{self, CheckRequest, DriveRef, EjectDrives, FleetDrive, PullRequest};
+use locallibrary::api::{
+    self, CheckRequest, CollectionExportRequest, CollectionRef, DriveRef, EjectDrives, FleetDrive, PullRequest,
+};
 use locallibrary::check::{CheckOptions, CheckReport, Level as CheckLevel};
+use locallibrary::collection_export::{CollectionExportOptions, QueueExport};
 use locallibrary::export::{self, Format, Locator, PathStyle};
 use locallibrary::local_time;
 use locallibrary::pack::PackOptions;
@@ -17,7 +20,7 @@ use locallibrary::{Ctx, DeviceInfo, Error, Store, Track, fsutil};
 use loclib_plugin::Where;
 use uuid::Uuid;
 
-use super::app::{App, Focus, Level, View};
+use super::app::{App, Focus, Level, View, collection_root};
 use super::browse::{Category, NodeId};
 use super::edits::{Modal, Prompt, PromptFor};
 use super::keymap::{self, Act, Scope};
@@ -38,6 +41,9 @@ pub enum PackWhat {
     Playlists(Vec<String>),
     /// The crate's tracks (from the source), saved there as a playlist first.
     Crate(Vec<String>),
+    /// The crate's tracks from rekordbox's collection (their ids there), exported as a playlist
+    /// of their own, named first.
+    Queue(Vec<u32>),
     /// What the target was packed with last time.
     Again,
 }
@@ -460,16 +466,23 @@ impl App {
     // -----------------------------------------------------------------------------------------
 
     /// Pack a set: from the drive open in the library, the marked playlists, the playlist shown
-    /// or the crate, onto another drive (`onto`, unless it's that one, or one picked).
+    /// or the crate, onto another drive (`onto`, unless it's that one, or one picked). From
+    /// rekordbox's collection (open, or what the crate has from it), they're exported instead.
     pub(super) fn pack(&mut self, onto: Option<PathBuf>) {
-        let Some(l) = self.loaded.as_ref().filter(|l| !l.stale) else {
+        let queued = self.queued_from_collection();
+        let open = self.loaded.as_ref().filter(|l| !l.stale);
+        let Some(source) = open.map(|l| l.root().to_path_buf()).or_else(|| (!queued.is_empty()).then(collection_root))
+        else {
             self.toast("open the drive to pack from in the library first", Level::Info);
             return;
         };
-        let source = l.root().to_path_buf();
+        let from_collection = self.exports_collection(&source);
         let target = onto.filter(|r| *r != source);
         let mut choices = Vec::new();
         let mut items = Vec::new();
+        let Some(l) = open else {
+            return self.pack_queue_only(source, target, queued);
+        };
         if !self.list_marks.is_empty() {
             items.push(Item::new(format!("the marked playlists: {}", self.list_marks.join(", ")), ""));
             choices.push(PackWhat::Playlists(self.list_marks.clone()));
@@ -487,15 +500,46 @@ impl App {
         }
         let crated: Vec<String> =
             (self.crate_list.items.iter()).filter(|t| t.root == source).map(|t| t.track.file_path.clone()).collect();
-        if !crated.is_empty() {
+        if !crated.is_empty() && !from_collection {
             let n = crated.len();
             items.push(Item::new(format!("the queue's {n} track{} (saved as a playlist first)", s(n)), "t"));
             choices.push(PackWhat::Crate(crated));
         }
-        items.push(Item::new("what the drive was packed with last time", ""));
+        if !queued.is_empty() {
+            items.push(Item::new(queue_label(queued.len()), "t"));
+            choices.push(PackWhat::Queue(queued));
+        }
+        let again = match from_collection {
+            true => "what the drive was exported with last time",
+            false => "what the drive was packed with last time",
+        };
+        items.push(Item::new(again, ""));
         choices.push(PackWhat::Again);
         let title = format!("Pack from {} · what goes on", self.drive_label(&source));
         self.modal = Some(Modal::Pick(Picker::new(title, items, Then::PackWhat { source, target, choices })));
+    }
+
+    /// Nothing open to pack from, but the crate has tracks from rekordbox's collection: those are
+    /// what's packed.
+    fn pack_queue_only(&mut self, source: PathBuf, target: Option<PathBuf>, queued: Vec<u32>) {
+        let items = vec![Item::new(queue_label(queued.len()), "t")];
+        let choices = vec![PackWhat::Queue(queued)];
+        let title = "Pack from rekordbox's collection · what goes on".to_string();
+        self.modal = Some(Modal::Pick(Picker::new(title, items, Then::PackWhat { source, target, choices })));
+    }
+
+    /// The ids of the crate's tracks from rekordbox's collection, in order.
+    fn queued_from_collection(&self) -> Vec<u32> {
+        if self.collection_db.is_none() {
+            return Vec::new();
+        }
+        let root = collection_root();
+        (self.crate_list.items.iter()).filter(|t| t.root == root).map(|t| t.track.id).collect()
+    }
+
+    /// Whether packing from `source` exports rekordbox's collection, as it's the collection.
+    fn exports_collection(&self, source: &Path) -> bool {
+        self.collection_db.is_some() && source == collection_root()
     }
 
     /// What to pack was picked: now the drive (unless it's known).
@@ -503,7 +547,10 @@ impl App {
         if let Some(target) = target {
             return self.pack_onto(source, target, what);
         }
-        let roots: Vec<PathBuf> = self.drives.iter().map(|d| d.root.clone()).filter(|r| *r != source).collect();
+        // The collection's queue can go onto the drive open, too.
+        let queue = matches!(what, PackWhat::Queue(_));
+        let roots: Vec<PathBuf> =
+            self.drives.iter().map(|d| d.root.clone()).filter(|r| queue || *r != source).collect();
         if roots.is_empty() {
             self.toast("plug in the drive to pack onto", Level::Info);
             return;
@@ -515,7 +562,11 @@ impl App {
                 Item::new(self.drive_label(r), role)
             })
             .collect();
-        let title = "Pack onto which drive? (what's on it is replaced)".to_string();
+        let title = match queue {
+            true => "Add the queue to which drive? (what's on it stays)",
+            false => "Pack onto which drive? (what's on it is replaced)",
+        }
+        .to_string();
         self.modal = Some(Modal::Pick(Picker::new(title, items, Then::PackOnto { source, what, roots })));
     }
 
@@ -533,20 +584,65 @@ impl App {
                     root: source,
                 }));
             }
+            PackWhat::Queue(tracks) => {
+                let today = chrono::Local::now().format("%Y-%m-%d");
+                let label = format!("Name the queue's playlist on {}", self.drive_label(&target));
+                self.modal = Some(Modal::Prompt(Prompt {
+                    label,
+                    text: format!("Sets/{today}"),
+                    purpose: PromptFor::QueueForPack { tracks },
+                    root: target,
+                }));
+            }
             PackWhat::Playlists(playlists) => self.plan_pack(source, target, playlists),
             PackWhat::Again => self.plan_pack(source, target, Vec::new()),
         }
     }
 
     /// Plan packing `playlists` (none: the selection it was packed with) from `source` onto
-    /// `target`.
+    /// `target`. From rekordbox's collection, it's exported.
     pub(super) fn plan_pack(&mut self, source: PathBuf, target: PathBuf, playlists: Vec<String>) {
+        if self.exports_collection(&source) {
+            return self.plan_collection_pack(target, CollectionExportOptions { playlists, ..Default::default() });
+        }
         let req = api::PackRequest {
             source: source.display().to_string(),
             target: target.display().to_string(),
             options: PackOptions { playlists, ..Default::default() },
         };
         self.plan(target, move |ctx| Ok(Box::new(api::pack_plan(&req, ctx)?)));
+    }
+
+    /// Plan exporting rekordbox's collection onto `target` as `options` say (the queue named
+    /// `playlist`, with `queue`): what's on it is replaced, as a pack replaces it.
+    pub(super) fn plan_collection_pack(&mut self, target: PathBuf, options: CollectionExportOptions) {
+        let Some(db) = self.collection_db.clone() else {
+            self.toast("rekordbox's collection isn't on this computer", Level::Info);
+            return;
+        };
+        let req = CollectionExportRequest {
+            collection: CollectionRef { db: Some(db), key: None },
+            drive: target.display().to_string(),
+            options: CollectionExportOptions { replace: true, ..options },
+        };
+        self.plan(target, move |ctx| Ok(Box::new(api::collection_export_plan(&req, ctx)?)));
+    }
+
+    /// Plan adding the crate's tracks from rekordbox's collection (`tracks`, their ids) to
+    /// `target` as the playlist `playlist`, as rekordbox's Export playlist does: what the drive
+    /// has stays, and tracks it already has aren't copied again.
+    pub(super) fn plan_queue_pack(&mut self, target: PathBuf, playlist: String, tracks: Vec<u32>) {
+        let Some(db) = self.collection_db.clone() else {
+            self.toast("rekordbox's collection isn't on this computer", Level::Info);
+            return;
+        };
+        let queue = QueueExport { playlist, tracks };
+        let req = CollectionExportRequest {
+            collection: CollectionRef { db: Some(db), key: None },
+            drive: target.display().to_string(),
+            options: CollectionExportOptions { queue: Some(queue), ..Default::default() },
+        };
+        self.plan(target, move |ctx| api::collection_queue_plan(&req, ctx));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -775,3 +871,8 @@ pub fn role_name(r: locallibrary::fleet::Role) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// The pack menu's line for the crate's `n` tracks from rekordbox's collection.
+fn queue_label(n: usize) -> String {
+    format!("the queue's {n} track{} from rekordbox's collection (added as a playlist)", s(n))
+}
