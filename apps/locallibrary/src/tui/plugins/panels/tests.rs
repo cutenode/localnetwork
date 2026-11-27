@@ -184,7 +184,7 @@ fn a_panels_picture_and_chart_are_drawn() {
 /// Whatever order the selection moves in and panels answer in (an answer for a track since left,
 /// one for a track whose panels aren't asked for yet, one failing), what's drawn under the
 /// selected track is its own panels' answers, or that they're coming: never another track's.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_track_shows_only_its_own_panels(tc: TestCase) {
     let dir = plugins_once();
     let root = demo_drive_in(dir, &format!("D{}", tc.draw(gs::integers::<u32>())));

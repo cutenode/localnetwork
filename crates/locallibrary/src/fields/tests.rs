@@ -211,7 +211,7 @@ fn field_value(tc: &TestCase) -> FieldValue {
 /// analyzer, and of files changing: a value is kept only when its names can be folders and its
 /// numbers are finite and its file is there (one that isn't is named), and reads back (as the store has it, and named `plugin.field` for a
 /// library's tracks) from the analyzers asked for, until its file changes.
-#[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 50)]
 fn prop_kept_fields_read_back_until_their_file_changes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let st = Store::open_or_init(dir.path().join("store")).unwrap();

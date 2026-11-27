@@ -266,8 +266,9 @@ impl App {
             self.analyzer.update(self.tap_reader.read(&a.tap, playing), a.tap.sample_rate(), &counts, dt);
         }
 
-        // Flash the visualiser in a cue's colour as the playhead crosses it (not when seeking past).
-        let pos_ms = self.position().as_secs_f64() * 1000.0;
+        // Flash the visualiser in a cue's colour as the playhead crosses it (not when seeking past),
+        // when it's heard.
+        let pos_ms = self.heard_ms();
         let prev = self.last_pos_ms;
         let crossed = self.now.as_ref().filter(|_| pos_ms > prev && pos_ms - prev < 500.0).and_then(|n| {
             n.analysis

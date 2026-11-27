@@ -4,8 +4,8 @@
 use crate::common;
 use crate::upgrade::{MP3, setup, store};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, UpgradeRequest};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
@@ -15,7 +15,7 @@ use locallibrary::upgrade::UpgradeOptions;
 /// track, deleting the MP3 (after backing it up) only when asked, which makes it destructive;
 /// applied, planned first or in one go, the track plays the WAV, and the MP3 is gone only when
 /// asked. Planned again, there's nothing to upgrade.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(remove_old = true, in_one_go = true)]
 #[hegel::explicit_test_case(remove_old = false, in_one_go = false)]
 fn prop_a_lossy_track_upgrades_to_its_lossless_file(tc: TestCase) {

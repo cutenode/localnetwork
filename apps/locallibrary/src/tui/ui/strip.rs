@@ -105,7 +105,7 @@ pub(super) fn draw_overview(app: &mut App, buf: &mut Buffer, area: Rect, cue_row
         redraw_overview(app, area, cue_rows, phrases);
         app.waves.size = Some(size);
     }
-    let progress = app.now.as_ref().map_or(0.0, |n| app.position().as_secs_f64() / n.duration.as_secs_f64().max(0.001));
+    let progress = app.now.as_ref().map_or(0.0, |n| app.heard().as_secs_f64() / n.duration.as_secs_f64().max(0.001));
     // In eighths of a cell, where the glyphs for them can be drawn.
     let steps = if icons::ascii() { 1.0 } else { 8.0 };
     let at = (progress.clamp(0.0, 1.0) * f64::from(area.width) * steps) as u32;
@@ -198,7 +198,7 @@ fn strip_line(app: &App, width: usize) -> Line<'static> {
         return spread(fit(idle(app), width.saturating_sub(used)), right, width as u16);
     };
     let t = &now.track;
-    let pos_ms = app.position().as_secs_f64() * 1000.0;
+    let pos_ms = app.heard_ms();
     let (glyph, c) = if app.is_playing() {
         (icons::PLAY, theme::current().accent)
     } else {

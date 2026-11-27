@@ -1,16 +1,15 @@
 //! `locallibrary/store/1`: each request is a stream of its own, the request as JSON and then a
 //! response of a status byte and its body.
 //!
-//! - `hello` with the share code's token, first on a connection: the [`Catalog`] as JSON. A wrong
-//!   token is refused and the connection closed; nothing else is answered before a right one.
+//! - `hello` with the share code's token, first on a connection: the
+//!   [`Catalog`](crate::catalog::Catalog) as JSON. A wrong token is refused and the connection
+//!   closed; nothing else is answered before a right one.
 //! - `snapshot` with an id: the manifest as it is in the store (`snapshots/<id>.json`).
 //! - `object` with a hash: the stored file's bytes.
 
-use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
-pub(super) use crate::catalog::Catalog;
-use crate::hash::Hash;
+pub(super) use crate::catalog::wire::{Request, catalog};
 use crate::{Error, Result};
 
 pub(super) const ALPN: &[u8] = b"locallibrary/store/1";
@@ -24,21 +23,12 @@ const REQUEST_LIMIT: usize = 4096;
 /// The largest catalog or manifest (a manifest lists every file of a library).
 pub(super) const JSON_LIMIT: usize = 512 << 20;
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub(super) enum Request {
-    Hello { token: String },
-    Snapshot { id: Hash },
-    Object { hash: Hash },
-}
-
 pub(super) fn net(e: impl std::fmt::Display) -> Error {
     Error::Peer(format!("the connection to the other computer failed: {e}"))
 }
 
 pub(super) async fn read_request(recv: &mut iroh::endpoint::RecvStream) -> Result<Request> {
-    let bytes = recv.read_to_end(REQUEST_LIMIT).await.map_err(net)?;
-    serde_json::from_slice(&bytes).map_err(|e| Error::Peer(format!("a request that isn't one: {e}")))
+    Request::parse(&recv.read_to_end(REQUEST_LIMIT).await.map_err(net)?)
 }
 
 /// Send `request`, and read its status (the body follows on `recv`).

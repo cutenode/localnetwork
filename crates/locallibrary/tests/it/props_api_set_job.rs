@@ -5,8 +5,8 @@ use crate::common::{self, path};
 use crate::props_api_drives::{saved_copy, saved_demo};
 use crate::props_api_jobs::{bare_export, own_identity};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, StepKind};
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::fleet;
@@ -53,7 +53,7 @@ fn names_lists(line: &str, lists: &[String]) -> bool {
 ///
 /// The explicit case takes them in that order, with more than three lists, so Old is tried as
 /// the source after Main and finds Main newer.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(n = 4usize, order = [0usize, 1, 2], players = Vec::<String>::new(), eject = true, by_plan = true)]
 fn prop_a_set_job_saves_what_it_can_and_says_why_not_the_rest(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(5));

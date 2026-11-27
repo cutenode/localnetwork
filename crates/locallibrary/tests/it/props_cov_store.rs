@@ -11,8 +11,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use chrono::Utc;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::model::LibrarySummary;
 use locallibrary::paths::FileClass;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
@@ -107,7 +107,7 @@ type Read<'a> = (&'static str, Vec<&'static str>, Box<dyn Fn() -> Result<()> + '
 
 /// A record file that's broken (cut short, or not the JSON it should be) fails every read of it
 /// with an error naming it, and nothing else: and it's left as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_broken_record_file_fails_exactly_the_reads_of_it(tc: TestCase) {
     for file in [LIBRARIES, LABELS, PRUNED, DRIVES, "settings.json", "players.json", "smart.json", "store.json"] {
         let junk: &[u8] = tc.draw(gs::sampled_from(vec![&b""[..], b"{", b"not json", b"\"a string\""]));
@@ -227,7 +227,7 @@ fn broken_folder_fails_its_listings(dir: &Path, broken: &str, which: usize) {
 
 /// Every change to the store's records, in a store folder that can't be written, fails and
 /// leaves every record as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_store_folder_that_cant_be_written_refuses_the_change(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     if writes_anyway(dir.path()) {
@@ -297,7 +297,7 @@ fn prop_a_prune_stopped_halfway_keeps_history_whole(tc: TestCase) {
 /// A clean-up that meets something it can't remove (or a folder it can't list) fails, its plan
 /// still says what it would remove, and once the folder lets go the next clean-up finishes it and
 /// leaves nothing more to remove, the library's snapshots and files kept.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_clean_up_stopped_by_a_file_finishes_once_it_can_go(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     if writes_anyway(dir.path()) {

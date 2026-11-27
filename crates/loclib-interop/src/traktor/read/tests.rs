@@ -161,6 +161,7 @@ fn grid_markers_lay_down_beats() {
     assert_eq!(entry(Some(120.0), Some(1.0), Vec::new()).beats(), Ok(Vec::new()));
     let unknown = "the track's length isn't known, or is over a day";
     assert_eq!(entry(Some(120.0), None, vec![grid(0.0, None)]).beats(), Err(unknown));
+    assert_eq!(entry(Some(120.0), Some(0.0), vec![grid(0.0, None)]).beats(), Err(unknown), "no length");
     assert_eq!(entry(Some(120.0), Some(86_400.5), vec![grid(0.0, None)]).beats(), Err(unknown));
     let too_fast = entry(Some(700.0), Some(1.0), vec![grid(0.0, None)]);
     assert_eq!(too_fast.beats(), Err("its tempo isn't known, or isn't 0.01 to 655.35 BPM"));
@@ -173,6 +174,25 @@ fn grid_markers_lay_down_beats() {
     let longest = entry(Some(655.35), Some(86_400.0), vec![grid(-4_294_967_295.0, None)]);
     let beats = longest.beats().unwrap();
     assert_eq!((beats.len(), beats.last().map(|b| b.time_ms < 86_400_000)), (943_704, Some(true)));
+}
+
+/// A marker's beats run to the last before the next marker, however its distance divides into
+/// steps: one that lands on the next marker is the next marker's, one a hair before it is its own
+/// (and the next marker's goes, closer than a millisecond).
+#[test]
+fn a_markers_beats_end_just_before_the_next() {
+    let step: f64 = 60_000.0 / 0.17;
+    let on = entry(None, Some(2_480.0), vec![grid(0.0, Some(0.17)), grid(7.0 * step, Some(120.0))]);
+    let beats = on.beats().unwrap();
+    assert_eq!((beats[6].bpm, &beats[7]), (0.17, &beat(1, 120.0, 2_470_588)));
+    let step: f64 = 60_000.0 / 1.4;
+    let before = entry(None, Some(130.0), vec![grid(0.0, Some(1.4)), grid((3.0 * step).next_up(), Some(120.0))]);
+    let beats = before.beats().unwrap();
+    assert_eq!(beats[3..5], [beat(4, 1.4, 128_571), beat(2, 120.0, 129_071)]);
+    // At 90 BPM from 333 ms in, the second beat is at 999.67 ms, before the end of a one-second
+    // track, but would be kept at 1000.
+    let to_end = entry(None, Some(1.0), vec![grid(333.0, Some(90.0))]);
+    assert_eq!(to_end.beats().unwrap(), [beat(1, 90.0, 333)]);
 }
 
 /// Numbers out of what a track or a grid holds are left out as they're read: a tempo, a length,
@@ -208,6 +228,17 @@ fn playlists_past_16_mib_of_paths_are_refused() {
     assert_eq!(read(lists(15).as_bytes()).unwrap().lists.len(), 15);
     let refused = read(lists(17).as_bytes()).unwrap_err().to_string();
     assert_eq!(refused, "not a Traktor collection: its playlists' paths come to more than 16 MiB");
+    // One playlist `p` in a folder: the folder's name and `p`, each with what holding it takes.
+    let one = |folder: usize| {
+        let named = format!(
+            "<NODE TYPE=\"FOLDER\" NAME=\"{}\"><NODE TYPE=\"PLAYLIST\" NAME=\"p\"/></NODE>",
+            "x".repeat(folder)
+        );
+        read(format!("<NML><PLAYLISTS>{named}</PLAYLISTS></NML>").as_bytes())
+    };
+    let exactly = PATHS_BYTES - 2 * std::mem::size_of::<String>() - 1;
+    assert_eq!(one(exactly).unwrap().lists.len(), 1, "16 MiB exactly");
+    assert!(one(exactly + 1).is_err());
     let deep = |n: usize| {
         format!("<NML><PLAYLISTS>{}{}</PLAYLISTS></NML>", "<NODE TYPE=\"FOLDER\">".repeat(n), "</NODE>".repeat(n))
     };

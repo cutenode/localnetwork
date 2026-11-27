@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 
 use crate::support::{Env, line, path};
 
@@ -14,7 +14,7 @@ const TRACK_2: &str = "Contents/Loopmasters/UnknownAlbum/Demo Track 2.mp3";
 /// Good copies fetched `--from` a copy of the store go into the store, so with no store yet a
 /// verify given one is refused as a usage error, whatever it names and whether it repairs, and
 /// leaves no store and the drive as it was.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_verify_from_a_copy_needs_the_store(tc: TestCase) {
     let env = Env::new();
     let main = env.drive("Main");
@@ -208,7 +208,7 @@ fn tidy_says_what_it_couldnt_remove() {
 /// what it can, says each file it couldn't remove, and exits as a partial change does when there
 /// was one.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_tidy_says_each_file_it_couldnt_remove(tc: TestCase) {
     use crate::support::{permissions_enforced, set_mode};
     if !permissions_enforced() {

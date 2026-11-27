@@ -27,13 +27,18 @@ export function filterPaths(filter: string): string[] {
 	return paths;
 }
 
-/** The first of `files` that `paths` select: it matches a glob and none of the `!` ones, as with `some-with-excludes`. */
-export function selected(paths: string[], files: string[]): string | undefined {
+/** Whether `paths` select a file: it matches a glob and none of the `!` ones, as with `some-with-excludes`. Compiled once, for many files. */
+export function selecting(paths: string[]): (file: string) => boolean {
 	const glob = (patterns: string[]) => picomatch(patterns, { dot: true });
 	const include = glob(paths.filter((path) => !path.startsWith('!')));
 	const exclude = glob(paths.flatMap((path) => (path.startsWith('!') ? [path.slice(1)] : [])));
 
-	return files.find((file) => include(file) && !exclude(file));
+	return (file) => include(file) && !exclude(file);
+}
+
+/** The first of `files` that `paths` select (see [`selecting`]). */
+export function selected(paths: string[], files: string[]): string | undefined {
+	return files.find(selecting(paths));
 }
 
 const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8' }).trim();

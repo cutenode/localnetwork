@@ -325,7 +325,7 @@ enum Step {
 /// damaged file whose good copy the store lost is offered from the copy and rewritten when
 /// repaired (each case ends doing so); and a destination that isn't one, or of the wrong kind, is
 /// refused naming it.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_destinations_do_what_the_model_says_wherever_they_are_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (env, a) = env();

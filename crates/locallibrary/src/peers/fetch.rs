@@ -5,7 +5,7 @@ use std::io::Write;
 
 use iroh::endpoint::Connection;
 
-use super::protocol::{self, ALPN, Catalog, JSON_LIMIT, OK, Request, ask};
+use super::protocol::{self, ALPN, JSON_LIMIT, OK, Request, ask};
 use super::{FetchOptions, FetchReport, ShareCode, endpoint, runtime, short};
 use crate::catalog;
 use crate::error::IoContext;
@@ -58,8 +58,7 @@ async fn fetch_from(
             return Err(Error::Peer(format!("the other computer couldn't read its store: {why}")));
         }
     }
-    let catalog: Catalog = serde_json::from_slice(&recv.read_to_end(JSON_LIMIT).await.map_err(protocol::net)?)
-        .map_err(|e| Error::Peer(format!("the other computer's catalog can't be read: {e}")))?;
+    let catalog = protocol::catalog(&recv.read_to_end(JSON_LIMIT).await.map_err(protocol::net)?)?;
     if catalog.store == store.id()? {
         return Err(Error::invalid("that share code is this store's own"));
     }

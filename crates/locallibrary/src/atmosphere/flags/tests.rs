@@ -493,7 +493,7 @@ impl Website {
 
 /// A flag check, whatever the cache holds and however the session, the lock and the website stand,
 /// ends where the design's table says: what's on, who it's kept for, and which requests went out.
-#[hegel::test(test_cases = 120, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 120)]
 #[hegel::explicit_test_case(age = None::<i64>, attempted = 600i64, said_of = None::<&str>, was = (false, 0u32, false), now_is = (false, 100u32, true), session = Session::WithScope, public = Website::Lists, with_token = Website::Lists, busy = false)]
 #[hegel::explicit_test_case(age = Some(120i64), attempted = 120i64, said_of = Some(DID), was = (false, 0u32, true), now_is = (false, 0u32, true), session = Session::WithScope, public = Website::Lists, with_token = Website::Refusing, busy = false)]
 #[hegel::explicit_test_case(age = Some(120i64), attempted = 5i64, said_of = Some(DID), was = (true, 0u32, false), now_is = (false, 0u32, false), session = Session::Ended, public = Website::Failing, with_token = Website::Lists, busy = true)]

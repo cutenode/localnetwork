@@ -133,7 +133,7 @@ fn art_fetch_sets_the_cover_found() {
 /// and as a dry run or not: a cover found is set on every track that hasn't one (all of them
 /// with `--replace`), and only by a run that isn't a dry run; with none found, or every track
 /// left alone, there's nothing to change.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_art_fetch_sets_a_cover_only_where_its_asked(tc: TestCase) {
     let (env, _usb) = env();
     let found = tc.draw(gs::booleans());
@@ -283,7 +283,7 @@ fn plugin_providers_shows_and_sets_the_auto_pick() {
 /// gets the candidate picked for it. Before anything changes, an answer for a track nothing was
 /// found for is refused, then one that isn't a number of the track's, then the tracks left with
 /// no answer and none picked, naming each.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
     let (env, usb) = env();
     let before = years(&usb);
@@ -370,7 +370,7 @@ fn prop_any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
 /// default; confirmed or not; shown in text or `--json`): the auto-pick reads back as last set,
 /// 0.9 until then and once put back, and a score it can't be is refused. The text lists every
 /// provider as the JSON does, with the auto-pick.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_the_auto_pick_reads_back_as_last_set(tc: TestCase) {
     let (env, _usb) = env();
     let mut kept = 0.9;

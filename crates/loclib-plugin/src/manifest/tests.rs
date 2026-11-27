@@ -476,7 +476,8 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
 }
 
 /// An account type's endpoints are read as the HTTP client reads them: https, or http to this
-/// computer itself, never with a user name or password, whatever the address looks like.
+/// computer itself, never with a user name or password, whatever the address looks like, and
+/// never with a space or a control character the client would have to encode.
 #[test]
 fn an_account_types_endpoints_are_read_as_the_client_reads_them() {
     let token_url = |url: &str| {
@@ -502,6 +503,8 @@ fn an_account_types_endpoints_are_read_as_the_client_reads_them() {
         "http://0x7f.0.0.2/token",
         "https://someone@auth.example/token",
         "http://local host/token",
+        "https://auth.example/to ken",
+        "https://auth.example/token\u{7f}",
     ];
     for url in refused {
         let said = format!(
@@ -960,6 +963,7 @@ fn a_net_grant_reaches_its_host_or_those_below_its_domain() {
         ("ia800.us.archive.org", true),
         ("www.archive.org", true),
         ("archive.org", false),
+        (".archive.org", false),
         ("notarchive.org", false),
         ("archive.org.evil.example", false),
     ] {

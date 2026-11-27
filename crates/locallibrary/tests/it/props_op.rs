@@ -6,8 +6,8 @@ use crate::{common, drawn};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, EditRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions};
@@ -16,7 +16,7 @@ use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use rekordbox_pdb::PdbEditor;
 
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_plan_is_refused_exactly_when_what_it_was_made_from_changes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, &common::isolate(dir.path(), None), "A");

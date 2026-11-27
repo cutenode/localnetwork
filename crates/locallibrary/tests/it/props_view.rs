@@ -10,8 +10,8 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Hash;
 use locallibrary::device::Device;
 use locallibrary::model::LibrarySummary;
@@ -121,7 +121,7 @@ fn assert_no_write_gets_through(store: &Store, snapshot: &Snapshot, view: &Path,
 /// A view shows exactly what the snapshot lists (safe paths, once each), every file a link to an
 /// object nothing can write, older objects included, while objects it doesn't show stay as they
 /// were. Closing it removes every trace and changes no object.
-#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_view_is_the_snapshot_and_nothing_writes_through_it(tc: TestCase) {
     let (dir, store) = fixture();
     let keys: Vec<(&str, bool)> = tc.draw(gs::subsequences(KEYS.to_vec()));
@@ -183,7 +183,7 @@ fn prop_a_view_is_the_snapshot_and_nothing_writes_through_it(tc: TestCase) {
 
 /// New objects are read-only however they came, also one replacing an object a crash cut short,
 /// and what's pulled from them onto a drive isn't: only the store's files are.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_objects_are_read_only_from_the_start(tc: TestCase) {
     let (dir, store) = fixture();
     let bytes: Vec<u8> = tc.draw(gs::binary().min_size(2).max_size(16));
@@ -213,7 +213,7 @@ fn prop_objects_are_read_only_from_the_start(tc: TestCase) {
 /// Pruning a view's snapshot is warned of and doesn't stop it. Hard links keep their files, whose
 /// space stays in use. A symlink (here, to a file lost when the view was made and brought back)
 /// breaks, and works again, read-only, if its file comes back. Closing removes all of them.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_pruning_a_views_snapshot_says_so_and_goes_ahead(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -277,7 +277,7 @@ fn prop_pruning_a_views_snapshot_says_so_and_goes_ahead(tc: TestCase) {
 
 /// A file the store has lost is shown as a broken symlink, and said: the rest of the drive is there
 /// to see.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_file_the_store_lost_is_said_and_its_link_broken(tc: TestCase) {
     let (_dir, store) = fixture();
     let files: Vec<(String, Vec<u8>)> = (0..3).map(|i| (format!("Contents/{i}.mp3"), vec![i])).collect();
@@ -300,7 +300,7 @@ fn prop_a_file_the_store_lost_is_said_and_its_link_broken(tc: TestCase) {
 
 /// A folder holding anything is refused and left as it was, as is a path that can't be a folder, a
 /// snapshot that isn't there makes nothing, and a failure part way removes what it made.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_view_that_cant_be_made_leaves_nothing(tc: TestCase) {
     let (dir, store) = fixture();
     let files = [("Contents/a.mp3".to_string(), b"a".to_vec())];
@@ -335,7 +335,7 @@ fn prop_a_view_that_cant_be_made_leaves_nothing(tc: TestCase) {
 
 /// Only a recorded view can be closed: this deletes. What someone put in a view is theirs, and
 /// stays, as does the stored file a hard link shared; one deleted by hand drops off the list.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_closing_deletes_only_a_views_own_links(tc: TestCase) {
     let (dir, store) = fixture();
     let files = [("Contents/Artist/a.mp3".to_string(), b"a".to_vec())];

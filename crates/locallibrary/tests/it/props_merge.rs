@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
 use locallibrary::progress::Ctx;
@@ -40,7 +40,7 @@ fn contains_all(big: &[String], small: &[String]) -> bool {
     })
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_merging_loses_nothing_and_undoes_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());

@@ -50,6 +50,16 @@ fn keeps_one_set_of_bands_per_spectrum_on_screen() {
     assert!(a.bands(48).is_none() && a.bands(12).is_some());
 }
 
+/// The level is of the last 1024 samples played: loud ones before them don't count.
+#[test]
+fn the_level_is_of_the_latest_samples() {
+    let mut a = Analyzer::default();
+    let mut samples = vec![0.5; FFT_SIZE];
+    samples[FFT_SIZE - 1024..].fill(0.0);
+    a.update(Some(&samples), 44_100, &[], 1.0 / 30.0);
+    assert_eq!(a.level, 0.0);
+}
+
 /// What's played shows: in its band, in the overall level, and in a scope trace that starts on a
 /// rising zero crossing so it stands still from frame to frame.
 #[test]

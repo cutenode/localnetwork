@@ -7,8 +7,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, path};
@@ -27,7 +27,7 @@ fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
 /// format, as one file or a file per playlist, with paths any way: each file the JSON reports is
 /// there with its tracks (one line each, as text), and printed, the run names each; and the
 /// flags only plugins' formats take are refused.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_playlists_are_written_as_reported(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
@@ -134,7 +134,7 @@ fn drive_files(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
 /// carries no analysis when told not to. Applied, every file it lists is written at its size (a
 /// tagged copy at no more), the drive is only read, and again it asks before overwriting unless
 /// replacing.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_other_dj_software_gets_the_files_planned(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
@@ -238,7 +238,7 @@ fn prop_other_dj_software_gets_the_files_planned(tc: TestCase) {
 /// tracks, some deleted, with a playlist in a folder: `collection` printed says what its JSON
 /// does, what drive A lacks against it is printed as listed, and exporting it to a folder plans
 /// (and printed, shows) the copies it then makes.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_the_collection_prints_what_its_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let db = fx.home("master.db");
@@ -423,7 +423,7 @@ fn prop_the_collection_prints_what_its_json_says(tc: TestCase) {
 /// or tempo, plus one for a track the drive doesn't have: `analysis bench` printed gives each
 /// analyzer's scores and outcomes as its JSON does (the analysis has none to give: the drive's
 /// placeholder audio doesn't decode).
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_the_benchmark_prints_its_scores(tc: TestCase) {
     use locallibrary::Device;
     use locallibrary::harmony::Camelot;

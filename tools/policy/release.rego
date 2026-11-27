@@ -12,7 +12,7 @@ about := lib.file("about.toml")
 
 # Where `cargo notices` writes the notices.
 notices_file := args[i + 1] if {
-	args := lib.file(".cargo/config.toml").alias.notices
+	args := split(lib.file(".cargo/config.toml").alias.notices, " ")
 	some i, arg in args
 	arg == "--output-file"
 }

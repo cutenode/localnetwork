@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{
     self, DismissSessions, EditSet, ImportSessionLog, Insert, Move, NewSet, SessionsRequest, SetExport, SetFields,
     SetFormat, SetRef, SetsQuery, SuggestSets, TrackPlaysQuery,
@@ -663,7 +663,7 @@ fn details_left_out() -> Details {
     Details { fields: SetFields::default(), want: [None; 8], date: None, with: None }
 }
 
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_sets_through_the_api_match_the_model(tc: TestCase) {
     let desk = Desk::new();
     // Two sets of four tracks to start from, so that every step has sets to work on.
@@ -1061,7 +1061,7 @@ fn set_from(id: &str, sessions: Vec<String>) -> Set {
 /// windows, timed tracks, sets and dismissals the model has; `unassigned` leaves out those in
 /// sets or dismissed, a dismissal is taken back with `undo`, and `session::find` finds each by
 /// id, id prefix in any case, or name when only one has it.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
@@ -1144,7 +1144,7 @@ fn prop_imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
 /// The sets imported logs suggest are the model's: the logs in no set and not dismissed, grouped
 /// while their play times overlap, the groups that have a log of 3 tracks or more, newest first,
 /// each counting the different tracks it logged (a minute of play each).
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
@@ -1223,7 +1223,7 @@ fn prop_imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
 /// named (each once), timed from the first play of them all, and is dated the day they started
 /// (or, across days, the first day one was seen, with a note); logs added to it later go after
 /// its tracks, the times all still counting from the earliest play.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_sets_built_from_imported_logs_are_timed_from_the_first_play(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
@@ -1312,7 +1312,7 @@ struct Listed {
 /// database can't be read is warned about. Lists saved by one pull, or with no start to their
 /// window, are each suggested alone (saying so) once they have 3 tracks; lists on a drive since
 /// its pull go together.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
     let desk = Desk::new();
     let main = common::bigger_drive(&desk.volumes, "Main");
@@ -1478,7 +1478,7 @@ fn prop_history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
 /// relative to the file, or absolute), or made into a playlist on it (named for the set or its day,
 /// or as asked), the set lists those of its tracks the drive has, in set order (the playlist each once;
 /// made again, it has nothing to add), warning about each of the others by its place in the set.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_sets_become_playlists_on_a_drive(tc: TestCase) {
     let desk = Desk::new();
     let main = common::bigger_drive(&desk.volumes, "Main");
@@ -1567,7 +1567,7 @@ fn prop_sets_become_playlists_on_a_drive(tc: TestCase) {
 /// Logs added to a set that has a recording leave its tracklist, the recording's, as it is, and
 /// join its sessions: each track they logged (by name, once) is a note that the recording didn't
 /// hear it. A drive whose history can't be read while the sessions are gathered is warned of.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_logs_added_to_a_recorded_set_are_notes_not_tracks(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();

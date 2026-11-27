@@ -109,7 +109,8 @@ fn prop_the_title_and_description_are_what_youtube_takes(tc: TestCase) {
 fn prop_an_untitled_set_is_named_after_where_and_when(tc: TestCase) {
     let place = || gs::optional(gs::sampled_from(vec!["Warehouse".to_string(), " ".into(), "<Club>".into()]));
     let (venue, city) = (tc.draw(place()), tc.draw(place()));
-    let set = PublishedSet { title: None, venue: venue.clone(), city: city.clone(), ..set() };
+    let date = tc.draw(gs::sampled_from(vec!["2026-10-03".to_string(), "<2026-10-03>".into()]));
+    let set = PublishedSet { title: None, venue: venue.clone(), city: city.clone(), date, ..set() };
     let given = |s: Option<String>| s.map(|s| s.replace(['<', '>'], "")).filter(|s| !s.trim().is_empty());
     let place = given(venue).or_else(|| given(city)).unwrap_or_else(|| "DJ set".into());
     assert_eq!(video::of(&set, &[], 60).title, format!("{place}, 2026-10-03"));

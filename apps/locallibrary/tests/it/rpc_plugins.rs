@@ -3,8 +3,8 @@
 //! and `plugins.provide`, `plugins.provide.plan` / `.apply` and `plugins.providers(.set)`, with the
 //! plugin host's test plugin (`LOCALLIBRARY_TEST_PLUGINS`).
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, echo_plugin, jpeg, path};
@@ -191,7 +191,7 @@ fn the_sidecar_sends_an_image_once_however_many_tracks_its_for() {
 /// first, picked exactly when one alone scores the setting or more; and planned and applied (by
 /// the plan's id, or in one go), the picks are what the tracks then have (a title over theirs only with `replace`, a year where they
 /// have none).
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_any_candidates_are_offered_and_their_picks_applied(tc: TestCase) {
     let (_env, mut s, drive) = sidecar();
     let auto_pick = tc.draw(gs::integers::<u8>().max_value(100)) as f64 / 100.0;

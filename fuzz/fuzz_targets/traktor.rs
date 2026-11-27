@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/traktor.rs
+// paths: fuzz/seeds/traktor/**
+// paths: crates/loclib-interop/src/{lib,traktor,encode}.rs
+// paths: crates/loclib-interop/src/traktor/**
+// paths: plugins/interop/src/traktor_read.rs
+// paths: crates/loclib-model/src/{analysis,harmony,model,paths}.rs
 //! Traktor's `collection.nml`: the reader, each track's file and the beat grid its grid markers
 //! lay down (what a library source takes), and what the interop plugin's import makes of it.
 

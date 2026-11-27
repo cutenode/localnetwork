@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::model::TrackFields;
@@ -114,7 +114,7 @@ fn draw_edit(tc: &TestCase, kind: u8, files: &[String], bonus: &str) -> Edit {
     }
 }
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_edits_on_drifted_databases_change_export_pdb_alike_and_onelibrary_only_where_it_can(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (alone, both) = (drifted(dir.path(), false), drifted(dir.path(), true));

@@ -9,8 +9,8 @@ use std::process::Stdio;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use rustc_hash::FxHashMap;
 use serde_json::{Value, json};
 
@@ -148,7 +148,7 @@ fn events_are_wanted(s: &mut Sidecar, m: &Model) {
 
 /// Requests in any order (and a drive plugged in or pulled out), checked against the model after
 /// each.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
@@ -348,7 +348,7 @@ fn prop_the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCa
 
 /// A pack copied from drive A onto the blank drive over the sidecar: its progress is the request's
 /// own, comes before its response, and counts no more bytes copied than the plan copies.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_progress_counts_what_the_request_copies(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
@@ -394,7 +394,7 @@ fn prop_progress_counts_what_the_request_copies(tc: TestCase) {
 /// store's snapshot, a history list deleted once the store has it, the store's garbage), in any
 /// order: each is answered with an id and its operation, applied by that id once (or refused as
 /// stale when the drive changed since), and never again.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_plans_of_any_kind_apply_once(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
@@ -478,7 +478,7 @@ fn prop_plans_of_any_kind_apply_once(tc: TestCase) {
 /// Ctrl-C): each answers that it was cancelled, and the sidecar exits with 128 and the signal's
 /// number.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_signal_cancels_what_is_running_then_exits(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
@@ -514,7 +514,7 @@ fn prop_a_signal_cancels_what_is_running_then_exits(tc: TestCase) {
 /// With one worker, requests wait their turn: one cancelled while it waits answers `cancelled`
 /// at once (and its `job.finished` says so), while the one running carries on until it too is
 /// cancelled.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start_with(&fx, &["--workers", "1"]);
@@ -562,7 +562,7 @@ fn prop_a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
 /// drawn from its schema (or ones no method takes): each answers once, with a result in the
 /// shape its contract gives or an error the contract describes (never a panic), and parameters
 /// it doesn't take are refused.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_every_method_answers_as_its_contract_says(tc: TestCase) {
     use crate::props_rpc::{at, contract, excluded, params_for, violation};
     let fx = Env::from_template();
@@ -615,7 +615,7 @@ fn prop_every_method_answers_as_its_contract_says(tc: TestCase) {
 /// either way too; signing in to no account is refused, and a sign-in that was never begun is
 /// nothing to finish or cancel; signed out, it's gone.
 #[cfg(feature = "account")]
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     use crate::mock_pds::MockPds;
     use crate::props_rpc::{at, contract, violation};
@@ -727,7 +727,7 @@ fn served(s: &mut Sidecar, id: &Value) -> Vec<Value> {
 /// down cancelling what's running, then says how many computers fetched, each of which it said
 /// had connected.
 #[cfg(feature = "peers")]
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_store_served_over_the_sidecar_is_fetched_as_asked(tc: TestCase) {
     let (laptop_fx, studio_fx) = (Env::from_template(), Env::new());
     let (mut laptop, mut studio) = (Sidecar::start(&laptop_fx), Sidecar::start(&studio_fx));

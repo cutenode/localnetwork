@@ -7,8 +7,8 @@ use crate::common;
 
 use indexmap::IndexMap;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role};
@@ -52,7 +52,7 @@ pub(crate) fn demote<'a>(roles: impl Iterator<Item = &'a mut Option<Role>>, role
     }
 }
 
-#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_the_registry_matches_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -207,7 +207,7 @@ fn prop_the_registry_matches_the_model(tc: TestCase) {
 /// A drive copied file for file, identity and all: both claim one id, the copy is told apart by
 /// that, and given an identity of its own it no longer is one. A drive that lost its identity is
 /// recognised by what it holds, and takes the identity back.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -265,7 +265,7 @@ fn prop_copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
 /// Roles read back from their names in any case; two sightings are of one disk
 /// only by a serial number, and of one volume by its id; and of drives claiming one identity, the
 /// one on the disk or volume the identity was given on is the original, when only one is.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_roles_and_hardware_tell_drives_apart(tc: TestCase) {
     use locallibrary::fleet::Hardware;
     for role in Role::ALL {

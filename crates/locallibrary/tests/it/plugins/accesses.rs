@@ -95,7 +95,7 @@ enum Naming {
 /// was granted what that one asks; otherwise it fails as `access` (losing the account took the
 /// access with it) or `scope`, naming the type and the account plugin, and nothing is sent. No
 /// token gets out.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
@@ -178,7 +178,7 @@ fn sorted<S: AsRef<str>>(scopes: &[S]) -> Vec<&str> {
 /// without whose asks were all granted; the sign-in says which scopes the service declined, and
 /// the access remembers them until a sign-in for it grants them; and a sign-in again that comes
 /// back as another person keeps that account but gives echo no access to it.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
     let mut needs = some(&tc);
     if needs.is_empty() {
@@ -254,7 +254,7 @@ const SUBJECTS: [&str; 3] = ["a", "b", "c"];
 /// it first when it isn't), taking the default away leaves the one left the default when one is
 /// left and none otherwise, and taking away one it hasn't is refused; `{account:mock}` gets the
 /// default's token, or fails as `access` when there's none.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_default_access_answers_the_type_alone(tc: TestCase) {
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
     for subject in SUBJECTS {
@@ -381,7 +381,7 @@ fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
 /// asks, what the account was granted, what every access's scopes ask (remembered, once it's lost)
 /// and what's asked for besides; the refresh token it had is kept when the service answers none;
 /// and one lost that no plugin had access to can't be signed in to again.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
     let m = mock_for(30, "/userinfo", "", &asking(&["read"], &["write", "peek"]));
     m.state.lock().unwrap().unscoped = true;
@@ -508,7 +508,7 @@ const GONE: &str = "gone-accounts";
 /// an account the service signed out is forgotten, one it couldn't refresh kept; and echo passing
 /// an `access` or `scope` failure on, whatever type it says, is an `account` error (not signed in,
 /// no access, a missing scope) offering what its manifest and the store resolve it with.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
     use Failing::*;
     let all =
@@ -677,7 +677,7 @@ enum Refreshing {
 /// `scope`, naming what signing in again needs to allow, and is no longer granted what the
 /// service named (else what those ask); anything else, and any answer once the token was
 /// dropped, is passed on. No request is sent more than twice, and no token gets out.
-#[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 24)]
 fn prop_a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
@@ -751,7 +751,7 @@ fn prop_a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
 /// For a token placed either way, an access naming a scope its account type no longer has still
 /// serves the requests its other scopes cover; and a plugin run without a store has no access to
 /// any account.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_scope_the_type_no_longer_has_is_passed_over(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
@@ -785,7 +785,7 @@ fn prop_a_scope_the_type_no_longer_has_is_passed_over(tc: TestCase) {
 /// For an account signed in as anyone: a plugin that doesn't ask for its type isn't given access
 /// to it, nor made to use it by default; no plugin is given access to an account the store doesn't
 /// keep; and a plugin that isn't there is said not to be.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_access_is_given_only_to_what_a_plugin_asks_for(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
     let m = mock_for(3600, "/userinfo", "", &granting(&["net:127.0.0.1"]));
@@ -812,7 +812,7 @@ fn prop_access_is_given_only_to_what_a_plugin_asks_for(tc: TestCase) {
 /// For any order of the accounts it's given, the echo plugin made to use one by default is given
 /// access to it first when it has none; and once its default is taken away, the one access left
 /// is its default.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_the_one_access_left_is_the_default(tc: TestCase) {
     let first = tc.draw(gs::integers::<usize>().max_value(1));
     let (one, other) = (SUBJECTS[first], SUBJECTS[1 - first]);
@@ -838,7 +838,7 @@ const OTHER: &str = "other-accounts";
 /// access, or signed in again for when it has it), besides signing in for the plugin and using
 /// each account of the type; and an access whose account was signed in through an account plugin
 /// that doesn't provide the type is offered only those two.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_actions_pass_over_what_isnt_the_types(tc: TestCase) {
     let manifests = |server: &str| {
         let manifest = crate::mock_oauth::account_plugin(server, &format!("{server}/userinfo"), "");
@@ -888,7 +888,7 @@ enum Standing {
 /// took echo's access with it, and one whose tokens the keychain lost is signed out with the
 /// access still there. One signing itself out within the hour is due a warning, and one signed out
 /// that echo had access to still lists, signed out.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
     use Standing::*;
     use locallibrary::plugin::Unready;

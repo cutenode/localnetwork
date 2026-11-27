@@ -5,15 +5,15 @@
 use crate::common;
 use crate::upgrade::{DELAY_MS, append, setup, signal, store, waveform};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, UpgradeRequest};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use locallibrary::upgrade::UpgradeOptions;
 
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_cues_move_by_where_rekordboxs_timeline_starts(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lossless, song) = setup(dir.path());

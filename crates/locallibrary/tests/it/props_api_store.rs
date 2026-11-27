@@ -5,8 +5,8 @@
 use crate::common::{self, path};
 use crate::props_api_drives::saved_copy;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::progress::Ctx;
@@ -67,7 +67,7 @@ fn apply_without_store(store: &Store, main: &str, new: &str, plan: Plan) -> Resu
 /// drive the store hasn't got yet), each planned with the store and applied without it in any
 /// order, are refused saying what needs the store, and leave the store and both drives as they
 /// were. Without a store, a library's drive group can't be found either.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(plans = vec![Plan::Provision, Plan::Push, Plan::AdoptAs, Plan::ImportSettings, Plan::Players, Plan::SetJob])]
 fn prop_plans_that_keep_something_in_the_store_are_refused_without_it(tc: TestCase) {
     let all = vec![Plan::Provision, Plan::Push, Plan::AdoptAs, Plan::ImportSettings, Plan::Players, Plan::SetJob];
@@ -102,7 +102,7 @@ fn prop_plans_that_keep_something_in_the_store_are_refused_without_it(tc: TestCa
 /// library's snapshots and counting plays since a date (any of a year, a month or a day) are
 /// refused naming the library that isn't there, and a difference from Empty is refused for its
 /// having no snapshots; nothing on Main changes. Renaming Main there names the libraries it has.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_drive_whose_library_another_store_lacks_is_refused_naming_it(tc: TestCase) {
     let since = tc.draw(gs::sampled_from(vec!["2025", "2025-09", "2025-09-30"]));
     let playlist = tc.draw(gs::sampled_from(vec!["Techno", "Folder/Name", "nothing like it"]));

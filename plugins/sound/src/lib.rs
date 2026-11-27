@@ -7,6 +7,7 @@
 //! those with none (see [`EventNotify::new_tracks`] for when).
 
 use std::io::{Read, Write};
+use std::path::Path;
 
 use loclib_analysis::{COLUMNS_PER_SEC, Want, analyze};
 use loclib_plugin::{
@@ -76,6 +77,11 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
     let ctx = host.ctx();
     // Audio no decoder plays, or that the meter can't measure, is `parse`.
     let analysis = analyze(&req.track.audio_path, Want::ALL, &ctx).map_err(|e| RpcError::failure(&e, "parse", &ctx))?;
+    answer(&analysis, req.context.scratch.as_deref())
+}
+
+/// What `analysis` answers, its waveform in a file in `scratch` (the request's folder).
+fn answer(analysis: &loclib_analysis::Analysis, scratch: Option<&Path>) -> Result<Analysis, RpcError> {
     let estimate = analysis.estimate.as_ref();
     // A tempo of 0 is none found (a blip too short for one).
     let tempo = estimate.filter(|e| e.bpm > 0.0);
@@ -102,7 +108,7 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
         ),
     ];
     let drawn = analysis.waveform.as_ref().filter(|w| w.columns.iter().any(|c| *c != [0; 3]));
-    match (drawn, &req.context.scratch) {
+    match (drawn, scratch) {
         (None, _) => fields.push(("waveform", FieldValue::Null)),
         (Some(w), Some(scratch)) if within_a_day(w.columns.len()) => {
             let path = scratch.join(WAVEFORM_BLOB);

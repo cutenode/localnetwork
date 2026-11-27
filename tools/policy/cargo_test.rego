@@ -137,3 +137,9 @@ test_unpublished_crate_needs_neither if {
 	repo := [f | some f in fixtures.with_file("crates/loclib-x/Cargo.toml", unpublished); f.path != "/scratch/crate-roots.json"]
 	count(cargo.deny) == 0 with input as array.concat(repo, [{"path": "/scratch/crate-roots.json", "contents": {"roots": {}}}])
 }
+
+test_array_alias if {
+	broken := {"alias": {"notices": "about generate --output-file target/NOTICES.md about.hbs", "fuzz-x": ["fuzz", "run", "x"]}}
+	denied := cargo.deny with input as fixtures.with_file(".cargo/config.toml", broken)
+	denied == {".cargo/config.toml: write the `fuzz-x` alias as one string (\"a b c\"), not an array; cargo appends a parent directory's array alias to it"}
+}

@@ -8,8 +8,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
 use locallibrary::retention::{self, PruneOptions};
@@ -27,7 +27,7 @@ fn pull(store: &Store, root: &Path) {
 
 /// Pruning named a library the store lacks, cancelled, refused the store's lock or unable to read
 /// a store record stops, and the store keeps every snapshot.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(pad = " ", record = "libraries.json", by_name = false)]
 #[hegel::explicit_test_case(pad = " ", record = "labels.json", by_name = true)]
 #[hegel::explicit_test_case(pad = " ", record = "drives.json", by_name = false)]

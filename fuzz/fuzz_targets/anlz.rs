@@ -1,3 +1,8 @@
+// paths: fuzz/fuzz_targets/anlz.rs
+// paths: fuzz/dicts/anlz.dict
+// paths: crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ/**
+// paths: crates/loclib-anlz/src/**
+// paths: crates/loclib-model/src/analysis.rs
 //! Analysis files (`ANLZ0000.DAT`, `.EXT`, `.2EX`): every reader, and the rewrites that start
 //! from a file on the drive (a relocated track's path, its cues, its times shifted, its beat grid,
 //! waveforms and phrases).

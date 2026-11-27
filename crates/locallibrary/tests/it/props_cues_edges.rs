@@ -6,8 +6,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
@@ -23,7 +23,7 @@ fn content_id(root: &std::path::Path, file: &str) -> u32 {
 
 /// Listing cues gives OneLibrary's count of rows for the tracks it lists, and none for tracks
 /// exported since that it doesn't.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_listed_cues_count_onelibrary_rows_only_for_the_tracks_it_lists(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -42,7 +42,7 @@ fn prop_listed_cues_count_onelibrary_rows_only_for_the_tracks_it_lists(tc: TestC
 
 /// An active loop stays active through an edit of the track's cues, in its analysis files and
 /// in the row OneLibrary gets for it.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_an_active_loop_stays_active_through_a_cue_edit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -90,7 +90,7 @@ fn prop_an_active_loop_stays_active_through_a_cue_edit(tc: TestCase) {
 
 /// Cues copied onto another track of the same audio file take the source's OneLibrary rows as
 /// they are, seek columns and all, since those are only right for that file.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_cues_copied_onto_a_track_of_the_same_audio_keep_its_onelibrary_rows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -137,7 +137,7 @@ fn prop_cues_copied_onto_a_track_of_the_same_audio_keep_its_onelibrary_rows(tc: 
 /// A cue edit that can't be made says why and leaves the drive as it was: on a drive whose
 /// export.pdb can't be read, copying from a track that isn't there, setting cues one of which is
 /// past the end, when cancelled, or when OneLibrary is damaged after planning.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_cue_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

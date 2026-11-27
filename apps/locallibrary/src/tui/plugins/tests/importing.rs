@@ -144,7 +144,7 @@ fn form<'a>(app: &'a mut App, label: &str) -> &'a mut crate::tui::form::Form {
 /// one, said to have nothing to change when it hasn't, and otherwise confirmed, finding the
 /// tracks on the drive. Declined, nothing's written; on a yes the tracks found have their tags
 /// and the sessions are kept in the player's store, as the message after says.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_any_import_is_planned_and_made_as_its_form_says(tc: TestCase) {
     plugins_once_with(given);
     let drive = plugged();
@@ -231,7 +231,7 @@ fn prop_any_import_is_planned_and_made_as_its_form_says(tc: TestCase) {
 
 /// Whichever set is open (of any few, with any lists marked), a set's format writes out that
 /// set, offered a file named after it; with none open it says to open one first.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     plugins_once_with(given);
     let drive = plugged();

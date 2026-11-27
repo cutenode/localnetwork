@@ -7,8 +7,8 @@ use crate::common::{self, media};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
@@ -40,7 +40,7 @@ fn prop_medium_copies_and_pngs(tc: TestCase) {
     assert!(matches!(artwork::to_png(b"not an image"), Err(Error::Image(_))));
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_art_comes_from_what_audio_embeds_and_what_decodes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -119,7 +119,7 @@ fn prop_art_comes_from_what_audio_embeds_and_what_decodes(tc: TestCase) {
 
 /// Art set on tracks of a drive whose OneLibrary lacks some of them: they get it in export.pdb,
 /// and the drive says OneLibrary's players won't show it.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_art_for_tracks_onelibrary_lacks_is_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -152,7 +152,7 @@ enum Stale {
 /// audio (and a track the drive lacks has none to read); applying the plan sets them on the tracks
 /// it names that the drive has, and a plan whose image left the drive or went, or one cancelled,
 /// fails with the drive as it was. Each way a plan goes stale is tried on a drive of its own.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_automatic_art_applies_only_what_it_can_still_read(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let pictured = tc.draw(gs::booleans());

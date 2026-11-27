@@ -5,8 +5,8 @@ use crate::common::{self, path};
 use crate::props_api_drives::saved_copy;
 use crate::props_api_jobs::{SAMPLE, add_demo_sample};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::convert::{ConvertOptions, Target};
 use locallibrary::edit::Edit;
@@ -20,7 +20,7 @@ use locallibrary::{Error, paths};
 /// asked to; a blank label, or one already taken, is refused before anything is pulled; else the
 /// new snapshot carries the label, trimmed. Pulled again, there's nothing new: the report names
 /// the snapshot it matches, labels and all.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 #[hegel::explicit_test_case(library = Some("Radio"), new_library = false, label = None::<&str>)]
 #[hegel::explicit_test_case(library = Some("main"), new_library = false, label = Some("   "))]
 #[hegel::explicit_test_case(library = None::<&str>, new_library = false, label = Some("Friday"))]
@@ -81,7 +81,7 @@ fn prop_a_pull_is_labelled_unless_its_library_or_label_is_wrong(tc: TestCase) {
 /// adds what export.pdb has to the database there (or rebuilds it), after which OneLibrary
 /// holds every track; importing settings from a drive with none is refused, and so is writing
 /// settings with no drive mounted.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_operations_applied_in_one_go_do_what_their_plans_say(tc: TestCase) {
     let sample = tc.draw(gs::booleans());
     let in_one_go = tc.draw(gs::booleans());

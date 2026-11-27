@@ -1,8 +1,8 @@
 //! Panels, views of every kind, themes and how analyzers' fields are shown, on the command line
 //! and in the sidecar, with the test plugin's panel `said` answering as its `panel` setting says.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, jpeg, path};
@@ -112,7 +112,7 @@ fn panels_and_themes_are_listed_and_the_sidecar_renders_a_panel() {
 /// showing something or not), `track` prints it as its section under the track's details as a
 /// command answering it prints it, under the panel's title (and the view's after it), saying so
 /// when it shows nothing, and `--json` has it as answered; a panel that fails says why there.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_panel_prints_as_its_view_does(tc: TestCase) {
     let env = env();
     let tree = json!({ "kind": "tree", "items": [{ "label": "Club", "detail": "2 lists", "children": [{ "label": "Warm up" }] }] });

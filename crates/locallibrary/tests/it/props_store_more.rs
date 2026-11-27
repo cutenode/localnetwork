@@ -7,8 +7,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::hash::Hash;
 use locallibrary::paths;
@@ -44,7 +44,7 @@ fn prop_a_store_is_made_only_where_it_can_be(tc: TestCase) {
     }
 }
 
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_library_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

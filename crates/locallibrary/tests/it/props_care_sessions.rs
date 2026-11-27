@@ -4,8 +4,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::plays;
@@ -16,7 +16,7 @@ use locallibrary::sets::session;
 /// the order the drives were given, recorded at some time before now (with nothing pulled, no
 /// earlier bound); a drive whose OneLibrary can't be read gives what its export.pdb holds and a
 /// warning naming the drive.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let lists: [(&str, &[u32]); 3] = [("HISTORY 001", &[1]), ("HISTORY 002", &[1, 2]), ("HISTORY 003", &[2])];
@@ -65,7 +65,7 @@ fn prop_every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
 /// A list recorded since two drives were pulled, and on both (one of them given twice), is one
 /// session naming each drive once, recorded after the earlier of the two pulls; it's found by its
 /// list's name in any case.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_list_on_drives_pulled_apart_was_recorded_after_the_earlier_pull(tc: TestCase) {
     use locallibrary::progress::Ctx;
     use locallibrary::store::Store;

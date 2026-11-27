@@ -463,7 +463,7 @@ fn clicks(bpm: f64, secs: f64) -> Vec<u8> {
 /// annotations at all, there's nothing to score. The sound plugin's analyzer, scored beside it, has
 /// a tempo for each annotated track whose audio it could read, and fails on the others, which have
 /// none.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");

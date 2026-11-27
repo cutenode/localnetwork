@@ -4,8 +4,8 @@
 //! played, and the report and data files are written where they're asked for, never over a file
 //! that's there unless `--replace` says to.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use loclib_testkit::audio::{synth, wav_of};
 use serde_json::Value;
 
@@ -34,7 +34,7 @@ fn is_play(line: &str) -> bool {
 /// time, then found in a recording of some of them and sounds the drive doesn't have (each
 /// printed as a gap in the tracklist when it's long enough to be one), with the cover given for
 /// it if one was.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
     let a = fx.volumes.join("A");
@@ -212,7 +212,7 @@ fn prop_a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
 /// where) with the system's opener; when the opener fails, the run still succeeds and says which
 /// page it couldn't open.
 #[cfg(unix)]
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(twice = false, html = false, opener_works = false)]
 fn prop_reports_are_opened_where_they_are_written(tc: TestCase) {
     let fx = Env::from_template();
@@ -264,7 +264,7 @@ fn prop_reports_are_opened_where_they_are_written(tc: TestCase) {
 /// Only files `mix` can read are taken, before anything is fingerprinted: a recording that isn't
 /// there, one that isn't audio, and `--audio` or `--cover` for several recordings are refused,
 /// in any order, as JSON or not, saying why.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_only_recordings_mix_can_read_are_taken(tc: TestCase) {
     let fx = Env::from_template();
     let notes = fx.home("notes.txt");
@@ -299,7 +299,7 @@ fn prop_only_recordings_mix_can_read_are_taken(tc: TestCase) {
 /// `store index-limit` keeps the last limit set (or none, back at the default), says so in text
 /// as its `--json` does, as it's set and when it's shown, and `settings export` carries what's
 /// set.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
     let fx = Env::new();
     let mut set: Option<u64> = None;

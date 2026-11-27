@@ -9,7 +9,7 @@ use crate::props_api_jobs::own_identity;
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{HealthCheck, PrintableGenerator, TestCase};
+use hegel::{PrintableGenerator, TestCase};
 use locallibrary::api::{self, Direction, SyncRequest};
 use locallibrary::compare::{Confidence, Relation};
 use locallibrary::device::Device;
@@ -84,7 +84,7 @@ fn labels(e: &Error) -> Vec<String> {
 /// The explicit cases are the situations each branch needs: a guess, drives back from a set
 /// synced with the store and without, pinned and among several, what compare can't tell, and a
 /// target that went or changed since the plan.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 #[hegel::explicit_test_case(linked = false, main_change = Change::None, club_change = Change::History, spare = false, allow_low_confidence = false, with_store = false, as_pair = false, pinned = false, direction = Direction::LeftToRight, meddle = 0u8)]
 #[hegel::explicit_test_case(linked = true, main_change = Change::Export, club_change = Change::History, spare = false, allow_low_confidence = false, with_store = true, as_pair = true, pinned = false, direction = Direction::LeftToRight, meddle = 0u8)]
 #[hegel::explicit_test_case(linked = true, main_change = Change::History, club_change = Change::Remove, spare = false, allow_low_confidence = false, with_store = false, as_pair = true, pinned = false, direction = Direction::LeftToRight, meddle = 0u8)]

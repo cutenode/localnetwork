@@ -7,8 +7,8 @@ use crate::common::{self, path};
 use crate::props_api_drives::{saved_copy, saved_demo};
 use crate::props_api_jobs::{bare_export, own_identity};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::error::Reason;
@@ -24,7 +24,7 @@ use locallibrary::sync;
 /// by name; a mounted Stick the registry lacks is refused by a name it shares with a registered
 /// Stick; a check against other drives leaves the drive itself out; and the fleet view leaves
 /// out a library with no drive mounted.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(name = "Main 2".to_string(), role = Some(Role::Primary), label = true)]
 fn prop_registry_requests_name_the_drives_they_mean(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["Main 2".to_string(), "Gig stick".to_string(), "  Home  ".to_string()]));

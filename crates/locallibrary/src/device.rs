@@ -11,6 +11,8 @@
 //!
 //! Players ignore unknown directories, so this is invisible to CDJs/XDJs.
 
+mod rekordbox_sync;
+
 use std::borrow::Cow;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
@@ -31,6 +33,8 @@ use crate::pdb::{self, PdbHeader};
 use crate::progress::Ctx;
 use crate::tree::{self, FileEntry, FileTree, HashIndex, ScanOptions};
 use crate::{Error, Result};
+
+pub use rekordbox_sync::RekordboxSync;
 
 pub const STATE_FORMAT: u32 = 1;
 const MAX_LINEAGE: usize = 256;
@@ -315,39 +319,6 @@ impl LibraryDrift {
 
 /// Playlists rekordbox writes to `export.pdb` but not OneLibrary.
 const DEVICE_LIBRARY_ONLY_PLAYLISTS: &[&str] = &["CUE Analysis Playlist"];
-
-/// rekordbox's automatic playlist sync to a drive (`playlists3.sync` / `playlists3Plus.sync`):
-/// which playlists of its collection it keeps up to date there. Playlists locallibrary adds
-/// aren't in it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
-pub struct RekordboxSync {
-    /// `device_library` (`export.pdb`) or `onelibrary`.
-    pub library: &'static str,
-    pub automatic: bool,
-    /// rekordbox collection the playlists come from (OneLibrary's `masterDbId`).
-    pub collection: Option<u32>,
-    /// Playlists and folders rekordbox tracks.
-    pub playlists: usize,
-}
-
-impl RekordboxSync {
-    /// Parse a `playlists3*.sync` file (`<Sync DBID=".." AutomaticSync="1"><Playlists><NODE ../>`).
-    pub fn parse(library: &'static str, xml: &str) -> Option<RekordboxSync> {
-        let start = xml.find("<Sync ")?;
-        let tag = &xml[start..start + xml[start..].find('>')?];
-        let attr = |name: &str| {
-            let at = tag.find(&format!(" {name}=\""))? + name.len() + 3;
-            Some(&tag[at..at + tag[at..].find('"')?])
-        };
-        Some(RekordboxSync {
-            library,
-            automatic: attr("AutomaticSync") == Some("1"),
-            // Written as a signed 32-bit number.
-            collection: attr("DBID").and_then(|v| v.parse::<i64>().ok()).map(|v| v as u32),
-            playlists: xml.matches("<NODE ").count(),
-        })
-    }
-}
 
 pub struct Device {
     root: PathBuf,

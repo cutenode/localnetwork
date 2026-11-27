@@ -91,8 +91,8 @@ fn send(host: &Host, ctx: &Ctx<'_>, session: &str, video: &Path, size: u64) -> R
     // How much YouTube has, how many requests in a row have failed, and whether to ask YouTube
     // how much it has before sending more.
     let (mut at, mut failed, mut ask_where) = (0, 0, false);
+    // Cancelled between requests, the next one's fetch fails as cancelled before it's sent.
     loop {
-        ctx.check()?;
         let checking = ask_where || at == size;
         let fetch = match checking {
             true => {

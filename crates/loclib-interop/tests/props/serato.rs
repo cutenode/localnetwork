@@ -614,6 +614,34 @@ fn prop_an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
     assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
 }
 
+/// The walk to the last chunk steps over an odd chunk's pad byte mid-file, a 0 or any byte that
+/// doesn't start a chunk's id (as lofty does), so an unpadded last chunk after it is still found.
+/// A byte past the end the header gives isn't a pad byte, so whatever it is, the file's tagged.
+#[test]
+fn the_last_chunk_is_found_past_pad_bytes_and_ends_at_the_headers_size() {
+    for kind in [Kind::Wav, Kind::Aiff] {
+        let named = Path::new(if kind == Kind::Wav { "x.wav" } else { "x.aiff" });
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("copy");
+        let audio = audio_file(kind, &[1, 2, 3, 4]);
+        for pad in [0, 1] {
+            let bytes = with_last_chunk(kind, with_last_chunk(kind, audio.clone(), b"abc", Some(pad)), b"xyz", None);
+            std::fs::write(&path, &bytes).unwrap();
+            let want = format!("{}: its last chunk is missing the pad byte after it", named.display());
+            let planned = serato::tag_growth(&path, named, b"markers");
+            assert!(matches!(&planned, Err(Error::Tags(e)) if *e == want), "pad {pad}: {planned:?}");
+            let written = serato::write_markers(&path, named, b"markers");
+            assert!(matches!(&written, Err(Error::Tags(e)) if *e == want), "pad {pad}: {written:?}");
+        }
+        let mut bytes = with_last_chunk(kind, audio.clone(), b"xyz", None);
+        bytes.push(1);
+        std::fs::write(&path, &bytes).unwrap();
+        let growth = serato::tag_growth(&path, named, b"markers").unwrap();
+        serato::write_markers(&path, named, b"markers").unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() <= bytes.len() as u64 + growth);
+    }
+}
+
 /// The audio file kinds Serato's tag is written into.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {

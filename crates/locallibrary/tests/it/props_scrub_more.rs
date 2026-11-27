@@ -11,8 +11,8 @@ use crate::{common, drawn};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::onelibrary;
 use locallibrary::paths::{self, FileClass};
@@ -22,7 +22,7 @@ use locallibrary::scrub::{self, FileProblem, ReferenceKind, RepairSource, ScrubO
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
 
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -108,7 +108,7 @@ fn prop_a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase
 
 /// However often `exportLibrary.db` is rewritten holding the same library (a name, a colour, a
 /// checkpoint), a scrub takes it as the state saved, and finds exactly the audio that rotted.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -145,7 +145,7 @@ fn prop_rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
     assert!(r.missing.is_empty(), "{:?}", r.missing);
 }
 
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
@@ -213,7 +213,7 @@ fn prop_repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
 /// What stops a scrub or a repair before it writes: a cancel as it starts reading or once it
 /// reads the first file, a snapshot named that the store doesn't have, a sibling drive whose
 /// folders can't be listed, and another write holding the drive. The drive is left as it was.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(case = 0u8)]
 #[hegel::explicit_test_case(case = 1u8)]
 #[hegel::explicit_test_case(case = 2u8)]
@@ -298,7 +298,7 @@ fn prop_a_scrub_or_repair_that_cant_go_ahead_stops_before_writing(tc: TestCase) 
 
 /// A repair whose good copy, on a sibling drive, can't be read by the time it's made fails for
 /// that file, saying why, and leaves it damaged.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_repair_from_a_copy_it_cant_read_says_why(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
@@ -334,7 +334,7 @@ fn prop_a_repair_from_a_copy_it_cant_read_says_why(tc: TestCase) {
 /// snapshot, and audio that rotted is damaged by the hash cached for it or, with the cache
 /// forgotten, by that snapshot. Repairing it all from the store makes the drive the snapshot's
 /// again, clean, its name kept.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -394,7 +394,7 @@ fn prop_a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: Tes
 /// A named OneLibrary drive, pulled, whose `exportLibrary.db` rotted after a scrub with no store
 /// cached its hash: that scrub finds the database damaged, a repair rewrites it from the store's
 /// copy with the drive's name, and it's clean again.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_onelibrary_repaired_from_the_store_keeps_its_name(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

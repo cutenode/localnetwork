@@ -635,7 +635,7 @@ fn prop_recordings_are_every_mix_file_outside_hidden_folders(tc: TestCase) {
 /// silence, is identified as those tracks in that order, from where they were taken, with
 /// one transition between each and the next and nothing left unidentified that long; the
 /// fingerprints are kept, so identifying against the drive again decodes none of them.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
     use crate::probe::tests::wav_of;
     use loclib_model::test_util::track;
@@ -925,7 +925,7 @@ fn prop_a_cover_reads_back_while_it_is_there(tc: TestCase) {
 
 /// A mix of only silence, with nothing in the library to hear in it, is unidentified from its
 /// start to its end once that's half a minute or more, and has no gap marked when it's shorter.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
     use loclib_aup::test_util::{Xml, project};
     let secs = tc.draw(gs::sampled_from(vec![5i64, 29, 31, 40]));
