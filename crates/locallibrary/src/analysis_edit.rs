@@ -85,7 +85,9 @@ impl NewAnalysis {
     }
 
     /// The tempo a track with this grid has in the databases: the one most of its beats have
-    /// (of those alike, the first's), to hundredths.
+    /// (of those alike, the first's), to hundredths. rekordbox's own `BPM` is that on 1,969 of
+    /// 1,990 constant grids in one collection; on a grid whose tempo changes it often keeps a whole
+    /// number instead (25 of 48), which this doesn't.
     pub fn tempo(&self) -> Option<f64> {
         let beats = self.beats.as_ref()?;
         let mut counts: Vec<(i64, usize)> = Vec::new();

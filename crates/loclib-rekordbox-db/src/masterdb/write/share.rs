@@ -8,9 +8,16 @@
 //!   `rb_local_path` where it is on this computer, stamped (`rb_local_usn`, `updated_at`). Every
 //!   analysed track has them. Where rekordbox rewrote a track's files, their rows have the new hash
 //!   and size and a later stamp. Cloud Library Sync syncs these files by these rows, and the reader
-//!   takes a file whose size disagrees with its row to be still syncing.
-//! * `djmdContent.AnalysisUpdated` counts up from 1 (1-9 in that library), as `CueUpdated` does
-//!   for cues: taken to be bumped when the analysis changes, as `CueUpdated` is (inferred, not seen).
+//!   takes a file whose size disagrees with its row to be still syncing. A second library
+//!   (rekordbox 7.2.14, 2,050 tracks) has the same rows: all 9,322 live rows whose file is there
+//!   match it in `Hash` and `Size`, and re-analysis updates a row in place (same `ID`, a new hash
+//!   and stamp).
+//! * `djmdContent.AnalysisUpdated` counts up from 1, as `CueUpdated` does for cues: 1 to 34 in the
+//!   second library, at 1 on every track whose files were never rewritten and higher on those
+//!   rekordbox analysed again. That it goes up by one for each write of the files is inferred.
+//! * The `.3EX` some tracks have isn't an analysis file: it's a MessagePack map holding an audio
+//!   embedding (all 1,278 in the second library), which a beat grid, phrases or waveform don't
+//!   change, so it's left as it is.
 //! * Setting a hot cue doesn't touch the files: rekordbox 7 keeps a collection's cues in
 //!   `djmdCue` and `contentCue`, and puts them in analysis files when it exports to a drive.
 //!
@@ -20,6 +27,8 @@
 //! its new bytes are written beside it (`ANLZ0000.EXT.locallibrary-new`) and, once `master.db` is
 //! swapped in, renamed over it, each file with one rename. Only files that are there are replaced:
 //! a track rekordbox hasn't analysed has none, and its `contentFile` rows would have to be made.
+//! A new file keeps the old one's permissions, but not its owner, ACLs or extended attributes, as
+//! with `master.db`.
 
 use std::fs::File;
 use std::io::Write;
