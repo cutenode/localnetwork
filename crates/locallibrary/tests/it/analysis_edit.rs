@@ -50,8 +50,9 @@ fn steady(beats: usize, bpm: f64, from: u32) -> Vec<Beat> {
 }
 
 /// A grid set on a rekordbox 6 export's track: its `.DAT` holds it and the databases its tempo,
-/// the `.EXT` loses its extended grid (saying so) and nothing else changes; recorded with the
-/// BPM edit after it, in a journal of version 4. Undo puts the files and the BPM back, and a
+/// the `.EXT` loses its extended grid (saying so) and its phrases keep their times on the new
+/// grid (those past its end going, said too), and nothing else changes; recorded with the BPM edit
+/// after it, in a journal of version 4. Undo puts the files and the BPM back, and a
 /// replay after rekordbox exports again makes it again.
 #[test]
 fn a_beat_grid_is_written_with_its_bpm_undone_and_replayed() {
@@ -78,9 +79,17 @@ fn a_beat_grid_is_written_with_its_bpm_undone_and_replayed() {
     assert_eq!(anlz::beat_grid(dat.as_ref().unwrap()).unwrap(), beats);
     assert!(!anlz::has_section(ext.as_ref().unwrap(), b"PQT2").unwrap());
     assert_eq!(after[2], before[2], "the .2EX holds no grid");
+    // The phrases keep their times on the new grid (within half a beat); those past its end go.
+    let (old_grid, old_ext) = (anlz::beat_grid(before[0].as_ref().unwrap()).unwrap(), before[1].as_deref().unwrap());
+    let (was, now) = (
+        anlz::song_structure(old_ext).unwrap().unwrap(),
+        anlz::song_structure(ext.as_deref().unwrap()).unwrap().unwrap(),
+    );
+    assert!(now.phrases.len() < was.phrases.len() && now.phrases.last().unwrap().end_beat == 301, "{now:?}");
+    common::phrases_keep_their_times(&old_grid, &was, &beats, &now);
+    assert!(p.warnings.iter().any(|w| w.contains("fall on one beat with the next")), "{:?}", p.warnings);
     for (a, b) in after.iter().zip(&before) {
         let (a, b) = (a.as_deref().unwrap(), b.as_deref().unwrap());
-        assert_eq!(anlz::song_structure(a).unwrap(), anlz::song_structure(b).unwrap());
         assert_eq!(anlz::read_cue_points(a, None).unwrap(), anlz::read_cue_points(b, None).unwrap());
         assert_eq!(anlz::detail(a).unwrap(), anlz::detail(b).unwrap());
     }
@@ -202,20 +211,25 @@ fn without_colour_overview(dir: &Path) -> (std::path::PathBuf, Track) {
     (root, t)
 }
 
-/// Takes rekordbox's colour overview (`PWV4`) out of the `.EXT` of `t` on the drive at `root`,
-/// and its `.2EX` away: a waveform can then be written to it.
-pub(crate) fn strip_colour_overview(root: &Path, t: &Track) {
-    let dat = paths::to_fs(root, &paths::key(&t.analyze_path));
-    let ext = std::fs::read(dat.with_extension("EXT")).unwrap();
-    let be = |at: usize| u32::from_be_bytes(ext[at..at + 4].try_into().unwrap()) as usize;
+/// Takes the section `tag` out of the analysis file at `path`.
+fn strip_tag(path: &Path, tag: &[u8; 4]) {
+    let bytes = std::fs::read(path).unwrap();
+    let be = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
     let mut pos = be(4);
-    while &ext[pos..pos + 4] != b"PWV4" {
+    while &bytes[pos..pos + 4] != tag {
         pos += be(pos + 8);
     }
-    let mut without = [&ext[..pos], &ext[pos + be(pos + 8)..]].concat();
+    let mut without = [&bytes[..pos], &bytes[pos + be(pos + 8)..]].concat();
     let len = without.len() as u32;
     without[8..12].copy_from_slice(&len.to_be_bytes());
-    std::fs::write(dat.with_extension("EXT"), without).unwrap();
+    std::fs::write(path, without).unwrap();
+}
+
+/// Takes rekordbox's colour overview (`PWV4`) out of the `.EXT` of `t` on the drive at `root`,
+/// and its `.2EX` away: every waveform it then has is worked out from the bands written.
+pub(crate) fn strip_colour_overview(root: &Path, t: &Track) {
+    let dat = paths::to_fs(root, &paths::key(&t.analyze_path));
+    strip_tag(&dat.with_extension("EXT"), b"PWV4");
     std::fs::remove_file(dat.with_extension("2EX")).unwrap();
 }
 
@@ -227,16 +241,36 @@ fn wave(b: &Bands) -> WaveSource {
     WaveSource::Base64(BASE64_STANDARD.encode(b.pack()))
 }
 
-/// rekordbox's colour overview (`PWV4`) can't be worked out from another waveform, so a track
-/// with one keeps its waveforms: the plan is refused, saying why.
+/// rekordbox's colour overview (`PWV4`) and 3-band gains (`PWVC`) can't be worked out from a
+/// waveform, so a waveform keeps them: the overview stays as it was, and the 3-band waveforms are
+/// written at the levels rekordbox's had, so the gains still fit, each kept tag said in the plan.
 #[test]
-fn a_waveform_is_refused_for_a_track_with_rekordboxs_colour_overview() {
+fn a_waveform_keeps_rekordboxs_colour_overview_and_band_gains() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");
     let t = track(&root, "Demo Track 1");
-    let err = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&bands(150))), ..Default::default() })]);
-    let err = err.unwrap_err().to_string();
-    assert!(err.contains("(PWV4) that can't be worked out from another waveform"), "{err}");
+    let before = files(&root, &t);
+    let p = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&bands(150))), ..Default::default() })]).unwrap();
+    for tag in ["(PWV4)", "(PWVC)"] {
+        assert!(p.warnings.iter().any(|w| w.contains(tag)), "{tag}: {:?}", p.warnings);
+    }
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let after = files(&root, &t);
+    let (ext, two) = (after[1].as_deref().unwrap(), after[2].as_deref().unwrap());
+    let (was_ext, was_two) = (before[1].as_deref().unwrap(), before[2].as_deref().unwrap());
+    assert_eq!(anlz::waveform_entries(ext, b"PWV4").unwrap(), anlz::waveform_entries(was_ext, b"PWV4").unwrap());
+    assert_ne!(anlz::waveform_entries(ext, b"PWV5").unwrap(), anlz::waveform_entries(was_ext, b"PWV5").unwrap());
+    let pwvc = |b: &[u8]| {
+        let at = b.windows(4).position(|w| w == b"PWVC").unwrap();
+        b[at..at + 20].to_vec()
+    };
+    assert_eq!(pwvc(two), pwvc(was_two));
+    let peaks = |b: &[u8]| {
+        let (bands, _) = anlz::TrackWaves::read(None, None, Some(b)).band_detail.unwrap();
+        [0, 1, 2].map(|k| bands.0.iter().map(|c| c[k]).max().unwrap())
+    };
+    assert_ne!(two, was_two);
+    assert_eq!(peaks(two), peaks(was_two));
 }
 
 /// A waveform set on a track without rekordbox's colour one goes into every waveform tag its
@@ -433,8 +467,9 @@ fn a_grids_tempo_is_most_of_its_beats() {
 /// Each way an analysis edit can't be made is refused as it's planned, saying why, and leaves
 /// the drive as it was, no waveform staged: nothing to write, a grid or phrases the files can't
 /// hold, a beat past the end, phrases without an `.EXT`, no `.DAT`, no analysis files at all or
-/// ones outside rekordbox's folder, a waveform over rekordbox's colour overview, one that isn't
-/// bands, given as a plugin's blob or staged and gone, and a track that isn't on the drive.
+/// ones outside rekordbox's folder, a waveform for band gains with no 3-band detail to fit, one
+/// that isn't bands, given as a plugin's blob or staged and gone, and a track that isn't on the
+/// drive.
 #[hegel::test(test_cases = 40)]
 fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -503,7 +538,11 @@ fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
             std::fs::remove_file(&dat).unwrap();
             (set(&t, grid(steady(4, 120.0, 0))), format!("{name} has no .DAT analysis file"))
         }
-        9 => (set(&t, waved(wave(&bands(150)))), "(PWV4) that can't be worked out from another waveform".into()),
+        9 => {
+            // Band gains with no 3-band detail to take their levels from.
+            strip_tag(&dat.with_extension("2EX"), b"PWV7");
+            (set(&t, waved(wave(&bands(150)))), "(PWVC) that can't be worked out from another waveform".into())
+        }
         10 => {
             let mut bytes = tc.draw(gs::binary().max_size(40));
             if !bytes.is_empty() && bytes.len().is_multiple_of(3) {
@@ -712,4 +751,33 @@ fn prop_a_replayed_analysis_edit_of_a_track_gone_is_skipped(tc: TestCase) {
     let skipped = format!("skipped an edit that no longer applies (set the beat grid of /Contents/Gone/{name}.mp3");
     assert!(report.warnings.iter().any(|w| w.starts_with(&skipped)), "{:?}", report.warnings);
     assert_eq!(tracks.iter().map(|t| files(&root, t)).collect::<Vec<_>>(), before);
+}
+
+/// A new grid keeps the track's phrases on the times they had, not on the beat numbers: on a grid
+/// two beats shorter at the front, each phrase starts two beats earlier.
+#[test]
+fn phrases_keep_their_times_on_a_new_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let t = track(&root, "Demo Track 2");
+    let [dat, ext, _] = files(&root, &t);
+    let grid = anlz::beat_grid(dat.as_ref().unwrap()).unwrap();
+    let end = grid.len() as u16 + 1;
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let theirs = SongStructure {
+        mood: Mood::High,
+        phrases: vec![phrase(PhraseKind::Intro, 3, 17), phrase(PhraseKind::Chorus, 17, end)],
+    };
+    let ext_path = paths::to_fs(&root, &paths::key(&t.analyze_path)).with_extension("EXT");
+    std::fs::write(&ext_path, anlz::write_song_structure(ext.as_ref().unwrap(), Some(&theirs)).unwrap()).unwrap();
+
+    let later = grid[2..].to_vec();
+    let p = plan(&root, &[set(&t, NewAnalysis { beats: Some(later), ..Default::default() })]).unwrap();
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let after = files(&root, &t);
+    let want = SongStructure {
+        mood: Mood::High,
+        phrases: vec![phrase(PhraseKind::Intro, 1, 15), phrase(PhraseKind::Chorus, 15, end - 2)],
+    };
+    assert_eq!(anlz::song_structure(after[1].as_ref().unwrap()).unwrap(), Some(want));
 }

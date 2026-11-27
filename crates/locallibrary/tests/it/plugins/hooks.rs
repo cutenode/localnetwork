@@ -612,9 +612,16 @@ fn prop_an_operation_that_cant_be_planned_fails_saying_why_case(tc: &hegel::Test
         return assert_eq!(planned.apply(None, &Ctx::silent()).unwrap_err().code(), "stale_plan");
     }
     if planning == Planning::Wave {
-        // Read from its file, then refused: rekordbox's colour overview can't be worked out from it.
-        let e = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent()).unwrap_err();
-        return assert!(e.to_string().contains("(PWV4)"), "{e}");
+        // Read from its file into the plan: the edit gives the waveform staged.
+        let planned = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent());
+        let OpPlanned::Plan(planned) = planned.unwrap() else { panic!("a plan") };
+        let staged = |e: &locallibrary::edit::Edit| match e {
+            locallibrary::edit::Edit::SetAnalysis { analysis, .. } => {
+                matches!(analysis.waveform, Some(locallibrary::analysis_edit::WaveSource::Staged(_)))
+            }
+            _ => false,
+        };
+        return assert!(planned.plan.recorded.iter().any(staged), "{:?}", planned.plan.recorded);
     }
     if planning == Planning::Image {
         let planned = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent());

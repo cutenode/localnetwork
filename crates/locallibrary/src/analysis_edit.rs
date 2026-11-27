@@ -8,10 +8,13 @@
 //! extended grid, which can't be written, goes, see [`anlz::without_extended_grid`]), phrases in
 //! its `.EXT`, and a waveform in each file's waveform tags (the blue overview in the `.DAT`, the
 //! blue and colour detail in the `.EXT`, the 3-band ones in a `.2EX`). A track without analysis
-//! files is refused, and so is a waveform for one whose files hold a tag that can't be worked
-//! out from it (rekordbox's colour overview, `PWV4`, and the `.2EX`'s `PWVC`): its waveforms stay
-//! rekordbox's. Cues stay where they are when the grid moves (a warning says how many sat on its
-//! beats), and the plan that sets a grid sets the track's BPM in the databases too
+//! files is refused. Two tags rekordbox writes can't be worked out from a waveform, its colour
+//! overview (`PWV4`) and the `.2EX`'s band gains (`PWVC`), and every track rekordbox 7 analyses
+//! has both, so a waveform keeps them: the overview still shows the track's audio, and the 3-band
+//! waveforms are written at the levels rekordbox's had, so the gains still fit (gains with no
+//! 3-band detail to take levels from are refused). Cues stay where they are when the grid moves (a
+//! warning says how many sat on its beats), phrases not given move with it to the beats nearest
+//! their times, and the plan that sets a grid sets the track's BPM in the databases too
 //! ([`crate::edit::plan`]).
 //!
 //! What's written is only what the readers read back as given, in layouts checked against
@@ -85,7 +88,9 @@ impl NewAnalysis {
     }
 
     /// The tempo a track with this grid has in the databases: the one most of its beats have
-    /// (of those alike, the first's), to hundredths.
+    /// (of those alike, the first's), to hundredths. rekordbox's own `BPM` is that on 1,969 of
+    /// 1,990 constant grids in one collection; on a grid whose tempo changes it often keeps a whole
+    /// number instead (25 of 48), which this doesn't.
     pub fn tempo(&self) -> Option<f64> {
         let beats = self.beats.as_ref()?;
         let mut counts: Vec<(i64, usize)> = Vec::new();
@@ -124,6 +129,9 @@ pub(crate) fn stage(device: &Device, wave: &WaveSource) -> Result<(Hash, Option<
 struct Files {
     keys: [String; 3],
     bytes: [Option<Vec<u8>>; 3],
+    /// The track's cues, where they aren't the ones its files hold (a collection's are in
+    /// `djmdCue`): `None` reads them from the files.
+    cues: Option<Vec<CuePoint>>,
 }
 
 /// The keys of the analysis files of the track at `analyze_path` (a device path), `.DAT` first,
@@ -153,7 +161,7 @@ fn read(device: &Device, t: &Track) -> Result<Files> {
     if bytes[0].is_none() {
         return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
     }
-    Ok(Files { keys, bytes })
+    Ok(Files { keys, bytes, cues: None })
 }
 
 /// The analysis files an analysis edit of the track of the audio file `file` (a device path) may
@@ -168,6 +176,93 @@ const WAVEFORM_TAGS: [&[&[u8; 4]]; 3] = [&[b"PWAV", b"PWV2"], &[b"PWV3", b"PWV5"
 
 /// The analysis files an edit rewrites, by key, with their new bytes.
 type Rewritten = Vec<(String, Vec<u8>)>;
+
+/// The time of the beat at grid index `i` of `grid`, one past its end too (a phrase's end), or
+/// further at its last tempo.
+fn beat_time(grid: &[Beat], i: usize) -> f64 {
+    if let Some(b) = grid.get(i) {
+        return f64::from(b.time_ms);
+    }
+    let last = grid.last().expect("a grid has a beat");
+    f64::from(last.time_ms) + (i + 1 - grid.len()) as f64 * 60_000.0 / last.bpm.max(1.0)
+}
+
+/// The 1-based beat of `grid` nearest `ms`, one past its last beat when `ms` is nearer that.
+fn nearest_beat(grid: &[Beat], ms: f64) -> u16 {
+    // Grids are in time order: the first beat at or after `ms`, or the one before it.
+    let after = grid.partition_point(|b| f64::from(b.time_ms) < ms);
+    let off = |i: usize| (beat_time(grid, i) - ms).abs();
+    let i = if after > 0 && off(after - 1) <= off(after) { after - 1 } else { after };
+    u16::try_from(i + 1).unwrap_or(u16::MAX)
+}
+
+/// The phrases `s` (counted on the beats of `old`) on the grid `new` instead, each beat moved to
+/// the new one nearest its time, and what to warn of (the track named `name`): phrases that move by
+/// more than a beat, and those that end up on one beat with the next (left out). `None` when none
+/// are left.
+fn phrases_on(s: &SongStructure, old: &[Beat], new: &[Beat], name: &str) -> (Option<SongStructure>, Vec<String>) {
+    let scale = s.beat_scale(old.len());
+    let time = |beat: u16| beat_time(old, SongStructure::grid_index(beat, scale));
+    let beat_ms = |beat: u16| beat_time(new, usize::from(beat)) - beat_time(new, usize::from(beat).saturating_sub(1));
+    let (mut far, mut gone) = (Vec::new(), Vec::new());
+    let mut phrases: Vec<anlz::Phrase> = Vec::new();
+    for (n, p) in s.phrases.iter().enumerate() {
+        let start = nearest_beat(new, time(p.start_beat));
+        if (beat_time(new, usize::from(start) - 1) - time(p.start_beat)).abs() > beat_ms(start) {
+            far.push(n + 1);
+        }
+        let fill = p.fill_beat.map(|f| nearest_beat(new, time(f)));
+        if phrases.last().is_some_and(|q| q.start_beat >= start) {
+            gone.push(n + 1);
+            continue;
+        }
+        if let Some(q) = phrases.last_mut() {
+            q.end_beat = start;
+        }
+        phrases.push(anlz::Phrase { start_beat: start, end_beat: start, fill_beat: fill, ..p.clone() });
+    }
+    if let (Some(q), Some(p)) = (phrases.last_mut(), s.phrases.last()) {
+        q.end_beat = nearest_beat(new, time(p.end_beat));
+    }
+    // A last one ending where it starts (past the new grid's end) goes too: the one before ends
+    // where it started.
+    if phrases.last().is_some_and(|q| q.end_beat <= q.start_beat) {
+        gone.push(s.phrases.len());
+        phrases.pop();
+    }
+    for q in &mut phrases {
+        q.fill_beat = q.fill_beat.filter(|f| (q.start_beat..q.end_beat).contains(f));
+    }
+    let list = |n: &[usize]| n.iter().map(usize::to_string).collect::<Vec<_>>().join(", ");
+    let mut warnings = Vec::new();
+    if !far.is_empty() {
+        warnings.push(format!("{name}'s phrases {} move by more than a beat onto the new grid", list(&far)));
+    }
+    if !gone.is_empty() {
+        warnings.push(format!(
+            "{name}'s phrases {} fall on one beat with the next on the new grid, so they go",
+            list(&gone)
+        ));
+    }
+    if phrases.is_empty() {
+        warnings.push(format!("{name}'s phrases don't fit the new grid, so the .EXT loses them"));
+        return (None, warnings);
+    }
+    (Some(SongStructure { mood: s.mood, phrases }), warnings)
+}
+
+/// `bands` with each band scaled so its loudest column is as loud as in `theirs` (a band silent in
+/// either stays as it is).
+fn at_levels(bands: &Bands, theirs: &Bands) -> Bands {
+    let peak = |b: &Bands, k: usize| b.0.iter().map(|c| c[k]).max().unwrap_or(0);
+    let scale = [0, 1, 2].map(|k| match (peak(bands, k), peak(theirs, k)) {
+        (0, _) | (_, 0) => (1, 1),
+        (ours, theirs) => (u32::from(theirs), u32::from(ours)),
+    });
+    Bands(
+        bands.0.iter().map(|c| [0, 1, 2].map(|k| (u32::from(c[k]) * scale[k].0 / scale[k].1).min(255) as u8)).collect(),
+    )
+}
 
 /// What the edit rewrites in a track's analysis files (only those that change), and what to warn
 /// of. `bands` is the waveform's.
@@ -184,7 +279,10 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         }
         if beats != grid {
             let dat = new[0].as_ref().expect("read");
-            let cues = anlz::read_cue_points(dat, new[1].as_deref())?;
+            let cues = match &files.cues {
+                Some(cues) => cues.clone(),
+                None => anlz::read_cue_points(dat, new[1].as_deref())?,
+            };
             let on = |grid: &[Beat], ms: u32| grid.iter().any(|b| b.time_ms.abs_diff(ms) <= 1);
             let moved = cues.iter().filter(|c| on(&grid, c.start_ms) && !on(&beats, c.start_ms)).count();
             if moved > 0 {
@@ -194,13 +292,23 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
             }
             new[0] = Some(anlz::write_beat_grid(dat, &beats)?);
             if let Some(ext) = &new[1] {
-                let without = anlz::without_extended_grid(ext)?;
+                let mut without = anlz::without_extended_grid(ext)?;
                 if without != *ext {
                     warnings.push(format!(
                         "{name}'s .EXT loses its extended beat grid (PQT2), which locallibrary can't write"
                     ));
-                    new[1] = Some(without);
                 }
+                // Phrases count the grid's beats: kept, they'd sit on other beats of the new one.
+                // Without an old grid to time them by, they stay as they are.
+                if a.phrases.is_none()
+                    && !grid.is_empty()
+                    && let Some(old) = anlz::song_structure(&without)?
+                {
+                    let (moved, said) = phrases_on(&old, &grid, &beats, &name);
+                    warnings.extend(said);
+                    without = anlz::write_song_structure(&without, moved.as_ref())?;
+                }
+                new[1] = Some(without);
             }
             grid = beats;
         }
@@ -222,13 +330,33 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         ));
     }
     if let Some(bands) = bands {
+        // The 3-band waveforms' bands, at the levels of rekordbox's where its gains are kept.
+        let mut three = bands.clone();
         for (i, tag) in [(1, b"PWV4"), (2, b"PWVC")] {
             let Some(bytes) = new[i].as_deref() else { continue };
-            if anlz::has_section(bytes, tag)? {
-                return Err(Error::invalid(format!(
+            if !anlz::has_section(bytes, tag)? {
+                continue;
+            }
+            let theirs = anlz::TrackWaves::read(None, None, Some(bytes)).band_detail;
+            let refused = || {
+                Error::invalid(format!(
                     "{name}'s analysis files hold a waveform tag ({}) that can't be worked out from another waveform: its waveforms stay rekordbox's",
                     String::from_utf8_lossy(tag)
-                )));
+                ))
+            };
+            match (tag, theirs) {
+                (b"PWV4", _) => warnings.push(format!(
+                    "{name}'s colour overview (PWV4) stays rekordbox's: it can't be worked out from a waveform, and \
+                     still shows this track's audio"
+                )),
+                (_, Some((theirs, _))) => {
+                    three = at_levels(bands, &theirs);
+                    warnings.push(format!(
+                        "{name}'s 3-band waveforms are written at the levels rekordbox's had, so its band gains (PWVC), \
+                         which can't be worked out, still fit them"
+                    ));
+                }
+                (_, None) => return Err(refused()),
             }
         }
         let secs = bands.0.len() as f64 / anlz::DETAIL_RATE;
@@ -238,8 +366,9 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         if new[1].is_none() {
             warnings.push(format!("{name} has no .EXT analysis file, so only its overview waveform is written"));
         }
-        for (file, tags) in new.iter_mut().zip(WAVEFORM_TAGS) {
+        for (i, (file, tags)) in new.iter_mut().zip(WAVEFORM_TAGS).enumerate() {
             let Some(bytes) = file else { continue };
+            let bands = if i == 2 { &three } else { bands };
             for tag in tags {
                 let columns = anlz::waveform_from_bands(tag, bands)?.expect("every tag here is worked out");
                 *bytes = anlz::write_waveform(bytes, tag, &columns)?;
@@ -271,7 +400,7 @@ pub(crate) fn new_files(
         [anlz::write_cue_points(&dat, CueFile::Dat, cues)?, anlz::write_cue_points(&ext, CueFile::Ext, cues)?];
     // Not on a drive yet: each file by its extension.
     let keys = ["DAT", "EXT", "2EX"].map(String::from);
-    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None] };
+    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None], cues: None };
     let (changed, warnings) = rewrite(t, &files, a, bands)?;
     for (key, new) in changed {
         made[usize::from(key == "EXT")] = new;
@@ -285,6 +414,36 @@ pub(crate) fn new_files(
         return Err(Error::invalid(format!("{}'s cues don't read back as they were given", t.display_name())));
     }
     Ok((made, warnings))
+}
+
+/// What writing `a` (its waveform `bands`) changes in analysis files holding `bytes` (`.DAT`,
+/// `.EXT` and `.2EX`, the `.DAT` there) of the track `t` whose cues are `cues`, with what to warn
+/// of: each file changed, by its extension (`DAT`, `EXT`, `2EX`), with its new bytes. For files
+/// that aren't on a drive: rekordbox's collection's (see [`crate::collection_analysis`]), whose
+/// cues are kept apart from them.
+pub(crate) fn rewrite_files(
+    t: &Track,
+    bytes: [Option<Vec<u8>>; 3],
+    cues: Vec<CuePoint>,
+    a: &NewAnalysis,
+    bands: Option<&Bands>,
+) -> Result<(Rewritten, Vec<String>)> {
+    if bytes[0].is_none() {
+        return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
+    }
+    rewrite(t, &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes, cues: Some(cues) }, a, bands)
+}
+
+/// The waveform `wave` gives as bands, when it's given as them (in base64): not one staged on a
+/// drive, nor a plugin's blob.
+pub(crate) fn given_bands(wave: &WaveSource) -> Result<Bands> {
+    let WaveSource::Base64(text) = wave else {
+        return Err(Error::invalid("a waveform written here is given as bands, in base64"));
+    };
+    let bytes = BASE64_STANDARD.decode(text).map_err(|e| Error::invalid(format!("the waveform isn't base64: {e}")))?;
+    Bands::unpack(&bytes)
+        .filter(|b| !b.0.is_empty())
+        .ok_or_else(|| Error::invalid("a waveform is three bytes a column (lows, mids, highs), at least one column"))
 }
 
 /// The track of the audio file `file` (a device path) in `library`.
@@ -388,3 +547,6 @@ pub(crate) fn replay(
     out.fingerprint = done.fingerprint;
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

@@ -1080,3 +1080,29 @@ fn a_key_from_the_environment_is_used_unless_its_empty() {
     unsafe { std::env::set_var(KEY_ENV, "") };
     assert_eq!(resolve_key(None), DEFAULT_KEY);
 }
+
+/// Rows rekordbox leaves for a track's old analysis files, once it has analysed the track again
+/// into others (`ANLZ0000.*` to `ANLZ0001.*`, the old files gone), aren't files still syncing.
+#[test]
+fn analysis_files_a_track_moved_off_arent_syncing() {
+    let dir = tempfile::tempdir().unwrap();
+    let rb = dir.path().join("rekordbox");
+    std::fs::create_dir(&rb).unwrap();
+    let f = cloud_sample();
+    f.exec(
+        "UPDATE djmdContent SET AnalysisDataPath = '/PIONEER/USBANLZ/P016/0000875E/ANLZ0001.DAT' WHERE ID = '84935471';
+         INSERT INTO contentFile (ID, ContentID, Path, Size) VALUES
+             ('f2', '84935471', '/PIONEER/USBANLZ/P016/0000875E/ANLZ0001.DAT', 4),
+             ('f3', '84935471', '/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.EXT', 9);",
+    );
+    let c = open(&write(&rb, &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+    for old in ["/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT", "/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.EXT"] {
+        assert!(!c.still_syncing(old), "{old}");
+    }
+    // The track's own files still are, until they're here whole.
+    let dat = "/PIONEER/USBANLZ/P016/0000875E/ANLZ0001.DAT";
+    assert!(c.still_syncing(dat));
+    std::fs::create_dir_all(c.share_file(dat).parent().unwrap()).unwrap();
+    std::fs::write(c.share_file(dat), b"PMAI").unwrap();
+    assert!(!c.still_syncing(dat));
+}

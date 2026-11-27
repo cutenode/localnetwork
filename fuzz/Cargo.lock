@@ -2494,6 +2494,7 @@ dependencies = [
  "loclib-model",
  "loclib-plugin",
  "loclib-sqlcipher",
+ "md-5",
  "plist",
  "quick-xml",
  "rusqlite",

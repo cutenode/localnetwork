@@ -925,8 +925,9 @@ export type CueRef =
 export type AutoCues = {
   style: CueStyle;
   /**
-   * Replace cues already in the slots the style uses (a hot cue's letter, a memory cue on the
-   * same beat). Without it they're kept and the style's cue there is left out.
+   * Replace hot cues already in the slots the style uses (by letter). Without it they're kept
+   * and the style's cue there is left out. A memory cue within a bar of the first downbeat is
+   * the track's first cue either way, and is never replaced.
    */
   overwrite?: boolean;
 };

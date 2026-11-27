@@ -8205,7 +8205,7 @@
         },
         "overwrite": {
           "type": "boolean",
-          "description": "Replace cues already in the slots the style uses (a hot cue's letter, a memory cue on the\nsame beat). Without it they're kept and the style's cue there is left out."
+          "description": "Replace hot cues already in the slots the style uses (by letter). Without it they're kept\nand the style's cue there is left out. A memory cue within a bar of the first downbeat is\nthe track's first cue either way, and is never replaced."
         }
       },
       "required": [

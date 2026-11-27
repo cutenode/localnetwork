@@ -63,8 +63,9 @@ impl std::str::FromStr for CueStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AutoCues {
     pub style: CueStyle,
-    /// Replace cues already in the slots the style uses (a hot cue's letter, a memory cue on the
-    /// same beat). Without it they're kept and the style's cue there is left out.
+    /// Replace hot cues already in the slots the style uses (by letter). Without it they're kept
+    /// and the style's cue there is left out. A memory cue within a bar of the first downbeat is
+    /// the track's first cue either way, and is never replaced.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub overwrite: bool,
 }

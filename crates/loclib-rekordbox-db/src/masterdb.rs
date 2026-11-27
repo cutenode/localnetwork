@@ -1,4 +1,5 @@
-//! rekordbox's own collection on this computer: `master.db`, read only.
+//! rekordbox's own collection on this computer: `master.db`, read here, and written only through
+//! the `write` module (the `files` feature), over a fresh backup while rekordbox is closed.
 //!
 //! rekordbox 6 and 7 keep the collection (tracks, playlists, cues, My Tags, history) in
 //! `master.db` in rekordbox's settings folder: `~/Library/Pioneer/rekordbox/` on macOS,
@@ -9,10 +10,10 @@
 //! it obfuscated, and checks a key given instead starts `402fd`). Should a rekordbox release
 //! change it, [`KEY_ENV`] (or a key passed in) overrides [`DEFAULT_KEY`].
 //!
-//! Nothing here writes to rekordbox's files or opens them with SQLite: the database and its WAL
-//! are copied to a temporary folder and decrypted there (the WAL's committed transactions
-//! replayed, as for OneLibrary), and only that plain copy is opened, read only. rekordbox may keep
-//! running; a read while it saves can miss its latest changes.
+//! Nothing here but `write` writes to rekordbox's files, and nothing opens them with SQLite: the
+//! database and its WAL are copied to a temporary folder and decrypted there (the WAL's committed
+//! transactions replayed, as for OneLibrary), and only that plain copy is opened. A read opens it
+//! read only; rekordbox may keep running, and a read while it saves can miss its latest changes.
 //!
 //! Tables read, with the column names pyrekordbox gives them: `djmdContent` and its `djmdArtist`,
 //! `djmdAlbum`, `djmdGenre`, `djmdLabel` and `djmdKey` lookups, `djmdPlaylist` +
@@ -33,7 +34,9 @@
 //! * `djmdCloudProperty` names the storage service Cloud Library Sync uses (`Reserved1`
 //!   `SyncService`, `Reserved2` `Dropbox`), and `contentFile` lists the analysis and artwork files
 //!   it syncs, with their sizes; a file there whose copy on this computer has another size (or
-//!   none) hasn't finished syncing.
+//!   none) hasn't finished syncing. Rows rekordbox keeps for a track's old analysis files, once
+//!   it has analysed the track again into new ones (5 tracks of one library of 2,050), name files
+//!   that are gone, and aren't taken to be syncing.
 //! * playlists and My Tags hang off `ParentID` `"root"`; a playlist's `Attribute` is 0 for a
 //!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`, see
 //!   [`smartlist`]) are read but not evaluated here, so it reads as empty.
@@ -248,6 +251,12 @@ fn settings_path() -> Option<PathBuf> {
 /// rekordbox's agent's options, in `rekordboxAgent/storage/` there.
 fn agent_options_path() -> Option<PathBuf> {
     Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
+}
+
+/// rekordbox's agent's log, which says whether Cloud Library Sync is on (`sync mode: standalone`).
+#[cfg_attr(not(feature = "files"), allow(dead_code))]
+fn agent_log_path() -> Option<PathBuf> {
+    Some(pioneer_dir()?.join("rekordboxAgent").join("log.log"))
 }
 
 /// A My Tag category (`Genre`, `Situation`) and its tags.
@@ -638,6 +647,22 @@ impl Db<'_> {
         }
         cues.sort_unstable_keys();
 
+        // A track's analysis files sit beside its `AnalysisDataPath`. Rows for others of its files in
+        // `USBANLZ` are what rekordbox left when it analysed the track again into new ones (moving
+        // `ANLZ0000.*` to `ANLZ0001.*`), for files that are gone: nothing is syncing them.
+        let stem = |p: &str| paths::key(p.rsplit_once('.').map_or(p, |(s, _)| s)).to_lowercase();
+        let left = |track: &Value, path: &str| {
+            let analysis = track_ids.get(&text(track)).and_then(|id| library.track(*id)).map(|t| &t.analyze_path);
+            let in_analysis = stem(path).starts_with("pioneer/usbanlz/");
+            analysis.is_some_and(|a| !a.is_empty() && in_analysis && stem(a) != stem(path))
+        };
+        let synced_sizes = self
+            .select("contentFile", &["ContentID", "Path", "Size"])?
+            .into_iter()
+            .filter(|r| !left(&r[0], &text(&r[1])))
+            .map(|r| (text(&r[1]).to_lowercase(), int(&r[2]).max(0) as u64))
+            .collect();
+
         Ok(Collection {
             path: self.path.to_path_buf(),
             db_version: self.property("DBVersion")?,
@@ -652,11 +677,7 @@ impl Db<'_> {
                 .find(|r| text(&r[0]) == "SyncService")
                 .map(|r| text(&r[1]))
                 .filter(|v| !v.is_empty()),
-            synced_sizes: self
-                .select("contentFile", &["Path", "Size"])?
-                .into_iter()
-                .map(|r| (text(&r[0]).to_lowercase(), int(&r[1]).max(0) as u64))
-                .collect(),
+            synced_sizes,
         })
     }
 
@@ -895,6 +916,9 @@ impl Collection {
 #[cfg_attr(docsrs, doc(cfg(feature = "files")))]
 pub mod files;
 pub mod smartlist;
+#[cfg(feature = "files")]
+#[cfg_attr(docsrs, doc(cfg(feature = "files")))]
+pub mod write;
 
 #[cfg(test)]
 use loclib_testkit::sqlcipher;
