@@ -19,7 +19,7 @@
 
 <div class="flex max-w-2xl flex-col gap-8">
 	<SectionHeader level={1} title="Claim {data.venue.name}" lede={data.venue.locality} />
-	<p class="notice notice-info m-0">Run this venue? Show it, and a moderator will add you as an owner. Owners confirm events here and add booking managers.</p>
+	<p class="notice notice-info">Run this venue? Show it, and a moderator will add you as an owner. Owners confirm events here and add booking managers.</p>
 	<form method="POST" class="card flex flex-col gap-5 p-5 sm:p-6">
 		<FormMessage {form} />
 		<ClaimFields {values} claimant={data.claimant} {terms} />

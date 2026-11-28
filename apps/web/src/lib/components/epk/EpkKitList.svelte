@@ -20,7 +20,7 @@
 </script>
 
 {#snippet drafts(list: EpkDraftView[])}
-	<ul class="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Open drafts">
+	<ul class="flex flex-col gap-1.5" aria-label="Open drafts">
 		{#each list as draft (draft.uri)}
 			<li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-fg-muted">
 				<DraftStatus status={draft.status} />
@@ -59,15 +59,15 @@
 {:then { kits, drafts: unpublished }}
 	{#if kits.length || unpublished.length}
 		{#if kits.length}
-			<ul class="m-0 flex list-none flex-col gap-3 p-0">
+			<ul class="flex flex-col gap-3">
 				{#each kits as { epk, drafts: open } (epk.uri)}
 					{@const preset = presetFor(epk.record.access)}
 					{@const mine = open.some((draft) => draft.author.did === viewerDid)}
 					<li class={card}>
 						<div class="flex min-w-0 flex-col gap-1.5">
-							<a class="text-emphasis font-semibold text-fg no-underline hover:underline" href={editor(epk.rkey)}>{epk.record.title}</a>
-							{#if epk.record.headline}<p class="m-0 text-small text-fg-soft">{epk.record.headline}</p>{/if}
-							<p class="m-0 inline-flex flex-wrap items-center gap-1.5 text-caption text-fg-subtle"><Lock class="size-3" aria-hidden="true" />{preset?.label ?? 'Custom access'} · Updated {formatDate(epk.record.updatedAt ?? epk.record.createdAt)}{#if epk.legacy}{' '}· Moves to the project on its maker's next visit{/if}</p>
+							<a class="text-emphasis text-fg no-underline hover:underline" href={editor(epk.rkey)}>{epk.record.title}</a>
+							{#if epk.record.headline}<p class="text-small text-fg-soft">{epk.record.headline}</p>{/if}
+							<p class="inline-flex flex-wrap items-center gap-1.5 text-caption text-fg-subtle"><Lock class="size-3" aria-hidden="true" />{preset?.label ?? 'Custom access'} · Updated {formatDate(epk.record.updatedAt ?? epk.record.createdAt)}{#if epk.legacy}{' '}· Moves to the project on its maker's next visit{/if}</p>
 							{#if open.length}{@render drafts(open)}{/if}
 						</div>
 						<div class="flex flex-wrap gap-2">
@@ -83,13 +83,13 @@
 		{/if}
 		{#if unpublished.length}
 			<section aria-labelledby="unpublished" class="flex flex-col gap-3">
-				<h2 id="unpublished" class="m-0 text-emphasis font-semibold">Not published</h2>
-				<ul class="m-0 flex list-none flex-col gap-3 p-0">
+				<h2 id="unpublished" class="text-emphasis">Not published</h2>
+				<ul class="flex flex-col gap-3">
 					{#each unpublished as draft (draft.uri)}
 						{@const title = draft.changes.title ?? 'Untitled press kit'}
 						<li class="card flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
 							<div class="flex min-w-0 flex-col gap-1.5">
-								<p class="m-0 text-emphasis font-semibold">{title}</p>
+								<p class="text-emphasis">{title}</p>
 								{@render drafts([draft])}
 							</div>
 							{#if draft.author.did === viewerDid}<a class="btn-secondary btn-sm" href={editor(draft.rkey)} aria-label="Continue draft of {title}"><Pencil class="size-4" />Continue draft</a>{/if}
@@ -102,5 +102,5 @@
 		{@render empty()}
 	{/if}
 {:catch}
-	<p role="alert" class="notice notice-error m-0">Couldn't load the press kits. Reload the page to try again.</p>
+	<p role="alert" class="notice notice-error">Couldn't load the press kits. Reload the page to try again.</p>
 {/await}

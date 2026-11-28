@@ -19,19 +19,19 @@
 
 <form method="POST" class="card flex flex-col gap-5 p-5 sm:p-7">
 	<div class="flex flex-col gap-2">
-		<h1 class="m-0 text-heading font-semibold">Hi there.</h1>
-		<p class="m-0 text-fg-muted">
+		<h1 class="text-heading">Hi there.</h1>
+		<p class="text-fg-muted">
 			Sign in with your <a class="link" href="https://atmosphereaccount.com" rel="noopener noreferrer" target="_blank">Atmosphere account</a> to {data.purpose ?? 'book DJs and manage your projects'}.
 		</p>
 	</div>
 	{#if data.error && !form}<FormMessage form={{ error: callbackError }} />{/if}
 	{#if data.reauth && !form && !data.error}
-		<p class="notice notice-info m-0">Local Network needs new permissions. Sign in again to approve them.</p>
+		<p class="notice notice-info">Local Network needs new permissions. Sign in again to approve them.</p>
 	{/if}
 	<input type="hidden" name="next" value={data.next} />
 	<div class="flex flex-col gap-1.5">
 		<HandleInput value={form?.handle ?? ''} invalid={!!form?.error} describedby={form?.error ? 'handle-error' : undefined} />
-		{#if form?.error}<p id="handle-error" class="m-0 text-label text-critical">{form.error}</p>{/if}
+		{#if form?.error}<p id="handle-error" class="text-label text-critical">{form.error}</p>{/if}
 	</div>
 	<button class="btn-primary w-full">Sign in</button>
 	<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-small">

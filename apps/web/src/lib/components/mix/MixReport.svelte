@@ -99,12 +99,12 @@
 				{#if project}
 					{@render project()}
 				{:else if report.mix.artist}
-					<p class="m-0 flex items-center gap-2.5 font-semibold"><Monogram name={report.mix.artist} size="sm" />{report.mix.artist}</p>
+					<p class="flex items-center gap-2.5 font-semibold"><Monogram name={report.mix.artist} size="sm" />{report.mix.artist}</p>
 				{/if}
-				<h1 class="m-0 text-title font-semibold break-words">{heading}</h1>
+				<h1 class="text-title break-words">{heading}</h1>
 				<div class="flex flex-col gap-1">
-					{#if byline}<p class="m-0 text-fg-muted">{byline}</p>{/if}
-					<p class="m-0 flex flex-wrap gap-x-4 font-mono text-label text-fg-soft">{#each facts as fact (fact)}<span>{fact}</span>{/each}</p>
+					{#if byline}<p class="text-fg-muted">{byline}</p>{/if}
+					<p class="flex flex-wrap gap-x-4 font-mono text-label text-fg-soft">{#each facts as fact (fact)}<span>{fact}</span>{/each}</p>
 					{@render details?.()}
 				</div>
 			</div>
@@ -129,44 +129,44 @@
 	{#if open}<SetPlayer bind:this={player} bind:current id="mix-player" load={() => playable} title={heading} artist={report.mix.artist} {tracks} />{/if}
 
 	<Card padding="none" radius="2xl" class="overflow-hidden">
-		<dl class="m-0 grid grid-cols-3 gap-px border-b border-line bg-line">
+		<dl class="grid grid-cols-3 gap-px border-b border-line bg-line">
 			{#each stats as stat (stat.label)}
 				<div class="flex flex-col bg-surface px-3 py-3.5 sm:px-6 sm:py-4.5">
 					<dt class="text-caption text-fg-muted sm:text-label">{stat.label}</dt>
-					<dd class="m-0 font-mono text-emphasis font-semibold sm:text-heading">{stat.value}</dd>
-					<dd class="m-0 text-caption text-fg-subtle max-sm:hidden">{stat.sub}</dd>
+					<dd class="font-mono text-emphasis sm:text-heading">{stat.value}</dd>
+					<dd class="text-caption text-fg-subtle max-sm:hidden">{stat.sub}</dd>
 				</div>
 			{/each}
 		</dl>
 
 		<section aria-labelledby="mix-timeline" class="flex flex-col gap-3 p-4 sm:p-6">
-			<h2 id="mix-timeline" class="section-title m-0">Timeline</h2>
+			<h2 id="mix-timeline" class="section-title">Timeline</h2>
 			<MixTimeline {report} bind:selected />
 		</section>
 
 		<div class="flex flex-wrap border-t border-line">
 			<section aria-labelledby="mix-tracklist" class="min-w-0 flex-[2_1_36rem] border-line px-4 py-5 sm:border-r sm:px-6">
-				<h2 id="mix-tracklist" class="section-title m-0 mb-2.5">Tracklist</h2>
+				<h2 id="mix-tracklist" class="section-title mb-2.5">Tracklist</h2>
 				{#if report.plays.length || report.unidentified.length}
 					<MixTracklist {report} bind:selected playing={open ? current : -1} />
 				{:else}
-					<p class="m-0 text-fg-muted">No tracks from the library were found in this mix.</p>
+					<p class="text-fg-muted">No tracks from the library were found in this mix.</p>
 				{/if}
 			</section>
 			<div class="flex min-w-0 flex-[1_1_18rem] flex-col">
 				<section aria-labelledby="mix-keys" class="border-line px-4 py-5 max-sm:border-t sm:px-6">
-					<h2 id="mix-keys" class="section-title m-0 mb-2.5">Key moves</h2>
+					<h2 id="mix-keys" class="section-title mb-2.5">Key moves</h2>
 					<KeyWheel {report} bind:selected />
 				</section>
 				<section aria-labelledby="mix-tempo" class="border-t border-line px-4 py-5 sm:px-6">
-					<h2 id="mix-tempo" class="section-title m-0 mb-2.5">Tempo</h2>
+					<h2 id="mix-tempo" class="section-title mb-2.5">Tempo</h2>
 					<TempoChart {report} bind:selected />
 				</section>
 			</div>
 		</div>
 	</Card>
 
-	<p class="m-0 text-label text-fg-subtle">
+	<p class="text-label text-fg-subtle">
 		Found by {report.generator.name}
 		{report.generator.version}, searching ±{Math.round(report.tempoRange * 100)}% tempo. Analysed {formatDate(report.analysedAt)}.
 	</p>

@@ -23,7 +23,7 @@
 	{#if thread.project}{thread.project.name}{:else if actsPending}<span class="inline-block h-3 w-20 rounded-md bg-well motion-safe:animate-pulse"></span>{:else}{fallback}{/if}
 {/snippet}
 
-<ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading > 0 || undefined}>
+<ul class="card divide-y divide-line overflow-hidden" aria-busy={loading > 0 || undefined}>
 	{#each { length: loading }, row (row)}
 		<li class="flex items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-5">
 			<span class="h-[4.375rem] w-12 shrink-0 rounded-lg bg-well motion-safe:animate-pulse"></span>
@@ -48,7 +48,7 @@
 			</div>
 			<a href="/dashboard/bookings/{thread.skey}" class={['self-end text-body font-medium text-fg no-underline after:absolute after:inset-0', !mark && 'col-[2/-1]']}>{thread.title ?? 'Booking inquiry'}</a>
 			{#if mark}<div class="self-end sm:row-span-2 sm:self-center"><StatusPill status={mark} /></div>{/if}
-			<p class="col-[2/-1] row-start-2 m-0 self-start text-label text-fg-muted first-letter:uppercase sm:col-[2/3]">
+			<p class="col-[2/-1] row-start-2 self-start text-label text-fg-muted first-letter:uppercase sm:col-[2/3]">
 				{#if group === 'active' && isBooked}
 					Waiting on {accountLabel(thread.promoter)}{#if hasAct}{' · '}{@render act(thread)}{/if}{' · '}{said}
 				{:else if group === 'active'}

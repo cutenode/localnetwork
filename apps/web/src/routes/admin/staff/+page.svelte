@@ -28,7 +28,7 @@
 			{#await data.strays then strays}<StrayMembers {strays} />{/await}
 		</div>
 		<form method="POST" action="?/grant" class="card flex flex-col gap-4 p-5" use:enhance>
-			<h2 class="text-emphasis font-semibold">Add staff</h2>
+			<h2 class="text-emphasis">Add staff</h2>
 			<div><label class="label" for="subject">Handle or DID</label><input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" /></div>
 			<div>
 				<label class="label" for="role">Role</label>

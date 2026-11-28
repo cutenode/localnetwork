@@ -28,11 +28,11 @@
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">Your data</h1>
-		<p class="m-0 text-body text-fg-muted">What Local Network wrote for you when your account's server couldn't.</p>
+		<h1 class="text-heading">Your data</h1>
+		<p class="text-body text-fg-muted">What Local Network wrote for you when your account's server couldn't.</p>
 	</header>
 	<section aria-labelledby="held" class="flex flex-col gap-3">
-		<h2 id="held" class="m-0 text-emphasis font-semibold">Held for you</h2>
+		<h2 id="held" class="text-emphasis">Held for you</h2>
 		{#await data.records}
 			<div role="status" aria-label="Loading your data"><LinkRows rows={rowsFor(null)} /></div>
 		{:then records}
@@ -44,12 +44,12 @@
 		{/await}
 	</section>
 	<section aria-labelledby="can-do" class="flex flex-col gap-3">
-		<h2 id="can-do" class="m-0 text-emphasis font-semibold">What you can do</h2>
-		<dl class="m-0 flex flex-col gap-3 text-small">
+		<h2 id="can-do" class="text-emphasis">What you can do</h2>
+		<dl class="flex flex-col gap-3 text-small">
 			{#each CAN_DO as [verb, what] (verb)}
 				<div class="grid gap-x-6 sm:grid-cols-[8rem_minmax(0,1fr)]">
 					<dt class="font-medium text-fg">{verb}</dt>
-					<dd class="m-0 text-fg-muted">{what}</dd>
+					<dd class="text-fg-muted">{what}</dd>
 				</div>
 			{/each}
 		</dl>

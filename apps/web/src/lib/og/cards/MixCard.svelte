@@ -55,7 +55,7 @@
 	</div>
 	{#if bands.low.length}
 		<div style="display: flex; width: {CARD.width - 144}px; height: 112px; margin-top: auto;">
-			<Waveform {bands} class="" width={CARD.width - 144} height={112} />
+			<Waveform {bands} width={CARD.width - 144} height={112} />
 		</div>
 	{/if}
 </CardFrame>

@@ -52,7 +52,7 @@
 	<div>
 		<a href="/admin/requests" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Queue</a>
 		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
-			<h1 class="text-heading font-semibold sm:text-title">{requestTitle(request)}</h1>
+			<h1 class="text-heading sm:text-title">{requestTitle(request)}</h1>
 			<StatusPill status={request.status} />
 		</div>
 		<p class="mt-2 text-small text-fg-muted">
@@ -96,17 +96,17 @@
 					<h2 class="section-title">Profile to list</h2>
 					{#if data.listing.profile}
 						{@const profile = data.listing.profile.record}
-						<p class="m-0 text-emphasis font-semibold text-fg">{profile.basics.name}</p>
-						{#if profile.performer?.tagline}<p class="m-0 text-fg-soft">{profile.performer.tagline}</p>{/if}
-						<p class="m-0 text-fg-muted">
+						<p class="text-emphasis text-fg">{profile.basics.name}</p>
+						{#if profile.performer?.tagline}<p class="text-fg-soft">{profile.performer.tagline}</p>{/if}
+						<p class="text-fg-muted">
 							{[profile.performer?.genres?.join(', '), profile.basics.location && placeLabel({ location: profile.basics.location })].filter(Boolean).join(' · ') || 'No genres or place yet'}
 						</p>
-						{#if !profile.performer}<p class="m-0 text-warning">The DJ section is off now, so they can't be listed.</p>{/if}
+						{#if !profile.performer}<p class="text-warning">The DJ section is off now, so they can't be listed.</p>{/if}
 						<a class="link self-start" href={profileHref(request.requester)} target="_blank">Open their profile</a>
 					{:else}
-						<p class="m-0 text-fg-muted">Their profile is gone.</p>
+						<p class="text-fg-muted">Their profile is gone.</p>
 					{/if}
-					{#if data.listing.listed}<p class="m-0 text-fg-muted">Listed now. <a class="link" href="/admin/listings/{request.requester.did}">Listing</a></p>{/if}
+					{#if data.listing.listed}<p class="text-fg-muted">Listed now. <a class="link" href="/admin/listings/{request.requester.did}">Listing</a></p>{/if}
 				</Card>
 			{:else if request.kind === 'claim'}
 				<Card as="section" class="flex flex-col gap-3 text-small">
@@ -176,7 +176,7 @@
 					<p class="notice notice-info">This is your own review request. Another staff member has to review it.</p>
 				{:else}
 					<form method="POST" action="?/decide" class="card flex flex-col gap-4 p-5" use:enhance={({ formElement }) => { busy = true; return async ({ result, update }) => { await update(); busy = false; if (result.type === 'redirect') { outcome = undefined; formElement.reset(); } }; }}>
-						<h2 class="text-emphasis font-semibold">Decision</h2>
+						<h2 class="text-emphasis">Decision</h2>
 						<fieldset class="flex flex-col gap-2 text-small">
 							<legend class="sr-only">Outcome</legend>
 							{#each choices as choice (choice.value)}

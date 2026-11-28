@@ -26,7 +26,7 @@
 	});
 </script>
 
-<ol class="m-0 list-none p-0">
+<ol>
 	{#each items as item (item.kind === 'play' ? `p${item.index}` : `g${item.start}`)}
 		{#if item.kind === 'gap'}
 			<li class="{grid} items-baseline border-t border-well py-2.5 text-small">
@@ -60,7 +60,7 @@
 						{#if track.artwork}<img src={track.artwork} alt="" class="size-10 shrink-0 rounded-md bg-well object-cover" loading="lazy" />{/if}
 						<div class="flex min-w-0 flex-col gap-1">
 							<!-- Its click reaches the row's handler, so the button has none of its own. The artists sit outside it, since a link can't go inside a button. -->
-							<p class="m-0 text-small leading-6">
+							<p class="text-small leading-6">
 								<button type="button" aria-pressed={selected === i} class="cursor-pointer text-left focus-visible:outline-none">
 									{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" /><span class="sr-only">{'Playing now: '}</span>{/if}<span class="font-mono text-caption text-fg-subtle">{i + 1}</span>
 									<span class="font-semibold">{track.title}</span>
@@ -68,7 +68,7 @@
 								{#if track.artist}<span class="max-sm:block"> <ArtistLinks artists={trackArtists(track)} /></span>{/if}
 							</p>
 							{#if track.label || play.keyLock || pitched || play.jumps > 0 || play.confidence < CONFIDENT}
-								<p class="m-0 flex flex-wrap gap-1.5 text-caption">
+								<p class="flex flex-wrap gap-1.5 text-caption">
 									{#if track.label}<span class="text-fg-subtle">{track.label}</span>{/if}
 									{#if play.keyLock}<span class="pill bg-raised text-fg-muted">Key lock</span>{/if}
 									{#if pitched}<span class="pill bg-raised text-fg-muted">Pitched {play.semitones > 0 ? '+' : '−'}{Math.abs(play.semitones).toFixed(1)} st</span>{/if}

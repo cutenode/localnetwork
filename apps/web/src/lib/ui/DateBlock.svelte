@@ -15,6 +15,6 @@
 
 <time datetime={date} class={['flex w-12 shrink-0 flex-col items-center rounded-lg py-1.5 text-center', !compact && 'sm:w-16 sm:py-2', tentative ? 'border border-dashed border-line-strong' : 'bg-well']}>
 	<span class="font-mono text-caption uppercase {tones[tentative ? 'muted' : tone]}">{part({ weekday: 'short' })}</span>
-	<span class={['text-emphasis font-semibold', !compact && 'sm:text-heading']}>{part({ day: 'numeric' })}</span>
+	<span class={['text-emphasis', !compact && 'sm:text-heading']}>{part({ day: 'numeric' })}</span>
 	<span class="text-caption text-fg-subtle">{part({ month: 'short' })}</span>
 </time>

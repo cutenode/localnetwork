@@ -47,7 +47,7 @@
 			{/each}
 		</div>
 	{/if}
-	<p class="m-0 flex flex-wrap justify-between gap-x-2 font-mono text-caption text-fg-subtle" title={range}>
+	<p class="flex flex-wrap justify-between gap-x-2 font-mono text-caption text-fg-subtle" title={range}>
 		<span class="whitespace-nowrap"><span class="text-fg-soft">{clock(play.trackStart)}</span> {into ?? 'in'}</span>
 		<span class="whitespace-nowrap"><span class="text-fg-soft">{clock(play.trackEnd)}</span> {outOf ?? 'out'} / {clock(total)}</span>
 	</p>

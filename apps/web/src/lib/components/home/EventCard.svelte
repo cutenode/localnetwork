@@ -21,16 +21,16 @@
 <article class={['card flex h-full gap-4 p-4 sm:p-5', wide ? 'items-start' : 'flex-col']}>
 	<DateBlock date={venueDay(record.startsAt)} tentative={cancelled} />
 	<div class="flex min-w-0 flex-1 flex-col gap-1">
-		<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-			<a class={['entity-link text-emphasis font-semibold break-words', cancelled && 'text-fg-muted line-through']} href="/projects/{event.shows[0].project.slug}">{record.name}</a>
+		<p class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+			<a class={['entity-link text-emphasis break-words', cancelled && 'text-fg-muted line-through']} href="/projects/{event.shows[0].project.slug}">{record.name}</a>
 			{#if cancelled}<span class="pill bg-raised text-critical">Cancelled</span>{:else if record.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
 		</p>
-		<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
+		<p class="flex flex-wrap gap-x-1.5 text-small text-fg-muted">
 			<span class="font-mono">{venueClock(record.startsAt)}</span>
 			<span aria-hidden="true">·</span><span>{[record.venue, record.location.city].filter(Boolean).join(', ')}</span>
 		</p>
 		{#if lineup}
-			<ul aria-label="Lineup" class="m-0 mt-2 flex list-none flex-wrap gap-x-3 gap-y-1.5 p-0">
+			<ul aria-label="Lineup" class="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
 				{#each event.shows as show (show.uri)}
 					<li><a class="entity-link inline-flex items-center gap-2 text-small text-fg-soft" href="/projects/{show.project.slug}"><Avatar src={show.project.avatarUrl} name={show.project.profile.name} size="sm" />{show.project.profile.name}</a></li>
 				{/each}

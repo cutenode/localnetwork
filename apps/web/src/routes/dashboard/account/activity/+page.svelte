@@ -11,8 +11,8 @@
 
 <div class="flex max-w-3xl flex-col gap-6 sm:gap-8">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">Activity</h1>
-		<p class="m-0 text-body text-fg-muted">What you've done on Local Network, newest first.</p>
+		<h1 class="text-heading">Activity</h1>
+		<p class="text-body text-fg-muted">What you've done on Local Network, newest first.</p>
 	</header>
 	{#await data.activity}
 		<div role="status" aria-label="Loading your activity"><ActivityList loading /></div>

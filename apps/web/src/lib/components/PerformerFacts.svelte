@@ -34,12 +34,12 @@
 </script>
 
 {#if facts.length}
-	<dl class="m-0 flex flex-col">
+	<dl class="flex flex-col">
 		{#each facts as fact (fact.term)}
 			<div class="flex flex-col gap-0.5 border-b border-line py-2.5 first:pt-0 last:border-b-0 last:pb-0">
-				<dt class="eyebrow text-fg-subtle">{fact.term}</dt>
-				{#each [fact.value].flat() as line, index (index)}<dd class="m-0 text-small">{line}</dd>{/each}
-				{#if fact.note}<dd class="m-0 text-label text-fg-muted">{fact.note}</dd>{/if}
+				<dt class="section-title">{fact.term}</dt>
+				{#each [fact.value].flat() as line, index (index)}<dd class="text-small">{line}</dd>{/each}
+				{#if fact.note}<dd class="text-label text-fg-muted">{fact.note}</dd>{/if}
 			</div>
 		{/each}
 	</dl>

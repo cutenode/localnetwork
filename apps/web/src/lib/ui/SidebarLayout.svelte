@@ -79,17 +79,16 @@
 {/snippet}
 
 {#snippet link(item: SidebarItem)}
-	{@const active = isCurrent(item)}
 	<li>
-		<a href={item.href} aria-current={active ? 'page' : undefined} onclick={() => (open = false)} class={['flex min-h-10 items-center gap-2.5 rounded-md px-3 text-small no-underline transition-colors', active ? 'bg-raised font-medium text-fg' : 'text-fg-muted hover:bg-raised hover:text-fg']}>
+		<a href={item.href} aria-current={isCurrent(item) ? 'page' : undefined} onclick={() => (open = false)} class="nav-item min-h-10">
 			{@render mark(item)}<span class="min-w-0 truncate">{item.label}</span>
-			{#if item.badge}<span class="ml-auto rounded-full bg-fg px-1.5 font-mono text-caption font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="ml-auto size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
+			{#if item.badge}<span class="badge ml-auto">{item.badge}</span>{:else if item.dot}<span class="ml-auto size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
 		</a>
 	</li>
 {/snippet}
 
 {#snippet heading(group: SidebarGroup, headingId: string)}
-	{#if group.label}<p id={headingId} class="m-0 px-3 eyebrow text-fg-subtle">{group.label}</p>{/if}
+	{#if group.label}<p id={headingId} class="px-3 section-title">{group.label}</p>{/if}
 {/snippet}
 
 <!-- The sidebar's contents, `place` keeping the sheet's ids apart from the sidebar's. -->
@@ -102,14 +101,14 @@
 			{#await group.items}
 				{#if !group.continues}
 					{@render heading(group, headingId)}
-					<ul aria-labelledby={group.label ? headingId : undefined} aria-busy="true" class="m-0 flex list-none flex-col gap-0.5 p-0">
+					<ul aria-labelledby={group.label ? headingId : undefined} aria-busy="true" class="flex flex-col gap-0.5">
 						{#each { length: 2 }, row (row)}<li class="flex min-h-10 items-center px-3"><span class="h-4 w-3/4 animate-pulse rounded-md bg-raised"></span></li>{/each}
 					</ul>
 				{/if}
 			{:then items}
 				{#if items.length}
 					{@render heading(group, headingId)}
-					<ul aria-labelledby={group.label ? headingId : undefined} class="m-0 flex list-none flex-col gap-0.5 p-0">
+					<ul aria-labelledby={group.label ? headingId : undefined} class="flex flex-col gap-0.5">
 						{#each items as item (item.href)}{@render link(item)}{/each}
 					</ul>
 				{/if}
@@ -117,7 +116,7 @@
 		</div>
 	{/each}
 	{#if footer.length}
-		<ul class="m-0 flex list-none flex-col gap-0.5 border-t border-line p-0 pt-3">
+		<ul class="flex flex-col gap-0.5 border-t border-line pt-3">
 			{#each footer as item (item.href)}{@render link(item)}{/each}
 		</ul>
 	{/if}
@@ -128,7 +127,7 @@
 		{#if tabs}
 			<div class="flex flex-col gap-5">{@render sections('side')}</div>
 		{:else}
-			<button type="button" aria-expanded={open} aria-controls="{id}-items" aria-label="{title} menu: {here?.label ?? title}" onclick={() => (open = !open)} class="flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 text-small font-medium text-fg hover:bg-raised lg:hidden">
+			<button type="button" aria-expanded={open} aria-controls="{id}-items" aria-label="{title} menu: {here?.label ?? title}" onclick={() => (open = !open)} class="menu-toggle lg:hidden">
 				{#if here}{@render mark(here)}{:else}<Menu class="size-4 shrink-0" aria-hidden="true" />{/if}<span class="min-w-0 truncate">{here?.label ?? title}</span>
 				<ChevronDown class={['ml-auto size-4 shrink-0 transition-transform', open && 'rotate-180']} aria-hidden="true" />
 			</button>
@@ -145,7 +144,7 @@
 			{@const active = isCurrent(item)}
 			<a href={item.href} aria-current={active ? 'page' : undefined} class={['relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium no-underline', active ? 'text-fg' : 'text-fg-muted']}>
 				{@render mark(item)}{item.label}
-				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] rounded-full bg-fg px-1 font-mono text-[0.625rem] leading-tight font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
+				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] badge px-1 text-micro leading-tight">{item.badge}</span>{:else if item.dot}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
 			</a>
 		{/each}
 		<button type="button" aria-haspopup="dialog" aria-expanded={open} aria-label="{label} menu" onclick={() => (open = true)} class={['flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium', onTab ? 'text-fg-muted' : 'text-fg']}>
@@ -154,10 +153,10 @@
 	</nav>
 	<!-- A click lands on the dialog itself only outside the panel, on the backdrop. -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-	<dialog bind:this={sheet} aria-label="{label} menu" onclose={() => (open = false)} onclick={(event) => event.target === sheet && (open = false)} class="m-0 mt-auto max-h-[85dvh] w-full max-w-none overflow-auto overscroll-contain rounded-t-xl border-0 border-t border-line-strong bg-surface p-0 text-fg starting:translate-y-6 transition-transform duration-200 ease-out motion-reduce:transition-none backdrop:bg-canvas/80 lg:hidden">
+	<dialog bind:this={sheet} aria-label="{label} menu" onclose={() => (open = false)} onclick={(event) => event.target === sheet && (open = false)} class="mt-auto max-h-[85dvh] w-full max-w-none overflow-auto overscroll-contain rounded-t-xl border-0 border-t border-line-strong bg-surface p-0 text-fg starting:translate-y-6 transition-transform duration-200 ease-out motion-reduce:transition-none backdrop:bg-canvas/80 lg:hidden">
 		<div class="flex flex-col gap-5 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
 			<div class="flex justify-end">
-				<button type="button" aria-label="Close menu" onclick={() => (open = false)} class="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg"><X class="size-5" aria-hidden="true" /></button>
+				<button type="button" aria-label="Close menu" onclick={() => (open = false)} class="btn-icon"><X class="size-5" aria-hidden="true" /></button>
 			</div>
 			{#if open}{@render sections('sheet')}{/if}
 		</div>

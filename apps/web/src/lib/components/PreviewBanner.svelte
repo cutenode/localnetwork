@@ -7,7 +7,7 @@
 </script>
 
 {#if status !== 'active'}
-	<p class="notice notice-info m-0 flex items-center gap-2 print:hidden">
+	<p class="notice notice-info flex items-center gap-2 print:hidden">
 		<EyeOff class="size-4 shrink-0" aria-hidden="true" /><span><strong class="font-semibold">{status === 'archived' ? 'Archived.' : 'Not public yet.'}</strong> Only its managers and staff can see this page.</span>
 	</p>
 {/if}

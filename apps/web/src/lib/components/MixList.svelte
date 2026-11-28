@@ -24,7 +24,7 @@
 	const length = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`);
 </script>
 
-<ul class="m-0 flex list-none flex-col gap-2.5 p-0">
+<ul class="flex flex-col gap-2.5">
 	{#each mixes as mix, index (index)}
 		{@const embed = embedUrl(mix.url)}
 		{@const id = `${index} ${mix.url}`}
@@ -37,7 +37,7 @@
 						aria-label={open === id ? `Close the player for ${mix.title}` : `Play ${mix.title}`}
 						aria-expanded={open === id}
 						aria-controls="mix-player-{index}"
-						class="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full bg-fg text-fg-inverse transition-opacity hover:opacity-85"
+						class="btn-play"
 						onclick={() => (open = open === id ? null : id)}
 					>
 						<!-- A close mark, not a pause: the button opens and closes the platform's player, which plays and pauses itself. -->
@@ -45,8 +45,8 @@
 					</button>
 				{/if}
 				<div class="min-w-0 flex-1">
-					<a class="block truncate text-emphasis font-semibold text-fg no-underline hover:underline" href={webHref(mix.url)} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
-					{#if meta.length}<p class="m-0 font-mono text-caption text-fg-subtle">{meta.join(' · ')}</p>{/if}
+					<a class="block truncate text-emphasis text-fg no-underline hover:underline" href={webHref(mix.url)} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
+					{#if meta.length}<p class="font-mono text-caption text-fg-subtle">{meta.join(' · ')}</p>{/if}
 				</div>
 				{#if mix.tracklist && tracklistHref}
 					<Button variant="secondary" size="sm" href={tracklistHref(index)}><ListMusic class="size-4" />Tracklist</Button>

@@ -59,7 +59,7 @@
 {#snippet content(answer: RsvpAnswer, pressed: boolean)}
 	{#if answer === 'going'}<Check aria-hidden="true" class="size-4" />{:else}<Star aria-hidden="true" class="size-4" />{/if}{LABELS[answer]}
 	<!-- The pressed one's count takes its button's color, which the muted one doesn't meet the contrast of. -->
-	<span class={['font-mono tabular-nums', !pressed && 'text-fg-muted']}>{rsvp[answer].toLocaleString('en')}<span class="sr-only">{rsvp[answer] === 1 ? ' person' : ' people'}</span></span>
+	<span class={['font-mono', !pressed && 'text-fg-muted']}>{rsvp[answer].toLocaleString('en')}<span class="sr-only">{rsvp[answer] === 1 ? ' person' : ' people'}</span></span>
 {/snippet}
 
 <div id="rsvp" class="flex flex-col gap-2 sm:items-end">

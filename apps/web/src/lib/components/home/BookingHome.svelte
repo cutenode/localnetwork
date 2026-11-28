@@ -42,7 +42,7 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">Get listed</a></p>
+		<p class="text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">Get listed</a></p>
 	</div>
 </section>
 
@@ -50,7 +50,7 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-14">
 		<div class="flex flex-col gap-5">
 			<div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-				<h2 id="soon-title" class="m-0 text-heading font-semibold">Coming up</h2>
+				<h2 id="soon-title" class="text-heading">Coming up</h2>
 				<a class="link text-small" href="/shows">All shows</a>
 			</div>
 			{#await data.shows}
@@ -61,11 +61,11 @@
 		</div>
 		<div class="flex flex-col gap-5">
 			<div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-				<h2 id="played-title" class="m-0 text-heading font-semibold">Most played this month</h2>
+				<h2 id="played-title" class="text-heading">Most played this month</h2>
 				<a class="link text-small" href="/charts">Charts</a>
 			</div>
 			<!-- Five rows from the start, so the list arriving doesn't move what's under it. -->
-			<ol aria-labelledby="played-title" class="m-0 flex min-h-[calc(5*3.25rem)] list-none flex-col p-0">
+			<ol aria-labelledby="played-title" class="flex min-h-[calc(5*3.25rem)] flex-col">
 				{#await data.tracks}
 					{#each { length: 5 }, row (row)}<li class="flex h-13 items-center border-b border-line last:border-b-0"><span class="h-4 w-2/3 animate-pulse rounded-md bg-raised"></span></li>{/each}
 				{:then tracks}
@@ -74,12 +74,12 @@
 					{:else}
 						{#each tracks as track, index (track.id)}
 							<li class="flex h-13 items-center gap-4 border-b border-line last:border-b-0">
-								<span class="w-4 font-mono text-caption text-fg-subtle tabular-nums" aria-hidden="true">{index + 1}</span>
+								<span class="w-4 font-mono text-caption text-fg-subtle" aria-hidden="true">{index + 1}</span>
 								<span class="flex min-w-0 flex-1 flex-col">
 									<span class="truncate text-small font-semibold">{track.title}</span>
 									{#if track.artist}<span class="truncate text-label text-fg-muted">{track.artist}</span>{/if}
 								</span>
-								<span class="font-mono text-caption whitespace-nowrap text-fg-muted tabular-nums">{pluralize(track.supports, 'DJ')}</span>
+								<span class="font-mono text-caption whitespace-nowrap text-fg-muted">{pluralize(track.supports, 'DJ')}</span>
 							</li>
 						{/each}
 					{/if}
@@ -95,7 +95,7 @@
 			<div class="flex flex-col gap-3">
 				<SectionHeader id="recent-title" tone="low" title="New on the directory" />
 				{#if data.stats?.active}
-					<p class="m-0 text-lede text-fg-muted">
+					<p class="text-lede text-fg-muted">
 						{pluralize(data.stats.active, 'DJ')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/djs?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
 					</p>
 				{/if}
@@ -104,20 +104,20 @@
 		</div>
 		{#if !data.stats}
 			<Card tone="outline" padding="lg" radius="2xl">
-				<p class="m-0 font-semibold">The directory isn't answering right now.</p>
-				<p class="m-0 mt-1 text-fg-muted">Try again in a minute.</p>
+				<p class="font-semibold">The directory isn't answering right now.</p>
+				<p class="mt-1 text-fg-muted">Try again in a minute.</p>
 			</Card>
 		{:else if data.recent.length === 0}
 			<Card tone="outline" padding="lg" radius="2xl" class="flex flex-col items-start gap-3">
 				<div>
-					<p class="m-0 font-semibold">No DJs listed yet.</p>
-					<p class="m-0 mt-1 text-fg-muted">Be the first on the map.</p>
+					<p class="font-semibold">No DJs listed yet.</p>
+					<p class="mt-1 text-fg-muted">Be the first on the map.</p>
 				</div>
 				<Button size="sm" href="/for/djs">Get listed</Button>
 			</Card>
 		{:else}
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
-			<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4 p-0 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
+			<ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
 				{#each data.recent as project (project.uri)}
 					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><PerformerCard performer={projectSummary(project)} /></li>
 				{/each}
@@ -133,8 +133,8 @@
 			<div class="grid gap-8 md:grid-cols-2 md:gap-12">
 				{#if data.genres.length}
 					<div class="flex flex-col gap-3">
-						<h3 class="m-0 text-body font-semibold">By sound</h3>
-						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
+						<h3 class="text-body font-semibold">By sound</h3>
+						<ul class="flex flex-wrap gap-2">
 							{#each data.genres as genre (genre.value)}
 								<li><Tag href="/djs?genres={encodeURIComponent(genre.value)}">{genre.value} <span class="font-mono text-caption text-fg-subtle">{genre.count}</span></Tag></li>
 							{/each}
@@ -143,8 +143,8 @@
 				{/if}
 				{#if data.cities.length}
 					<div class="flex flex-col gap-3">
-						<h3 class="m-0 text-body font-semibold">By city</h3>
-						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
+						<h3 class="text-body font-semibold">By city</h3>
+						<ul class="flex flex-wrap gap-2">
 							{#each data.cities as city (city.city + city.country)}
 								<li><Tag href="/djs?q={encodeURIComponent(city.city)}&country={city.country}">{city.city}, {city.country} <span class="font-mono text-caption text-fg-subtle">{city.count}</span></Tag></li>
 							{/each}
@@ -159,12 +159,12 @@
 <Section labelledby="promoters-title">
 	<div class="flex flex-col gap-8 sm:gap-12">
 		<SectionHeader id="promoters-title" tone="aqua" title="Describe the night. Get a shortlist with reasons." lede="The matcher scores every DJ on sound, distance, budget and room size, and tells you why each one made the list." />
-		<ul class="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4 p-0">
+		<ul class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4">
 			{#each perks as perk (perk.href)}
 				<li>
 					<Card href={perk.href} tone="outline" padding="lg" radius="2xl" class="flex h-full flex-col gap-2 max-sm:p-4">
 						<span class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-							<span class="text-emphasis font-semibold">{perk.title}</span>
+							<span class="text-emphasis">{perk.title}</span>
 							{#if perk.signIn && !data.viewer}<span class="inline-flex items-center gap-1 text-label text-fg-subtle"><LockKeyhole aria-hidden="true" class="size-3.5" />Sign in</span>{/if}
 						</span>
 						<span class="text-fg-muted">{perk.body}</span>
@@ -178,12 +178,12 @@
 <Section tone="sunken" labelledby="tools-title">
 	<div class="flex flex-col gap-8 sm:gap-12">
 		<SectionHeader id="tools-title" tone="high" title="Tools for DJs, from the crate to the booth." />
-		<ul class="m-0 flex list-none flex-wrap gap-4 p-0">
+		<ul class="flex flex-wrap gap-4">
 			{#each data.tools as tool (tool.id)}
 				<li class="flex min-w-0 flex-[1_1_26rem]">
 					<Card href="/tools/{tool.id}" padding="none" radius="2xl" class="flex w-full flex-col overflow-hidden">
 						<span class="flex flex-col gap-2 p-5 sm:p-6">
-							<span class="flex flex-wrap items-baseline gap-x-2.5 text-heading font-semibold">{tool.name} <span class="font-mono text-caption font-normal text-fg-subtle">{tool.kind}</span></span>
+							<span class="flex flex-wrap items-baseline gap-x-2.5 text-heading">{tool.name} <span class="font-mono text-caption font-normal text-fg-subtle">{tool.kind}</span></span>
 							<span class="text-fg-muted">{tool.tagline}</span>
 						</span>
 						<span class="mt-auto flex flex-col border-t border-line bg-canvas px-5 py-2 sm:px-6">

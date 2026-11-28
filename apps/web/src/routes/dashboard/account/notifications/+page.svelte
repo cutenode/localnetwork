@@ -17,8 +17,8 @@
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">Notifications</h1>
-		<p class="m-0 text-body text-fg-muted">Your inbox here gets everything. {#if channels.length}Pick what else goes by email or Bluesky DM.{/if}</p>
+		<h1 class="text-heading">Notifications</h1>
+		<p class="text-body text-fg-muted">Your inbox here gets everything. {#if channels.length}Pick what else goes by email or Bluesky DM.{/if}</p>
 	</header>
 	{#if channels.length}<ChannelTopics topics={data.topics} {channels} />{/if}
 	<div class="flex flex-col gap-3">

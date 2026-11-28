@@ -18,7 +18,7 @@
 
 <div class="flex max-w-2xl flex-col gap-8">
 	<SectionHeader level={1} eyebrow={claimed ? 'Co-manage' : 'Claim'} title={data.project.profile.name} />
-	<p class="notice notice-info m-0">
+	<p class="notice notice-info">
 		{#if claimed}This project already has managers. Ask to join them, and a moderator will check the evidence you give.{:else}Show this project is yours and a moderator will hand it over. Once approved you can propose edits and get booking inquiries.{/if}
 	</p>
 	<form method="POST" class="card flex flex-col gap-5 p-5 sm:p-6">

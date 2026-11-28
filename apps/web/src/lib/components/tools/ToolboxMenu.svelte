@@ -91,7 +91,7 @@
 {#if marks}
 	<!-- The marks aren't in the menu: they're drawn on SoundCloud's own pages, so they're shown apart. -->
 	<div class="grid grid-cols-[minmax(0,1fr)] items-center gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,8fr)] lg:gap-10">
-		<p class="m-0 text-lede text-fg-soft">On SoundCloud itself, it ticks the tracks you've downloaded and flags the ones with no download.</p>
+		<p class="text-lede text-fg-soft">On SoundCloud itself, it ticks the tracks you've downloaded and flags the ones with no download.</p>
 		<Screen captures={[marks]} selected={0} />
 	</div>
 {/if}

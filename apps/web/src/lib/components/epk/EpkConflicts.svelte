@@ -13,8 +13,8 @@
 
 <section aria-labelledby="epk-conflicts" class="notice flex flex-col gap-4">
 	<div class="flex flex-col gap-1">
-		<h2 id="epk-conflicts" class="m-0 text-emphasis font-semibold">Someone published changes first</h2>
-		<p class="m-0 text-fg-soft">Pick which of your changes to publish. The rest keep the published version.</p>
+		<h2 id="epk-conflicts" class="text-emphasis">Someone published changes first</h2>
+		<p class="text-fg-soft">Pick which of your changes to publish. The rest keep the published version.</p>
 	</div>
 	<form
 		method="POST"
@@ -29,15 +29,15 @@
 			};
 		}}
 	>
-		<ul class="m-0 flex list-none flex-col gap-3 p-0">
+		<ul class="flex flex-col gap-3">
 			{#each conflicts as conflict (conflict.field)}
 				<li class="card flex flex-col gap-3 p-4">
 					<input type="hidden" name="conflict" value={conflict.field} />
-					<h3 class="m-0 text-small font-semibold">{conflict.label}</h3>
-					<dl class="m-0 grid gap-3 text-small sm:grid-cols-3">
-						<div class="flex min-w-0 flex-col gap-1"><dt class="eyebrow text-fg-subtle">Published now</dt><dd class="m-0 break-words whitespace-pre-line">{conflict.published}</dd></div>
-						<div class="flex min-w-0 flex-col gap-1"><dt class="eyebrow text-fg-subtle">When you started</dt><dd class="m-0 break-words whitespace-pre-line text-fg-muted">{conflict.previous}</dd></div>
-						<div class="flex min-w-0 flex-col gap-1"><dt class="eyebrow text-fg-subtle">Yours</dt><dd class="m-0 break-words whitespace-pre-line">{conflict.draft}</dd></div>
+					<h3 class="text-small font-semibold">{conflict.label}</h3>
+					<dl class="grid gap-3 text-small sm:grid-cols-3">
+						<div class="flex min-w-0 flex-col gap-1"><dt class="section-title">Published now</dt><dd class="break-words whitespace-pre-line">{conflict.published}</dd></div>
+						<div class="flex min-w-0 flex-col gap-1"><dt class="section-title">When you started</dt><dd class="break-words whitespace-pre-line text-fg-muted">{conflict.previous}</dd></div>
+						<div class="flex min-w-0 flex-col gap-1"><dt class="section-title">Yours</dt><dd class="break-words whitespace-pre-line">{conflict.draft}</dd></div>
 					</dl>
 					<label class="inline-flex w-fit items-center gap-2 text-small font-medium"><input type="checkbox" name="overwrite" value={conflict.field} class="size-4 accent-current" />Publish mine</label>
 				</li>

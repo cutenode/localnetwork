@@ -12,11 +12,11 @@
 </script>
 
 {#snippet inbox()}
-	<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
+	<ul class="flex flex-col divide-y divide-line">
 		{#each threads as thread (thread.title)}
 			<li class="flex min-w-0 flex-col gap-0.5 py-3">
-				<p class="m-0 truncate font-semibold">{thread.title}</p>
-				<p class="m-0 text-small text-fg-muted">{thread.with}</p>
+				<p class="truncate font-semibold">{thread.title}</p>
+				<p class="text-small text-fg-muted">{thread.with}</p>
 			</li>
 		{/each}
 	</ul>

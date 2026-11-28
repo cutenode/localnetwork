@@ -22,15 +22,15 @@
 
 {#snippet page()}
 	<section class="flex flex-col gap-4">
-		<h2 class="m-0 text-title font-semibold">Downloads and gates</h2>
-		<p class="m-0 text-lede text-fg-soft">Nothing goes on the list by itself. Open a SoundCloud playlist, Likes page or track page, scroll a long list to the end, then open the Manager.</p>
+		<h2 class="text-title">Downloads and gates</h2>
+		<p class="text-lede text-fg-soft">Nothing goes on the list by itself. Open a SoundCloud playlist, Likes page or track page, scroll a long list to the end, then open the Manager.</p>
 	</section>
 {/snippet}
 
 {#snippet install()}
 	<section class="flex flex-col gap-4">
-		<h2 class="m-0 text-title font-semibold">Install</h2>
-		<p class="m-0 text-lede text-fg-soft">Add it to Chrome, then open SoundCloud.</p>
+		<h2 class="text-title">Install</h2>
+		<p class="text-lede text-fg-soft">Add it to Chrome, then open SoundCloud.</p>
 	</section>
 {/snippet}
 

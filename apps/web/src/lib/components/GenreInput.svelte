@@ -50,7 +50,7 @@
 		{#each tags as tag (tag)}
 			<span class="chip gap-1 pr-1">
 				{tag}
-				<button type="button" class="grid size-5 place-items-center rounded-full text-fg-subtle hover:bg-raised hover:text-fg" aria-label="Remove {tag}" onclick={() => (tags = tags.filter((t) => t !== tag))}><X class="size-3" /></button>
+				<button type="button" class="btn-icon size-5 rounded-full text-fg-subtle" aria-label="Remove {tag}" onclick={() => (tags = tags.filter((t) => t !== tag))}><X class="size-3" /></button>
 			</span>
 		{/each}
 		<input

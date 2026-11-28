@@ -10,8 +10,8 @@
 
 <div class="container-page flex flex-col gap-20 py-10 sm:gap-28 sm:py-14">
 	<div class="flex flex-col gap-4">
-		<h1 class="m-0 text-display font-semibold text-balance">From the crate to the booth.</h1>
-		<p class="m-0 max-w-2xl text-intro text-fg-muted">Two free tools for DJs.</p>
+		<h1 class="text-display text-balance">From the crate to the booth.</h1>
+		<p class="max-w-2xl text-intro text-fg-muted">Two free tools for DJs.</p>
 	</div>
 	<!-- Each tool on its own, the way it works: hot cues on a track, or its own menu over SoundCloud. -->
 	{#each data.tools as tool (tool.id)}

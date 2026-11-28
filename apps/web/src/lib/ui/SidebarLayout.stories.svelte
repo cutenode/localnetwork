@@ -60,8 +60,8 @@
 
 {#snippet content()}
 	<div class="flex flex-col gap-4">
-		<h1 class="m-0 text-title font-semibold">Neon Tide</h1>
-		<p class="m-0 text-fg-muted">The page sits here, beside the sidebar.</p>
+		<h1 class="text-title">Neon Tide</h1>
+		<p class="text-fg-muted">The page sits here, beside the sidebar.</p>
 		<div class="h-60 rounded-xl border border-line bg-surface"></div>
 	</div>
 {/snippet}

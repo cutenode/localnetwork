@@ -16,7 +16,7 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<FlagGroupTable groups={data.groups} />
 		<form method="POST" action="?/create" class="card flex flex-col gap-4 p-5" use:enhance>
-			<h2 class="text-emphasis font-semibold">New group</h2>
+			<h2 class="text-emphasis">New group</h2>
 			<div><label class="label" for="name">Name</label><input id="name" name="name" class="input" required maxlength="64" /></div>
 			<div><label class="label" for="description">Description</label><input id="description" name="description" class="input" maxlength="300" /></div>
 			<div>

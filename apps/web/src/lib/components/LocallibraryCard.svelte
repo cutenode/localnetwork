@@ -20,26 +20,26 @@
 {/snippet}
 
 <section aria-labelledby="locallibrary" class="card flex flex-col gap-4 p-5 sm:p-6">
-	<h2 id="locallibrary" class="m-0 text-emphasis font-semibold">locallibrary</h2>
+	<h2 id="locallibrary" class="text-emphasis">locallibrary</h2>
 	{#if !status}
 		<div role="status" aria-label="Loading what you published" class="flex flex-col gap-2">
 			<span class="h-4 w-2/5 rounded-md bg-well motion-safe:animate-pulse"></span>
 			<span class="h-4 w-3/5 rounded-md bg-well motion-safe:animate-pulse"></span>
 		</div>
 	{:else if status.statsAt || status.sets}
-		<dl class="m-0 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
+		<dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
 			<dt class="text-fg-muted">Stats</dt>
-			<dd class="m-0">{#if status.statsAt}{@render published(status.statsAt)}{:else}{@render unpublished()}{/if}</dd>
+			<dd>{#if status.statsAt}{@render published(status.statsAt)}{:else}{@render unpublished()}{/if}</dd>
 			<dt class="text-fg-muted">Sets</dt>
-			<dd class="m-0">{#if status.sets}{@render published(status.sets.at)}{:else}{@render unpublished()}{/if}</dd>
+			<dd>{#if status.sets}{@render published(status.sets.at)}{:else}{@render unpublished()}{/if}</dd>
 			{#if status.sets}
 				<dt class="text-fg-muted">Newest set</dt>
-				<dd class="m-0 min-w-0 truncate"><a class="link" href={status.sets.href}>{status.sets.name}</a></dd>
+				<dd class="min-w-0 truncate"><a class="link" href={status.sets.href}>{status.sets.name}</a></dd>
 			{/if}
 		</dl>
 	{:else}
-		<p class="m-0 text-fg-muted">Publish your playing stats and sets from locallibrary and they show on your page and in your press kits.</p>
+		<p class="text-fg-muted">Publish your playing stats and sets from locallibrary and they show on your page and in your press kits.</p>
 		<a class="btn-primary self-start" href="/tools/locallibrary">Get locallibrary</a>
 	{/if}
-	<p class="m-0 text-small"><a class="link" href="/mixes/preview">Preview a mix export</a></p>
+	<p class="text-small"><a class="link" href="/mixes/preview">Preview a mix export</a></p>
 </section>

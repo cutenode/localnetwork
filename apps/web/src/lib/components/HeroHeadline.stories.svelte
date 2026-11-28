@@ -4,7 +4,7 @@
 	import HeroHeadline from './HeroHeadline.svelte';
 
 	/** The homepage's headline, with its words from headline.json. */
-	const { Story } = defineMeta({ title: 'Homepage/Hero headline', component: HeroHeadline, tags: ['autodocs'], args: { interval: 2200 } });
+	const { Story } = defineMeta({ title: 'Patterns/Hero headline', component: HeroHeadline, tags: ['autodocs'], args: { interval: 2200 } });
 </script>
 
 {#snippet headline()}<HeroHeadline />{/snippet}

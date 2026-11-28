@@ -15,7 +15,7 @@
 	<div class="flex items-center gap-3">
 		<Avatar src={performer.avatarUrl} name={performer.name} size="lg" />
 		<div class="min-w-0 flex-1">
-			<h3 class="line-clamp-2 text-emphasis font-semibold break-words">
+			<h3 class="line-clamp-2 text-emphasis break-words">
 				<a href={performer.href} class="text-fg no-underline after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">{performer.name}</a>
 			</h3>
 			<p class="text-label text-fg-muted">{[performer.kind, performer.place].filter(Boolean).join(' · ')}</p>

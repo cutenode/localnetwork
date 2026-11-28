@@ -50,8 +50,8 @@
 {#snippet note(title: string, body: string | undefined, action: Snippet | undefined)}
 	<div class="card flex min-h-26 flex-wrap items-center justify-between gap-x-6 gap-y-3 p-4 sm:min-h-29 sm:px-5">
 		<div class="flex flex-col gap-1">
-			<p class="m-0 font-semibold">{title}</p>
-			{#if body}<p class="m-0 text-small text-fg-muted">{body}</p>{/if}
+			<p class="font-semibold">{title}</p>
+			{#if body}<p class="text-small text-fg-muted">{body}</p>{/if}
 		</div>
 		{#if action}{@render action()}{/if}
 	</div>
@@ -60,7 +60,7 @@
 {#snippet retry()}<a class="btn-secondary btn-sm" href={retryHref}>Try again</a>{/snippet}
 
 {#if shows === undefined}
-	<ol aria-busy="true" aria-label="Loading shows" class="m-0 flex list-none flex-col gap-2.5 p-0">
+	<ol aria-busy="true" aria-label="Loading shows" class="flex flex-col gap-2.5">
 		{#each { length: rows }, row (row)}
 			<li class="card flex min-h-26 items-start gap-4 p-4 sm:min-h-29">
 				<div class="h-18 w-12 shrink-0 animate-pulse rounded-lg bg-well sm:h-21 sm:w-16"></div>
@@ -76,34 +76,34 @@
 {:else if shows.length === 0}
 	{@render note(empty.title, empty.body, children)}
 {:else}
-	<ol class="m-0 flex list-none flex-col gap-2.5 p-0">
+	<ol class="flex flex-col gap-2.5">
 		{#each shows as item (item.uri)}
 			{@const { record, href, by, venue: place, city, confirmed, edit } = rowOf(item)}
 			{@const cancelled = isCancelled(record)}
 			<li class="card flex min-h-26 items-start gap-4 p-4 sm:min-h-29">
 				<DateBlock date={venueDay(record.startsAt)} tentative={confirmed === false} />
 				<div class="flex min-w-0 flex-1 flex-col gap-1">
-					<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-						{#if href}<a class={['entity-link text-emphasis font-semibold break-words', cancelled && 'text-fg-muted line-through']} {href}>{record.name}</a>{:else}<span class={['text-emphasis font-semibold break-words', cancelled && 'text-fg-muted line-through']}>{record.name}</span>{/if}
+					<p class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+						{#if href}<a class={['entity-link text-emphasis break-words', cancelled && 'text-fg-muted line-through']} {href}>{record.name}</a>{:else}<span class={['text-emphasis break-words', cancelled && 'text-fg-muted line-through']}>{record.name}</span>{/if}
 						{#if cancelled}<span class="pill bg-raised text-critical">Cancelled</span>{:else if record.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
 						{#if confirmed !== null && !cancelled}<span class={['pill', confirmed ? 'bg-raised text-good' : 'bg-well text-fg-muted']}>{confirmed ? 'Confirmed' : 'Waiting for the venue'}</span>{/if}
 					</p>
 					{#if by}
-						<p class="m-0 text-small"><a class="entity-link text-fg-soft" href={by.href}>{by.name}</a></p>
+						<p class="text-small"><a class="entity-link text-fg-soft" href={by.href}>{by.name}</a></p>
 					{/if}
-					<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
+					<p class="flex flex-wrap gap-x-1.5 text-small text-fg-muted">
 						<span class="font-mono">{showHours(record)}</span>
 						{#if place || city}<span aria-hidden="true">·</span><span>{#if place?.href}<a class="entity-link" href={place.href}>{place.name}</a>{:else}{place?.name}{/if}{place && city ? ', ' : ''}{city}</span>{/if}
 						{#if item.distanceKm !== undefined}<span aria-hidden="true">·</span><span class="font-mono">{formatDistance(item.distanceKm)}</span>{/if}
 					</p>
 					{#if (record.tickets && !cancelled) || edit}
-						<p class="m-0 -ml-2.5 flex flex-wrap items-center gap-1">
+						<p class="-ml-2.5 flex flex-wrap items-center gap-1">
 							{#if record.tickets && !cancelled}<a class="btn-ghost btn-sm gap-1.5 px-2.5" href={webHref(record.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink class="size-3.5" /></a>{/if}
 							{#if edit}<a class="btn-ghost btn-sm gap-1.5 px-2.5" href={edit} aria-label="Edit {record.name}"><Pencil class="size-3.5" />Edit</a>{/if}
 						</p>
 					{/if}
 					{#if edit && edited.includes(item.uri)}
-						<p class="notice notice-info m-0 mt-1 text-small">Changed in another calendar app. <a class="link" href={edit}>Review it</a> to update this listing.</p>
+						<p class="notice notice-info mt-1 text-small">Changed in another calendar app. <a class="link" href={edit}>Review it</a> to update this listing.</p>
 					{/if}
 				</div>
 			</li>

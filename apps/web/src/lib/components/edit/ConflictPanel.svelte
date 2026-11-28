@@ -10,11 +10,11 @@
 </script>
 
 <div class="flex flex-col gap-4 px-4 py-4">
-	<p class="m-0 text-small text-fg-soft">
+	<p class="text-small text-fg-soft">
 		Someone saved this page after you started. Their other changes are already in.{fields.length ? ' Pick what to keep where you both changed something.' : ''}
 	</p>
 	{#each fields as field, index (field.name)}
-		<fieldset class="m-0 flex flex-col gap-2 border-0 p-0">
+		<fieldset class="flex flex-col gap-2 border-0 p-0">
 			<legend class="mb-2 p-0 text-label font-medium text-fg-soft">{field.label}</legend>
 			<div class="grid gap-2 sm:grid-cols-2">
 				{#each [{ value: 'theirs', title: 'Theirs', text: field.theirs }, { value: 'yours', title: 'Yours', text: field.yours }] as const as option (option.value)}

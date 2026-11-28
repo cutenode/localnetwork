@@ -54,7 +54,7 @@
 	{:else}
 		<div>
 			<p class="label">Pronouns</p>
-			<p class="m-0 text-body text-fg">{pronouns || 'None set'}</p>
+			<p class="text-body text-fg">{pronouns || 'None set'}</p>
 			<p class="hint">Change them in your Bluesky profile.</p>
 		</div>
 	{/if}

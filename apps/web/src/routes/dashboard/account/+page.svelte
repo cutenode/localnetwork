@@ -42,10 +42,10 @@
 <svelte:head><title>Account · Local Network</title></svelte:head>
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
-	<h1 class="m-0 text-heading font-semibold">Account</h1>
+	<h1 class="text-heading">Account</h1>
 	<LinkRows {rows} />
 	<form method="POST" action="/logout" class="flex items-center justify-between gap-3 px-4 sm:px-5">
-		<p class="m-0 min-w-0 truncate text-small text-fg-muted">Signed in as {accountLabel(data.viewer)}</p>
+		<p class="min-w-0 truncate text-small text-fg-muted">Signed in as {accountLabel(data.viewer)}</p>
 		<Button type="submit" variant="secondary" size="sm" class="shrink-0">Sign out</Button>
 	</form>
 </div>

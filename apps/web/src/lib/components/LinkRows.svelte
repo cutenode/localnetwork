@@ -12,7 +12,7 @@
 	let { rows }: { rows: LinkRow[] } = $props();
 </script>
 
-<ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0">
+<ul class="card divide-y divide-line overflow-hidden">
 	{#each rows as row (row.label)}
 		<li class={['relative flex items-center gap-3 px-4 py-3 sm:gap-4 sm:px-5 sm:py-3.5', row.href && 'transition-colors hover:bg-raised']}>
 			{#if row.icon}<span class="grid size-8 shrink-0 place-items-center rounded-[9px] bg-well text-fg-muted"><row.icon class="size-4" aria-hidden="true" /></span>{/if}
@@ -20,10 +20,10 @@
 				{#if row.href}
 					<a href={row.href} class="text-small font-medium text-fg no-underline after:absolute after:inset-0">{row.label}</a>
 				{:else}
-					<p class="m-0 text-small font-medium text-fg-muted">{row.label}</p>
+					<p class="text-small font-medium text-fg-muted">{row.label}</p>
 				{/if}
 				<!-- Always a line, so nothing moves when it arrives. -->
-				<p class="m-0 flex min-h-lh items-center text-label text-fg-muted">
+				<p class="flex min-h-lh items-center text-label text-fg-muted">
 					{#if row.detail === null}<span class="h-3 w-2/5 rounded-md bg-well motion-safe:animate-pulse"></span>{:else}<span>{row.detail}</span>{/if}
 				</p>
 			</div>

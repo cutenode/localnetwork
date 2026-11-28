@@ -31,7 +31,7 @@
 			</div>
 		</div>
 	{/each}
-	{#if error}<p id="{id}-error" class="m-0 text-small text-critical">{error}</p>{/if}
+	{#if error}<p id="{id}-error" class="text-small text-critical">{error}</p>{/if}
 	{#if rows.length < 50}
 		<button type="button" class="btn-ghost btn-sm self-start" onclick={() => (rows = [...rows, blank()])}><Plus class="size-4" />Add to lineup</button>
 	{/if}

@@ -10,7 +10,7 @@
 	import ShowList from './ShowList.svelte';
 	import SignInAgain from './SignInAgain.svelte';
 
-	const { Story } = defineMeta({ title: 'Shows/Shows', component: ShowList, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Patterns/Show list', component: ShowList, tags: ['autodocs'] });
 
 	const project = (slug: string, name: string): ProjectView => ({
 		uri: `at://did:plc:root/computer.localnetwork.project/${slug}`,

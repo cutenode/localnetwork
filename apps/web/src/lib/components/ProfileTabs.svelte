@@ -87,7 +87,7 @@
 	</div>
 {:else if current}
 	<section aria-labelledby="profile-section" class="flex flex-col gap-4">
-		<h2 id="profile-section" class="m-0 text-heading font-semibold">{current.label}</h2>
+		<h2 id="profile-section" class="text-heading">{current.label}</h2>
 		<current.Panel data={tabData} />
 	</section>
 {:else if isPending}

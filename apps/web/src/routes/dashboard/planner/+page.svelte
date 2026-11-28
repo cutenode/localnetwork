@@ -19,7 +19,7 @@
 
 <div class="flex flex-col gap-12">
 	<div class="flex flex-col gap-4">
-		<p class="m-0 inline-flex items-center gap-1.5 text-caption text-fg-subtle"><Lock class="size-3.5" />Private to you</p>
+		<p class="inline-flex items-center gap-1.5 text-caption text-fg-subtle"><Lock class="size-3.5" />Private to you</p>
 		<SectionHeader level={1} title="Your planner" lede="Saved DJs and the shows you're booking. It lives in a personal space on your own PDS, and Local Network keeps no copy." />
 	</div>
 	<FormMessage {form} />
@@ -29,7 +29,7 @@
 	{:else}
 		<section aria-labelledby="shows" class="flex flex-col gap-5">
 			<div class="flex items-center justify-between gap-4">
-				<h2 id="shows" class="m-0 text-heading font-semibold">Shows</h2>
+				<h2 id="shows" class="text-heading">Shows</h2>
 				<Button variant="secondary" size="sm" href="/dashboard/planner/shows/new"><Plus class="size-4" />New show</Button>
 			</div>
 			{#if data.shows.length === 0}
@@ -40,15 +40,15 @@
 						<Card as="article" padding="none" class="flex flex-col">
 							<div class="flex items-start justify-between gap-3 p-5">
 								<div class="flex min-w-0 flex-col gap-1">
-									<a class="text-heading font-semibold text-fg no-underline hover:text-link" href="/dashboard/planner/shows/{show.rkey}">{show.details.title}</a>
-									<p class="m-0 text-small text-fg-muted">{show.details.date ? formatShowDate(show.details.date) : 'No date yet'}{show.details.venue ? ` · ${show.details.venue}` : ''}</p>
+									<a class="text-heading text-fg no-underline hover:text-link" href="/dashboard/planner/shows/{show.rkey}">{show.details.title}</a>
+									<p class="text-small text-fg-muted">{show.details.date ? formatShowDate(show.details.date) : 'No date yet'}{show.details.venue ? ` · ${show.details.venue}` : ''}</p>
 								</div>
 								<form method="POST" action="?/deleteShow" use:enhance={({ cancel }) => { if (!confirm('Delete this show?')) cancel(); }}>
 									<input type="hidden" name="rkey" value={show.rkey} />
 									<button class="btn-ghost btn-sm px-2" aria-label="Delete show"><Trash2 class="size-4" /></button>
 								</form>
 							</div>
-							<ol class="m-0 flex list-none flex-col divide-y divide-line border-t border-line p-0">
+							<ol class="flex flex-col divide-y divide-line border-t border-line">
 								{#each show.lineup as slot (slot.project)}
 									{@const name = data.performers[slot.project]?.name ?? 'No longer listed'}
 									<li class="flex items-center gap-3 px-5 py-3">
@@ -70,7 +70,7 @@
 		</section>
 
 		<section aria-labelledby="saved" class="flex flex-col gap-5">
-			<h2 id="saved" class="m-0 text-heading font-semibold">Saved DJs</h2>
+			<h2 id="saved" class="text-heading">Saved DJs</h2>
 			{#if data.saves.length === 0}
 				<EmptyState title="Nothing saved" body="Tap Save on a DJ's page to keep them here." />
 			{:else}

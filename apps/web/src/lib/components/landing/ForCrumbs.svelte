@@ -16,7 +16,7 @@
 <div class="border-b border-line bg-canvas">
 	<div class="container-page flex h-13 items-center justify-between gap-4">
 		<nav aria-label="Breadcrumb">
-			<ol class="m-0 flex list-none items-center gap-1.5 p-0 text-small">
+			<ol class="flex items-center gap-1.5 text-small">
 				<li><a href="/for" class="rounded-md px-1.5 py-1 text-fg-muted no-underline transition-colors hover:text-fg">For</a></li>
 				<li class="flex items-center gap-1.5">
 					<ChevronRight aria-hidden="true" class="size-4 text-fg-subtle" />

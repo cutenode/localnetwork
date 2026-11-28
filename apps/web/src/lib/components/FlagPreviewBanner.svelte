@@ -14,7 +14,7 @@
 	<!-- Beside the text when it fits, under it on a phone. -->
 	<!-- Clear from any page and stay on it. Without JavaScript the browser lands on the flags list instead. -->
 	<form method="POST" action="/admin/flags?/clearPreview" use:enhance={() => ({ update }) => update({ navigate: false })} class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-		<p class="m-0 min-w-0 flex-1 basis-56">
+		<p class="min-w-0 flex-1 basis-56">
 			Previewing {#each flags as [key, on], i (key)}{i > 0 ? ', ' : ''}<span class="font-mono text-small">{key}</span> {on ? 'on' : 'off'}{/each} in this browser only.
 		</p>
 		<button class="btn-ghost btn-sm -my-1">Clear</button>

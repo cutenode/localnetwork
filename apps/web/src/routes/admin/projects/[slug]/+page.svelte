@@ -24,7 +24,7 @@
 	<div>
 		<a href="/admin/projects" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Projects</a>
 		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
-			<h1 class="text-title font-semibold">{project.profile.name}</h1>
+			<h1 class="text-title">{project.profile.name}</h1>
 			<StatusPill status={project.status} />
 			<a href="/projects/{project.slug}" class="btn-secondary btn-sm sm:ml-auto">View public page<ArrowUpRight class="size-4" /></a>
 		</div>

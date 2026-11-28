@@ -11,8 +11,8 @@
 	<div aria-hidden="true" class="hidden flex-col gap-8 lg:flex">
 		<!-- A made-up mix in its three bands, as the art beside the sign-in card. -->
 		<Waveform bands={madeUpBands(1200)} class="h-40" />
-		<div class="flex items-center gap-3 text-heading font-semibold"><Mark class="h-7" />Local Network</div>
-		<p class="m-0 -mt-4 max-w-md text-lede text-fg-muted">Promoters find DJs by sound, distance and budget. DJs keep a profile they own.</p>
+		<div class="flex items-center gap-3 text-heading"><Mark class="h-7" />Local Network</div>
+		<p class="-mt-4 max-w-md text-lede text-fg-muted">Promoters find DJs by sound, distance and budget. DJs keep a profile they own.</p>
 	</div>
 	<div class="mx-auto w-full max-w-md">
 		{@render children()}

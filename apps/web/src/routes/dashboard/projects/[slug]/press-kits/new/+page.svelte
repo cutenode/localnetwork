@@ -13,9 +13,9 @@
 
 <div class="flex max-w-208 flex-col gap-8">
 	<div class="flex flex-col gap-2">
-		<p class="m-0 eyebrow text-fg-subtle">{data.project.profile.name}</p>
-		<h1 class="m-0 text-title font-semibold">New press kit</h1>
-		<p class="m-0 max-w-[60ch] text-fg-muted">Make one for each kind of booking. Save a draft for the other managers to see, or publish it now.</p>
+		<p class="section-title">{data.project.profile.name}</p>
+		<h1 class="text-title">New press kit</h1>
+		<p class="max-w-[60ch] text-fg-muted">Make one for each kind of booking. Save a draft for the other managers to see, or publish it now.</p>
 	</div>
 	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{/if}
 	<EpkEditor {form} {values} photoBase={null} editHref="/dashboard/projects/{data.project.slug}/profile" draft={null} others={[]} published={false} />

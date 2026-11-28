@@ -57,7 +57,7 @@
 				lede="See your tracklist the way it will look on your profile: when each track plays, at what tempo and key, and how you mixed between them. The file stays on this computer."
 			/>
 			<div class="flex flex-col gap-3">
-				<p class="m-0 text-fg-muted">Export one from a recording of your set with <a class="link" href="/tools/locallibrary">locallibrary</a>:</p>
+				<p class="text-fg-muted">Export one from a recording of your set with <a class="link" href="/tools/locallibrary">locallibrary</a>:</p>
 				<CodeBlock language="shell" code={'$ locallibrary mix "My set.wav" --drive Main --export my-set.mix.json'} />
 			</div>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -71,14 +71,14 @@
 				{ondrop}
 			>
 				<FileUp class="size-8 text-fg-muted" aria-hidden="true" />
-				<p class="m-0">Drop a <span class="font-mono text-label">.mix.json</span> file here, or</p>
+				<p>Drop a <span class="font-mono text-label">.mix.json</span> file here, or</p>
 				<label class="btn-secondary cursor-pointer">
 					Choose a file
 					<input type="file" accept=".json,application/json" class="sr-only" onchange={(event) => load(event.currentTarget.files?.[0])} />
 				</label>
 			</div>
-			{#if error}<p class="notice notice-error m-0" role="alert">{error}</p>{/if}
-			<p class="m-0 text-small text-fg-muted">
+			{#if error}<p class="notice notice-error" role="alert">{error}</p>{/if}
+			<p class="text-small text-fg-muted">
 				No export yet? <button type="button" class="link inline-flex cursor-pointer items-center gap-1" onclick={loadSample}><Sparkles class="size-3.5" />See a sample</button>. To show a report on your profile, add the file to a mix
 				when you <a class="link" href="/dashboard/projects/new">list</a> or edit your project.
 			</p>

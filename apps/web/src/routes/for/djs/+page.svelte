@@ -103,22 +103,22 @@
 					{/await}
 				{/snippet}
 			</Screen>
-			<dl class="m-0 grid gap-x-8 sm:grid-cols-2">
+			<dl class="grid gap-x-8 sm:grid-cols-2">
 				{#each searched as [term, detail] (term)}
 					<div class="flex flex-col gap-1 border-t border-line py-4">
 						<dt class="font-semibold">{term}</dt>
-						<dd class="m-0 text-fg-muted">{detail}</dd>
+						<dd class="text-fg-muted">{detail}</dd>
 					</div>
 				{/each}
 			</dl>
 		</div>
 		<div class="flex flex-col gap-4">
-			<h3 class="m-0 text-emphasis font-semibold">Once they've found you</h3>
-			<dl class="m-0 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+			<h3 class="text-emphasis">Once they've found you</h3>
+			<dl class="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
 				{#each after as [term, detail] (term)}
 					<div class="flex flex-col gap-1 border-t border-line py-4">
 						<dt class="font-semibold">{term}</dt>
-						<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+						<dd class="text-small text-fg-muted">{detail}</dd>
 					</div>
 				{/each}
 			</dl>
@@ -129,11 +129,11 @@
 <Section tone="sunken" labelledby="owned-title">
 	<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
 		<SectionHeader id="owned-title" title="A profile that's yours." lede="Local Network is built on the AT Protocol, so what you publish lives on your own account." />
-		<dl class="m-0 grid gap-x-8 sm:grid-cols-2">
+		<dl class="grid gap-x-8 sm:grid-cols-2">
 			{#each owned as [term, detail] (term)}
 				<div class="flex flex-col gap-1 border-t border-line py-4">
 					<dt class="font-semibold">{term}</dt>
-					<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+					<dd class="text-small text-fg-muted">{detail}</dd>
 				</div>
 			{/each}
 		</dl>
@@ -149,11 +149,11 @@
 				{/await}
 			{/snippet}
 		</SectionHeader>
-		<dl class="m-0 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+		<dl class="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
 			{#each kits as [term, detail] (term)}
 				<div class="flex flex-col gap-1 border-t border-line py-4">
 					<dt class="font-semibold">{term}</dt>
-					<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+					<dd class="text-small text-fg-muted">{detail}</dd>
 				</div>
 			{/each}
 		</dl>
@@ -170,7 +170,7 @@
 		</SectionHeader>
 		<div class="grid items-start gap-8 lg:grid-cols-2">
 			{#each data.captures as { line, capture } (line)}
-				<figure class="m-0 flex min-w-0 flex-col gap-3">
+				<figure class="flex min-w-0 flex-col gap-3">
 					<Capture {capture} sizes="(min-width: 1024px) 50vw, 100vw" class="card h-auto w-full" />
 					<figcaption class="text-small text-fg-muted">{line}.</figcaption>
 				</figure>
@@ -186,18 +186,18 @@
 		</SectionHeader>
 		<Screen path="/charts">
 			<!-- Five rows from the start, so the list arriving doesn't move what's under it. -->
-			<ol aria-label="Most played this month" class="m-0 flex min-h-[calc(5*3.25rem)] list-none flex-col p-0">
+			<ol aria-label="Most played this month" class="flex min-h-[calc(5*3.25rem)] flex-col">
 				{#await data.tracks}
 					{#each { length: 5 }, row (row)}<li class="flex h-13 items-center border-b border-line last:border-b-0"><span class="h-4 w-2/3 animate-pulse rounded-md bg-raised"></span></li>{/each}
 				{:then tracks}
 					{#each tracks ?? [] as track, index (track.id)}
 						<li class="flex h-13 items-center gap-4 border-b border-line last:border-b-0">
-							<span class="w-4 font-mono text-caption text-fg-subtle tabular-nums" aria-hidden="true">{index + 1}</span>
+							<span class="w-4 font-mono text-caption text-fg-subtle" aria-hidden="true">{index + 1}</span>
 							<span class="flex min-w-0 flex-1 flex-col">
 								<span class="truncate text-small font-semibold">{track.title}</span>
 								{#if track.artist}<span class="truncate text-label text-fg-muted">{track.artist}</span>{/if}
 							</span>
-							<span class="font-mono text-caption whitespace-nowrap text-fg-muted tabular-nums">{pluralize(track.supports, 'DJ')}</span>
+							<span class="font-mono text-caption whitespace-nowrap text-fg-muted">{pluralize(track.supports, 'DJ')}</span>
 						</li>
 					{:else}
 						<li class="py-3 text-small text-fg-muted">{tracks ? 'Nothing played this month yet.' : "The charts aren't answering. Try again in a minute."}</li>
@@ -225,12 +225,12 @@
 			</Screen>
 		</div>
 		<div class="flex flex-col gap-4">
-			<h3 class="m-0 text-emphasis font-semibold">Coming soon: events and RSVPs</h3>
-			<dl class="m-0 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+			<h3 class="text-emphasis">Coming soon: events and RSVPs</h3>
+			<dl class="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
 				{#each soon as [term, detail] (term)}
 					<div class="flex flex-col gap-1 border-t border-line py-4">
 						<dt class="font-semibold">{term}</dt>
-						<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+						<dd class="text-small text-fg-muted">{detail}</dd>
 					</div>
 				{/each}
 			</dl>
@@ -241,7 +241,7 @@
 <Section labelledby="steps-title">
 	<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
 		<SectionHeader id="steps-title" title="How listing works." lede="Profiles go up as soon as you save them. Find DJs shows the ones staff have looked at." />
-		<ol class="m-0 grid list-none gap-x-8 p-0 sm:grid-cols-3">
+		<ol class="grid gap-x-8 sm:grid-cols-3">
 			{#each steps as [term, detail], index (term)}
 				<li class="flex flex-col gap-1 border-t border-line py-4">
 					<span class="font-mono text-caption text-fg-subtle">{index + 1}</span>

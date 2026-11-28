@@ -13,7 +13,7 @@
 </script>
 
 <Card as="section" class="flex flex-col gap-4 sm:p-6">
-	<h2 class="m-0 text-emphasis font-semibold">The show</h2>
+	<h2 class="text-emphasis">The show</h2>
 	<div><label class="label" for="name">Show name</label><input id="name" name="name" class="input" required maxlength="120" bind:value={fields.name} /></div>
 	<div class="grid gap-4 sm:grid-cols-3">
 		<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" required bind:value={fields.date} /></div>
@@ -32,7 +32,7 @@
 	{/if}
 </Card>
 <Card as="section" class="flex flex-col gap-4 sm:p-6">
-	<h2 class="m-0 text-emphasis font-semibold">Where</h2>
+	<h2 class="text-emphasis">Where</h2>
 	<div><label class="label" for="venue">Venue <span class="font-normal text-fg-subtle">(optional)</span></label><input id="venue" name="venue" class="input" maxlength="120" bind:value={fields.venue} /></div>
 	<PlacePicker values={place} {geocoder} missing="Pick the city from the search, so the show's time is right." />
 </Card>

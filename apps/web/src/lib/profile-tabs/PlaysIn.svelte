@@ -13,6 +13,6 @@
 	let { data }: { data: ProfileTabData } = $props();
 </script>
 
-<ul class="m-0 flex list-none flex-col gap-2 p-0">
+<ul class="flex flex-col gap-2">
 	{#each data.playsIn ?? [] as project (project.uri)}<li><a class="link" href="/projects/{project.slug}">{project.profile.name}</a></li>{/each}
 </ul>

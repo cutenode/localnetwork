@@ -44,9 +44,9 @@
 <!-- A card's state in one line, held at its height while it loads so the card doesn't jump. -->
 {#snippet summary(line: Promise<string | null>)}
 	{#await line}
-		<p class="m-0 h-5.5 w-40 animate-pulse rounded-md bg-raised" aria-hidden="true"></p>
+		<p class="h-5.5 w-40 animate-pulse rounded-md bg-raised" aria-hidden="true"></p>
 	{:then text}
-		{#if text}<p class="m-0 text-small font-medium text-fg">{text}</p>{/if}
+		{#if text}<p class="text-small font-medium text-fg">{text}</p>{/if}
 	{/await}
 {/snippet}
 
@@ -56,10 +56,10 @@
 			<Avatar src={project.avatarUrl} name={project.profile.name} size="lg" />
 			<div class="flex min-w-0 flex-col gap-1.5">
 				<div class="flex flex-wrap items-center gap-2.5">
-					<h1 class="m-0 text-title font-semibold break-words">{project.profile.name}</h1>
+					<h1 class="text-title break-words">{project.profile.name}</h1>
 					<StatusPill status={project.status} />
 				</div>
-				<p class="m-0 text-small text-fg-muted">{visibility[project.status]}</p>
+				<p class="text-small text-fg-muted">{visibility[project.status]}</p>
 			</div>
 		</div>
 		<a href="/projects/{project.slug}" class="btn-secondary btn-sm"><ExternalLink class="size-4" />View public page</a>
@@ -67,26 +67,26 @@
 
 	<div class="grid gap-4 md:grid-cols-2">
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Profile</h2>
+			<h2 class="text-emphasis">Profile</h2>
 			{#if data.pendingUpdate}
-				<p class="m-0 text-small text-fg-muted">Your proposed changes are waiting for a moderator.</p>
+				<p class="text-small text-fg-muted">Your proposed changes are waiting for a moderator.</p>
 				<a href="/dashboard/account/requests/{data.pendingUpdate.rkey}" class="btn-secondary btn-sm self-start">View review request<ArrowRight class="size-4" /></a>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">Changes go to a moderator before they're published.</p>
+				<p class="text-small text-fg-muted">Changes go to a moderator before they're published.</p>
 				<a href="{base}/profile" class="btn-secondary btn-sm self-start"><Pencil class="size-4" />Propose changes</a>
 			{/if}
 		</Card>
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Press kits</h2>
+			<h2 class="text-emphasis">Press kits</h2>
 			{@render summary(data.kits.then((kits) => (kits ? kitSummary(kits) : null)))}
-			<p class="m-0 text-small text-fg-muted">One for each kind of booking, and who can see the rest of each.</p>
+			<p class="text-small text-fg-muted">One for each kind of booking, and who can see the rest of each.</p>
 			<a href="{base}/press-kits" class="btn-secondary btn-sm self-start"><FileText class="size-4" />Press kits</a>
 		</Card>
 	</div>
 
 	<section id="shows" aria-labelledby="shows-title" class="flex scroll-mt-20 flex-col gap-4">
 		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
+			<h2 id="shows-title" class="text-heading">Upcoming shows</h2>
 			{#if project.status === 'active'}<a href="{base}/shows/new" class="btn-secondary btn-sm"><Megaphone class="size-4" />Announce a show</a>{/if}
 		</div>
 		{#await Promise.all([data.shows, data.edited])}
@@ -98,14 +98,14 @@
 
 	<div class="grid gap-4 md:grid-cols-2">
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Managers</h2>
-			<ul class="m-0 flex list-none flex-col gap-1.5 p-0 text-small">{#each data.managers as manager (manager.did)}<li><Handle account={manager} /></li>{/each}</ul>
-			<p class="m-0 text-caption text-fg-subtle">Staff add and remove managers. Someone can ask to join from the project's page.</p>
+			<h2 class="text-emphasis">Managers</h2>
+			<ul class="flex flex-col gap-1.5 text-small">{#each data.managers as manager (manager.did)}<li><Handle account={manager} /></li>{/each}</ul>
+			<p class="text-caption text-fg-subtle">Staff add and remove managers. Someone can ask to join from the project's page.</p>
 		</Card>
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">How you play</h2>
+			<h2 class="text-emphasis">How you play</h2>
 			{@render summary(Promise.resolve(data.stats).then(statsSummary))}
-			<p class="m-0 text-small text-fg-muted">Publish your playing stats and sets from <a class="link" href="/tools/locallibrary">locallibrary</a> and they appear on your page and in your press kits.</p>
+			<p class="text-small text-fg-muted">Publish your playing stats and sets from <a class="link" href="/tools/locallibrary">locallibrary</a> and they appear on your page and in your press kits.</p>
 		</Card>
 	</div>
 </div>

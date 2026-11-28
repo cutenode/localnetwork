@@ -46,7 +46,7 @@
 	<div class="flex flex-col items-center gap-5 pt-4 sm:pt-6">
 		<SectionHeader id="hero-title" level={1} size="display" align="center" title="Which side of the booth are you on?" lede="Local Network connects DJs with the people who book them." />
 		<!-- One line tall from the start, so the totals arriving don't push the doors down. -->
-		<p class="m-0 min-h-6 text-small text-fg-subtle tabular-nums">
+		<p class="min-h-6 text-small text-fg-subtle tabular-nums">
 			{#await data.stats then stats}
 				{#if stats?.djs}{pluralize(stats.djs, 'DJ')} in {pluralize(stats.cities, 'city', 'cities')} so far.{/if}
 			{/await}
@@ -76,24 +76,24 @@
 <Section space="md" labelledby="doors-title">
 	<div class="flex flex-col gap-10 sm:gap-14">
 		<h2 id="doors-title" class="sr-only">Choose your side</h2>
-		<ul class="m-0 grid list-none gap-4 p-0 md:grid-cols-2">
+		<ul class="grid gap-4 md:grid-cols-2">
 			{#each doors as door (door.side)}
 				{@const { href, title: name, tone, transition } = sides[door.side]}
 				<!-- The heading is the link and its hit area covers the card, so the door has a short name and one tab stop. -->
 				<li class="group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-colors duration-300 hover:border-line-strong">
 					<div class="flex flex-col gap-3 p-5 sm:p-6">
-						<h3 class="m-0 text-title font-semibold">
+						<h3 class="text-title">
 							<a class="door text-fg no-underline outline-none after:absolute after:inset-0" {href}>{door.title}</a>
 						</h3>
-						<p class="m-0 max-w-md text-lede text-fg-muted">{door.body}</p>
-						<ul class="m-0 mt-1 flex list-none flex-wrap gap-2 p-0" aria-label="What's there">
+						<p class="max-w-md text-lede text-fg-muted">{door.body}</p>
+						<ul class="mt-1 flex flex-wrap gap-2" aria-label="What's there">
 							{#each door.points as point (point)}<li class="chip">{point}</li>{/each}
 						</ul>
 					</div>
 					<div class="mt-auto px-5 sm:px-6">
 						{#if door.side === 'djs'}{@render wave()}{:else}{@render running()}{/if}
 					</div>
-					<p class="m-0 mt-6 flex items-center justify-between gap-3 border-t border-line bg-canvas px-5 py-4 font-semibold sm:px-6 {tone}">
+					<p class="mt-6 flex items-center justify-between gap-3 border-t border-line bg-canvas px-5 py-4 font-semibold sm:px-6 {tone}">
 						<span class="inline-flex items-center gap-2" style:view-transition-name={transition}><SideMark side={door.side} />{name}</span>
 						<ArrowRight aria-hidden="true" class="size-5 transition-transform duration-300 ease-out group-hover:translate-x-1 motion-reduce:transition-none" />
 					</p>

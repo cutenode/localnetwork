@@ -27,13 +27,13 @@
 	<a href="/dashboard/projects/{project.slug}" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />{project.profile.name}</a>
 	<header class="flex flex-col gap-3">
 		<Eyebrow>{data.isNew ? 'New show' : 'Show'}</Eyebrow>
-		<h1 class="m-0 text-title font-semibold">{data.isNew ? 'Announce a show' : data.values.name}</h1>
-		<p class="m-0 text-fg-muted">It shows on {project.profile.name}'s page and under Shows, and calendar apps can see it too.</p>
+		<h1 class="text-title">{data.isNew ? 'Announce a show' : data.values.name}</h1>
+		<p class="text-fg-muted">It shows on {project.profile.name}'s page and under Shows, and calendar apps can see it too.</p>
 	</header>
 	<!-- Its own form posts to sign-in, so it sits outside the show's form: forms can't nest. -->
 	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{/if}
 	{#if data.saved && !form}
-		<p role="status" class="notice notice-ok m-0">{data.saved === 'announced' ? 'Announced.' : 'Saved.'} <a class="link" href="/projects/{project.slug}">See it on {project.profile.name}'s page</a></p>
+		<p role="status" class="notice notice-ok">{data.saved === 'announced' ? 'Announced.' : 'Saved.'} <a class="link" href="/projects/{project.slug}">See it on {project.profile.name}'s page</a></p>
 	{/if}
 	<form
 		method="POST"

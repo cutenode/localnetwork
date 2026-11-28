@@ -6,7 +6,7 @@
 	let { linked, sets, class: className = '' }: { linked: StrongRef; sets: Promise<Map<string, DjSetView> | null>; class?: string } = $props();
 </script>
 
-<p class="m-0 text-small text-fg-muted {className}">
+<p class="text-small text-fg-muted {className}">
 	{#await sets}
 		<span aria-hidden="true" class="inline-block h-3.5 w-56 max-w-full animate-pulse rounded-sm bg-raised align-middle"></span><span class="sr-only">Loading the set</span>
 	{:then found}

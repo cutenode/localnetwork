@@ -11,7 +11,7 @@
 	let { rows = [], lead = true, loading = 0 }: { rows?: NeedsRow[]; lead?: boolean; loading?: number } = $props();
 </script>
 
-<ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading > 0 || undefined}>
+<ul class="card divide-y divide-line overflow-hidden" aria-busy={loading > 0 || undefined}>
 	{#each { length: loading }, row (row)}
 		{@const leads = lead && row === 0}
 		<li class={['flex items-center gap-3 px-4 sm:gap-4 sm:px-5', leads ? 'py-4 sm:py-5' : 'py-3 sm:py-3.5']}>
@@ -24,8 +24,8 @@
 		<li class={['relative flex items-center gap-3 px-4 transition-colors hover:bg-raised sm:gap-4 sm:px-5', leads ? 'py-4 sm:py-5' : 'py-3 sm:py-3.5']}>
 			<Monogram name={row.scope} size={leads ? 'md' : 'sm'} />
 			<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-				<p class={['m-0 text-fg', leads ? 'text-emphasis font-semibold' : 'text-small font-medium']}>{row.title}</p>
-				<p class="m-0 text-label text-fg-muted">{row.detail}</p>
+				<p class={['text-fg', leads ? 'text-emphasis' : 'text-small font-medium']}>{row.title}</p>
+				<p class="text-label text-fg-muted">{row.detail}</p>
 			</div>
 			<Button href={row.href} size="sm" variant={leads ? 'primary' : 'secondary'} aria-label="{row.action}: {row.title}" class="shrink-0 after:absolute after:inset-0">{row.action}</Button>
 		</li>

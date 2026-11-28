@@ -11,5 +11,5 @@
 
 <!-- The site header's lockup: the mark is decoration, so the name beside it is what's read out. -->
 <Story name="With the name" asChild>
-	<p class="flex items-center gap-2.5 text-emphasis font-semibold text-fg"><Mark />Local Network</p>
+	<p class="flex items-center gap-2.5 text-emphasis text-fg"><Mark />Local Network</p>
 </Story>

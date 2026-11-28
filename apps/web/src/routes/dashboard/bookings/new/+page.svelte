@@ -32,12 +32,12 @@
 		<div class="flex items-center gap-4">
 			<Avatar src={data.to.avatarUrl} name={data.to.name} />
 			<div class="flex min-w-0 flex-col gap-1">
-				<h1 class="m-0 text-heading font-semibold">Inquire with {data.to.name}</h1>
-				{#if data.to.place}<p class="m-0 text-small text-fg-muted">{data.to.place}</p>{/if}
+				<h1 class="text-heading">Inquire with {data.to.name}</h1>
+				{#if data.to.place}<p class="text-small text-fg-muted">{data.to.place}</p>{/if}
 			</div>
 		</div>
-		<p class="m-0 text-body text-fg-muted">This opens a private thread with {data.to.dj ? data.to.name : "the project's managers"}. The details below go first, so they can answer quickly.</p>
-		{#if data.show}<p class="m-0 text-small text-fg-muted">Filled in from <a class="link" href="/dashboard/planner/shows/{data.show.rkey}">{data.show.title}</a> in your planner.</p>{/if}
+		<p class="text-body text-fg-muted">This opens a private thread with {data.to.dj ? data.to.name : "the project's managers"}. The details below go first, so they can answer quickly.</p>
+		{#if data.show}<p class="text-small text-fg-muted">Filled in from <a class="link" href="/dashboard/planner/shows/{data.show.rkey}">{data.show.title}</a> in your planner.</p>{/if}
 	</header>
 	<form
 		method="POST"

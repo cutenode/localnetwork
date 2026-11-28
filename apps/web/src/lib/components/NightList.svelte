@@ -10,7 +10,7 @@
 	let { nights = [], loading = false }: { nights?: NightRow[]; loading?: boolean } = $props();
 </script>
 
-<ul class={['card m-0 list-none divide-y divide-line overflow-hidden p-0', !loading && 'list-in']} aria-busy={loading || undefined}>
+<ul class={['card divide-y divide-line overflow-hidden', !loading && 'list-in']} aria-busy={loading || undefined}>
 	{#if loading}
 		{#each { length: 3 }, row (row)}
 			<li class="flex items-center gap-3 px-4 py-2.5 sm:gap-4 sm:px-5">
@@ -24,8 +24,8 @@
 			<DateBlock date={night.date} tentative={night.tentative} compact />
 			<div class="flex min-w-0 flex-1 flex-col gap-0.5">
 				<a href={night.href} class="text-small font-medium text-fg no-underline after:absolute after:inset-0">{night.title}</a>
-				<p class="m-0 text-label text-fg-muted">{night.detail}</p>
-				{#if night.inquiries}<p class="m-0 inline-flex items-center gap-1.5 text-label text-fg-soft"><CircleAlert class="size-3.5 shrink-0 text-warning" aria-hidden="true" />{night.inquiries} inquiries on this night</p>{/if}
+				<p class="text-label text-fg-muted">{night.detail}</p>
+				{#if night.inquiries}<p class="inline-flex items-center gap-1.5 text-label text-fg-soft"><CircleAlert class="size-3.5 shrink-0 text-warning" aria-hidden="true" />{night.inquiries} inquiries on this night</p>{/if}
 			</div>
 			{#if night.when}<span class="pill shrink-0 bg-well text-fg-soft">{night.when}</span>{/if}
 		</li>

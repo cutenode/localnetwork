@@ -193,7 +193,7 @@
 <section {id} aria-label="Player for {title}" class="flex flex-col gap-2 print:hidden">
 	{#if status === 'failed'}
 		<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-line bg-well px-3 py-2.5">
-			<p class="m-0 text-small text-fg-muted">This recording won't play right now.</p>
+			<p class="text-small text-fg-muted">This recording won't play right now.</p>
 			<div class="flex items-center gap-4">
 				{#if source?.link}<a class="link inline-flex items-center gap-1 text-small" href={source.link} rel="noopener noreferrer nofollow" target="_blank">Listen on {elsewhere}<ExternalLink class="size-3" /></a>{/if}
 				<Button variant="secondary" size="sm" onclick={() => attempt++}>Try again</Button>
@@ -202,7 +202,7 @@
 	{:else if source?.kind === 'embed'}
 		<MixEmbed id="{id}-embed" src={source.src} {title} bind:element={iframe} />
 		{#if widget}
-			<p class="m-0 min-h-5 truncate text-small text-fg-muted" aria-live="polite">
+			<p class="min-h-5 truncate text-small text-fg-muted" aria-live="polite">
 				{#if playing}Now playing <span class="font-semibold text-fg">{playing.title}</span>{#if playing.artist}{' '}· {playing.artist}{/if}{/if}
 			</p>
 		{/if}
@@ -214,15 +214,15 @@
 					type="button"
 					aria-label={paused ? 'Play' : 'Pause'}
 					disabled={!ready}
-					class="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full bg-fg text-fg-inverse transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-50"
+					class="btn-play"
 					onclick={toggle}
 				>
 					{#if paused}<Play class="ml-0.5 size-4 fill-current" />{:else}<Pause class="size-4 fill-current" />{/if}
 				</button>
 				<div class="min-w-0 flex-1">
 					{#if ready}
-						<p class="m-0 truncate text-small font-semibold" aria-live="polite">{heading}</p>
-						<p class="m-0 min-h-[1.05rem] truncate text-caption text-fg-muted">{byline}</p>
+						<p class="truncate text-small font-semibold" aria-live="polite">{heading}</p>
+						<p class="min-h-[1.05rem] truncate text-caption text-fg-muted">{byline}</p>
 					{:else}
 						<span aria-hidden="true" class="block h-3.5 w-48 max-w-full rounded-sm bg-raised motion-safe:animate-pulse"></span>
 						<span aria-hidden="true" class="mt-1.5 block h-3 w-28 max-w-full rounded-sm bg-raised motion-safe:animate-pulse"></span>
@@ -232,7 +232,7 @@
 				<button type="button" aria-label="Previous track" disabled={!ready || !marks.length} class="btn-ghost btn-sm size-9 px-0" onclick={previous}><SkipBack class="size-4" /></button>
 				<button type="button" aria-label="Next track" disabled={!ready || !hasNext} class="btn-ghost btn-sm size-9 px-0" onclick={next}><SkipForward class="size-4" /></button>
 			</div>
-			<div class="flex items-center gap-3 font-mono text-caption text-fg-subtle tabular-nums">
+			<div class="flex items-center gap-3 font-mono text-caption text-fg-subtle">
 				<span class="min-w-10">{clock(time)}</span>
 				<div class="relative flex flex-1 items-center">
 					{#if duration > 0}

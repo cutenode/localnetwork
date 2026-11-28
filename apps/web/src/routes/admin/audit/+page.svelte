@@ -68,7 +68,7 @@
 
 	<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		{#each stats as stat (stat.label)}
-			<Card padding="sm"><Eyebrow>{stat.label}</Eyebrow><p class="mt-2 font-mono text-heading text-fg">{stat.value}</p></Card>
+			<Card padding="sm"><Eyebrow>{stat.label}</Eyebrow><p class="mt-2 font-mono text-heading font-normal text-fg">{stat.value}</p></Card>
 		{/each}
 	</div>
 

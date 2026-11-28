@@ -13,6 +13,9 @@ The look of the product page: dark ink, white type, and colour only where DJ dat
 - **Words in Instrument Sans, data in JetBrains Mono.** Numbers, keys, BPM, record names and eyebrows are mono.
 - **Every text colour reads at 4.5:1.** Text on a data colour goes through `onColour` (`contrast.ts`), which picks the ink and darkens the colour when neither ink reads. Stories fail their test on any accessibility violation.
 - **Surfaces step up, never sideways.** `canvas`, then `sunken` for alternate sections, `surface` for cards, `well` for inputs and insets. Borders are `line`; controls use `line-strong`.
+- **The type scale carries the weight.** `text-emphasis`, `text-heading`, `text-title` and `text-display` are semibold on their own; write `font-normal` for the rare one that isn't. The smaller sizes are regular.
+- **Reach for a shared class before writing a long one.** `btn-*` and `btn-icon` for buttons, `btn-play` for the round play button, `chip` and `chip-toggle` for genres and filters (`chip-toggle` lights up on a checked input, `aria-pressed` or `aria-current`), `badge` for counts, `nav-item` and `menu-toggle` for side menus, `section-title` for a small label over a group. If you write the same class list a third time, add it to `packages/tokens/theme.css`.
+- **Don't reset what Tailwind already resets.** Its base styles zero margins and padding and drop list bullets, so `m-0`, `p-0` and `list-none` only belong where they undo something (a `label` or `hint` margin, or a `prose` block).
 
 ## Where things live
 

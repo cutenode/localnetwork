@@ -54,7 +54,7 @@
 	<div class="flex flex-col gap-6">
 		<FindDjsSwitch current="/djs" />
 		<SectionHeader level={1} eyebrow="Directory" title="Find DJs" align="split" lede="Search by sound, place, fee and slot. A search for house finds deep house and afro house too." />
-		<p class="m-0 text-small text-fg-muted">DJ? <a class="link" href="/tools/locallibrary">Get locallibrary</a> to show your sets and how you play.</p>
+		<p class="text-small text-fg-muted">DJ? <a class="link" href="/tools/locallibrary">Get locallibrary</a> to show your sets and how you play.</p>
 	</div>
 
 	<div class="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-10">
@@ -85,22 +85,22 @@
 					<label class="label" for="genres">Genres</label>
 					<GenreInput value={f.genres.join(', ')} placeholder="Any genre" />
 				</div>
-				<fieldset class="m-0 border-0 p-0">
+				<fieldset class="border-0 p-0">
 					<legend class="label">Fee tier</legend>
 					{@render chips('fee', FEE_TIERS, 'feeTiers')}
 				</fieldset>
-				<fieldset class="m-0 border-0 p-0">
+				<fieldset class="border-0 p-0">
 					<legend class="label">Slot</legend>
 					{@render chips('setType', SET_TYPES, 'setTypes')}
 				</fieldset>
 				<details id="more-filters" open={moreFiltersOpen}>
 					<summary class="cursor-pointer text-small font-semibold text-fg-soft">More filters</summary>
 					<div class="mt-4 flex flex-col gap-5">
-						<fieldset class="m-0 border-0 p-0">
+						<fieldset class="border-0 p-0">
 							<legend class="label">Format</legend>
 							{@render chips('format', FORMATS, 'formats')}
 						</fieldset>
-						<fieldset class="m-0 border-0 p-0">
+						<fieldset class="border-0 p-0">
 							<legend class="label">Kind</legend>
 							{@render chips('kind', PROJECT_KINDS, 'kinds')}
 						</fieldset>
@@ -132,18 +132,18 @@
 				</EmptyState>
 			{:else}
 				<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-					<h2 id="results-title" class="m-0 text-body font-semibold">
+					<h2 id="results-title" class="text-body font-semibold">
 						{pluralize(data.result.total, 'DJ')}{#if f.place && f.lat}{' '}<span class="font-normal text-fg-muted">within {f.radiusKm} km of {f.place}</span>{/if}
 					</h2>
 					{#if active && data.result.items.length}<a href="/djs" class="text-small text-fg-muted no-underline hover:text-fg">Clear filters</a>{/if}
 				</div>
 				{#if data.placeMissed}
-					<p class="notice m-0">
+					<p class="notice">
 						{#if data.geocoder}Couldn't find “{f.place}”, so these aren't sorted by distance. Pick a place from the list under Near.{:else}Distance search is off right now, so these aren't sorted by distance.{/if}
 					</p>
 				{/if}
 				{#if removable.length}
-					<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Filters on">
+					<ul class="flex flex-wrap gap-1.5" aria-label="Filters on">
 						{#each removable as filter (filter.label)}
 							<li><a href={filter.href} class="chip gap-1 pr-1.5 no-underline" aria-label="Remove {filter.label}">{filter.label}<X aria-hidden="true" class="size-3.5 text-fg-subtle" /></a></li>
 						{/each}
@@ -154,7 +154,7 @@
 						<Button variant="secondary" href="/djs">Clear filters</Button>
 					</EmptyState>
 				{:else}
-					<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4 p-0">
+					<ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
 						{#each data.result.items as item (item.kind === 'project' ? item.project.uri : item.dj.profile.uri)}
 							<li class="min-w-0"><PerformerCard performer={item.kind === 'project' ? projectSummary(item.project) : djSummary(item.dj)} /></li>
 						{/each}

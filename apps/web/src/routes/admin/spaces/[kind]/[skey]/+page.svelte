@@ -34,7 +34,7 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<SpacePeople people={data.people} pending={data.pending} roles={data.roles} />
 		<form method="POST" action="?/add" class="card flex flex-col gap-4 p-5" use:enhance>
-			<h2 class="text-emphasis font-semibold">Add someone</h2>
+			<h2 class="text-emphasis">Add someone</h2>
 			<div><label class="label" for="subject">Handle or DID</label><input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" /></div>
 			<div>
 				<label class="label" for="role">Role</label>

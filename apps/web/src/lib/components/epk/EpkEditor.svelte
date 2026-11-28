@@ -44,15 +44,15 @@
 	{#if draft || others.length}
 		<div class="flex flex-col gap-2">
 			{#if draft}
-				<p class="m-0 inline-flex flex-wrap items-center gap-2 text-small text-fg-muted"><DraftStatus status={draft.status} />Your draft, saved {formatDateTime(draft.updatedAt)}</p>
+				<p class="inline-flex flex-wrap items-center gap-2 text-small text-fg-muted"><DraftStatus status={draft.status} />Your draft, saved {formatDateTime(draft.updatedAt)}</p>
 			{/if}
 			{#if draft?.status === 'behind'}
-				<p class="notice m-0">This press kit was published again after you started. Publishing asks about any field you both changed.</p>
+				<p class="notice">This press kit was published again after you started. Publishing asks about any field you both changed.</p>
 			{:else if deleted}
-				<p class="notice m-0">This press kit was deleted after you started. Discard the draft, or start a new press kit from it.</p>
+				<p class="notice">This press kit was deleted after you started. Discard the draft, or start a new press kit from it.</p>
 			{/if}
 			{#each others as other (other.author.did)}
-				<p class="notice notice-info m-0"><Handle account={other.author} /> has a draft of this press kit open, saved {formatDateTime(other.updatedAt)}.</p>
+				<p class="notice notice-info"><Handle account={other.author} /> has a draft of this press kit open, saved {formatDateTime(other.updatedAt)}.</p>
 			{/each}
 		</div>
 	{/if}

@@ -7,11 +7,11 @@
 </script>
 
 {#if strays === null}
-	<p role="alert" class="notice notice-error m-0">Couldn't check the private spaces. Reload the page to try again.</p>
+	<p role="alert" class="notice notice-error">Couldn't check the private spaces. Reload the page to try again.</p>
 {:else if strays.length > 0}
 	<section class="card flex flex-col gap-3 p-5" aria-labelledby="stray-members">
 		<div>
-			<h2 id="stray-members" class="text-emphasis font-semibold">Still in private spaces</h2>
+			<h2 id="stray-members" class="text-emphasis">Still in private spaces</h2>
 			<p class="text-small text-fg-muted">These accounts have no role, but their removal hasn't gone through. It's retried every few minutes.</p>
 		</div>
 		<ul class="flex flex-col gap-2">

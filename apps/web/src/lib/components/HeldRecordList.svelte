@@ -74,20 +74,20 @@
 		<section aria-labelledby="held-{group.kind}" class="card">
 			<div class="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
 				<div class="flex min-w-0 flex-col gap-0.5">
-					<h2 id="held-{group.kind}" class="m-0 flex items-baseline gap-2 text-emphasis font-semibold">{group.label}<span class="font-mono text-caption font-normal text-fg-subtle">{group.records.length}</span></h2>
-					<p class="m-0 text-small text-fg-muted">{group.hint}</p>
+					<h2 id="held-{group.kind}" class="flex items-baseline gap-2 text-emphasis">{group.label}<span class="font-mono text-caption font-normal text-fg-subtle">{group.records.length}</span></h2>
+					<p class="text-small text-fg-muted">{group.hint}</p>
 				</div>
 				<form method="POST" action="?/deleteAll" class="shrink-0" use:enhance={({ cancel }) => { if (!confirm(`Delete all ${pluralize(group.records.length, 'record')}? This can't be undone.`)) cancel(); }}>
 					<input type="hidden" name="kind" value={group.kind} />
 					<button type="submit" class="btn-ghost btn-sm" aria-label="Delete all {group.label.toLowerCase()}">Delete all</button>
 				</form>
 			</div>
-			<ul class="m-0 list-none divide-y divide-line p-0">
+			<ul class="divide-y divide-line">
 				{#each group.records as record (record.uri)}
 					<li class="flex items-start justify-between gap-3 px-5 py-3.5">
 						<div class="flex min-w-0 flex-col gap-0.5">
-							<p class="m-0 truncate text-fg">{record.title}</p>
-							{#if record.excerpt}<p class="m-0 line-clamp-2 text-small break-words text-fg-muted">{record.excerpt}</p>{/if}
+							<p class="truncate text-fg">{record.title}</p>
+							{#if record.excerpt}<p class="line-clamp-2 text-small break-words text-fg-muted">{record.excerpt}</p>{/if}
 							<time class="text-caption text-fg-subtle" datetime={record.createdAt}>{formatDateTime(record.createdAt)}</time>
 						</div>
 						<form method="POST" action="?/delete" class="shrink-0" use:enhance={({ cancel }) => { if (!confirm("Delete this? It can't be undone.")) cancel(); }}>

@@ -22,8 +22,8 @@
 	<a href="/dashboard/projects/{data.project.slug}/press-kits" class="menu-link inline-flex w-fit items-center gap-1.5 text-small"><ArrowLeft class="size-4" />Press kits</a>
 	<div class="flex flex-wrap items-end justify-between gap-4">
 		<div class="flex min-w-0 flex-col gap-2">
-			<p class="m-0 eyebrow text-fg-subtle">{data.project.profile.name}</p>
-			<h1 class="m-0 text-title font-semibold break-words">{data.title}</h1>
+			<p class="section-title">{data.project.profile.name}</p>
+			<h1 class="text-title break-words">{data.title}</h1>
 		</div>
 		{#if data.epk && !data.legacyMaker}
 			<div class="flex flex-wrap gap-2">
@@ -33,9 +33,9 @@
 		{/if}
 	</div>
 	{#if data.legacyMaker}
-		<p class="notice m-0">This press kit moves to the project the next time <Handle account={data.legacyMaker} /> opens the dashboard. Until then, only they can change it.</p>
+		<p class="notice">This press kit moves to the project the next time <Handle account={data.legacyMaker} /> opens the dashboard. Until then, only they can change it.</p>
 	{:else}
-		{#if data.notice && !form}<p role="status" class="notice notice-ok m-0">{data.notice}</p>{/if}
+		{#if data.notice && !form}<p role="status" class="notice notice-ok">{data.notice}</p>{/if}
 		{#if form && 'reauth' in form && form.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname} error={form.error} />{/if}
 		<EpkEditor form={form && 'error' in form ? form : null} {values} photoBase="{base}/photos" editHref="/dashboard/projects/{data.project.slug}/profile" draft={data.draft} others={data.others} published={!!data.epk} {conflicts} />
 	{/if}

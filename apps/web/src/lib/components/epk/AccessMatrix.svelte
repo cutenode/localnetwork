@@ -46,9 +46,9 @@
 	};
 </script>
 
-<fieldset class="group/access m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-	<legend class="mb-1 text-emphasis font-semibold">Who can see the rest</legend>
-	<p class="m-0 text-small text-fg-muted">Everyone sees the public part. The rest stays in this press kit's space until you let someone in.</p>
+<fieldset class="group/access flex min-w-0 flex-col gap-4 border-0 p-0">
+	<legend class="mb-1 text-emphasis">Who can see the rest</legend>
+	<p class="text-small text-fg-muted">Everyone sees the public part. The rest stays in this press kit's space until you let someone in.</p>
 	<div class="grid gap-2 sm:grid-cols-2">
 		{#each offered as option (option.id)}
 			<label class="flex cursor-pointer gap-3 rounded-xl border border-line bg-surface p-3.5 has-checked:border-fg has-focus-visible:outline-2 has-focus-visible:outline-link">
@@ -104,5 +104,5 @@
 			</tbody>
 		</table>
 	</div>
-	<p class="m-0 text-label text-fg-subtle"><span class="hidden group-has-[[value=custom]:checked]/access:inline">Someone in more than one group gets the most open rule. </span>You can always add people yourself.</p>
+	<p class="text-label text-fg-subtle"><span class="hidden group-has-[[value=custom]:checked]/access:inline">Someone in more than one group gets the most open rule. </span>You can always add people yourself.</p>
 </fieldset>

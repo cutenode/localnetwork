@@ -19,15 +19,15 @@
 <Story name="Panel">
 	{#snippet template(args)}
 		<Card tone={args.tone} padding={args.padding} radius={args.radius} class="flex max-w-90 flex-col gap-2">
-			<h3 class="m-0 text-emphasis font-semibold">Private inquiries</h3>
-			<p class="m-0 text-fg-muted">Each booking is its own thread, shared only with the project's managers, with your show details up front.</p>
+			<h3 class="text-emphasis">Private inquiries</h3>
+			<p class="text-fg-muted">Each booking is its own thread, shared only with the project's managers, with your show details up front.</p>
 		</Card>
 	{/snippet}
 </Story>
 
 <Story name="Linked" asChild>
 	<Card href="/projects/lowkey-lagos" padding="md" class="flex max-w-80 flex-col gap-3">
-		<span class="flex items-center gap-3"><Monogram name="Lowkey Lagos" size="lg" /><span><span class="block text-emphasis font-semibold">Lowkey Lagos</span><span class="block text-label text-fg-muted">Collective · London</span></span></span>
+		<span class="flex items-center gap-3"><Monogram name="Lowkey Lagos" size="lg" /><span><span class="block text-emphasis">Lowkey Lagos</span><span class="block text-label text-fg-muted">Collective · London</span></span></span>
 		<span class="text-small text-fg-soft">Amapiano and afro house crew</span>
 	</Card>
 </Story>

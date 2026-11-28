@@ -22,4 +22,4 @@
 	let { tone = 'muted', children }: { tone?: Tone; children: Snippet } = $props();
 </script>
 
-<p class="eyebrow m-0 {tones[tone]}">{@render children()}</p>
+<p class="eyebrow {tones[tone]}">{@render children()}</p>

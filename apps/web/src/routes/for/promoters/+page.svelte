@@ -68,7 +68,7 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">For DJs</a></p>
+		<p class="text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">For DJs</a></p>
 	</div>
 </Section>
 
@@ -104,11 +104,11 @@
 					{/await}
 				{/snippet}
 			</Screen>
-			<dl class="m-0 grid gap-x-8 sm:grid-cols-2">
+			<dl class="grid gap-x-8 sm:grid-cols-2">
 				{#each searched as [term, detail] (term)}
 					<div class="flex flex-col gap-1 border-t border-line py-4">
 						<dt class="font-semibold">{term}</dt>
-						<dd class="m-0 text-fg-muted">{detail}</dd>
+						<dd class="text-fg-muted">{detail}</dd>
 					</div>
 				{/each}
 			</dl>
@@ -128,7 +128,7 @@
 			{/snippet}
 		</SectionHeader>
 		<Screen path="/match">
-			<ol class="m-0 flex min-h-[calc(3*4.5rem)] list-none flex-col divide-y divide-line p-0" aria-label="Shortlist">
+			<ol class="flex min-h-[calc(3*4.5rem)] flex-col divide-y divide-line" aria-label="Shortlist">
 				{#await data.shortlist}
 					{#each { length: 3 }, row (row)}
 						<li class="flex items-center gap-3 py-3" aria-hidden="true"><span class="size-10 shrink-0 animate-pulse rounded-full bg-well"></span><span class="h-4 w-1/2 animate-pulse rounded-md bg-raised"></span></li>
@@ -142,8 +142,8 @@
 								<Avatar src={project.avatarUrl} name={project.profile.name} />
 								<div class="flex min-w-0 flex-1 flex-col gap-0.5">
 									<a class="font-semibold text-fg no-underline hover:underline" href="/projects/{project.slug}">{project.profile.name}</a>
-									<p class="m-0 truncate text-label text-fg-muted">{[placeLabel(project.profile), feeSummary(project.profile)].filter(Boolean).join(' · ')}</p>
-									<ul class="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-small text-fg-soft">
+									<p class="truncate text-label text-fg-muted">{[placeLabel(project.profile), feeSummary(project.profile)].filter(Boolean).join(' · ')}</p>
+									<ul class="flex flex-wrap gap-x-4 gap-y-1 text-small text-fg-soft">
 										{#each result.reasons.slice(0, 3) as reason (reason)}<li class="inline-flex items-center gap-1.5"><CircleCheck class="size-3.5 text-good" />{reason}</li>{/each}
 									</ul>
 								</div>
@@ -169,13 +169,13 @@
 <Section labelledby="inquiries-title">
 	<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-14">
 		<Screen path="/dashboard/bookings" example>
-			<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
+			<ul class="flex flex-col divide-y divide-line">
 				{#each threads as thread (thread.title)}
 					<li class="flex items-center gap-3.5 py-3">
 						<Monogram name={thread.with} />
 						<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-							<p class="m-0 truncate font-semibold">{thread.title}</p>
-							<p class="m-0 text-small text-fg-muted">{thread.with}</p>
+							<p class="truncate font-semibold">{thread.title}</p>
+							<p class="text-small text-fg-muted">{thread.with}</p>
 						</div>
 						<StatusPill status={thread.status} />
 					</li>
@@ -193,10 +193,10 @@
 		<Screen path="/dashboard/planner" example>
 			<div class="flex flex-col gap-4">
 				<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-					<p class="m-0 text-emphasis font-semibold">Warehouse, Sat 14 Feb</p>
-					<p class="m-0 text-caption text-fg-subtle">Private to you</p>
+					<p class="text-emphasis">Warehouse, Sat 14 Feb</p>
+					<p class="text-caption text-fg-subtle">Private to you</p>
 				</div>
-				<ol class="m-0 flex list-none flex-col divide-y divide-line p-0">
+				<ol class="flex flex-col divide-y divide-line">
 					{#each lineup as slot (slot.name)}
 						<li class="flex items-center gap-3 py-3">
 							<Monogram name={slot.name} size="sm" />
@@ -223,21 +223,21 @@
 				{/await}
 			{/snippet}
 		</SectionHeader>
-		<dl class="m-0 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+		<dl class="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
 			{#each kits as [term, detail] (term)}
 				<div class="flex flex-col gap-1 border-t border-line py-4">
 					<dt class="font-semibold">{term}</dt>
-					<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+					<dd class="text-small text-fg-muted">{detail}</dd>
 				</div>
 			{/each}
 		</dl>
 		<div class="flex flex-col gap-4">
-			<h3 class="m-0 text-emphasis font-semibold">Coming soon: events and RSVPs</h3>
-			<dl class="m-0 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+			<h3 class="text-emphasis">Coming soon: events and RSVPs</h3>
+			<dl class="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
 				{#each soon as [term, detail] (term)}
 					<div class="flex flex-col gap-1 border-t border-line py-4">
 						<dt class="font-semibold">{term}</dt>
-						<dd class="m-0 text-small text-fg-muted">{detail}</dd>
+						<dd class="text-small text-fg-muted">{detail}</dd>
 					</div>
 				{/each}
 			</dl>

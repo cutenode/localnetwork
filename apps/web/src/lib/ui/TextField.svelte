@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { HTMLInputAttributes } from 'svelte/elements';
-	import Field, { control } from './Field.svelte';
+	import Field from './Field.svelte';
 
 	let {
 		id,
@@ -14,6 +14,6 @@
 
 <Field {id} {label} {hint} {error}>
 	{#snippet children({ describedby, invalid })}
-		<input {id} bind:value aria-describedby={describedby} aria-invalid={invalid || undefined} class={control} {...rest} />
+		<input {id} bind:value aria-describedby={describedby} aria-invalid={invalid || undefined} class="input" {...rest} />
 	{/snippet}
 </Field>

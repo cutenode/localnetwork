@@ -17,7 +17,7 @@
 </script>
 
 {#if loading || requests.length}
-	<ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading || undefined}>
+	<ul class="card divide-y divide-line overflow-hidden" aria-busy={loading || undefined}>
 		{#if loading}
 			{#each { length: 3 }, row (row)}
 				<li class="flex flex-col gap-0.5 px-4 py-3 sm:px-5 sm:py-3.5">
@@ -31,11 +31,11 @@
 			<li class="relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-raised sm:gap-4 sm:px-5 sm:py-3.5">
 				<div class="flex min-w-0 flex-1 flex-col gap-0.5">
 					{#if isYourTurn}
-						<p class="m-0 text-small font-medium break-words text-fg">{requestTitle(request)}</p>
+						<p class="text-small font-medium break-words text-fg">{requestTitle(request)}</p>
 					{:else}
 						<a class="text-small font-medium break-words text-fg no-underline after:absolute after:inset-0" href="/dashboard/account/requests/{request.rkey}">{requestTitle(request)}</a>
 					{/if}
-					<p class="m-0 text-label text-fg-muted">{requestStanding(request)}</p>
+					<p class="text-label text-fg-muted">{requestStanding(request)}</p>
 				</div>
 				{#if isYourTurn}<Button href="/dashboard/account/requests/{request.rkey}" size="sm" variant="secondary" aria-label="Update: {requestTitle(request)}" class="shrink-0 after:absolute after:inset-0">Update</Button>{/if}
 			</li>

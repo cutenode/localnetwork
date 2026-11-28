@@ -51,9 +51,9 @@
 
 <div class="flex max-w-3xl flex-col gap-6">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">{title}</h1>
-		<p class="m-0 text-body text-fg-muted">{requestStanding(request)}</p>
-		<p class="m-0 text-small text-fg-subtle">Sent {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}{request.deletedAt ? ` · you deleted what it said ${formatDateTime(request.deletedAt)}` : ''}</p>
+		<h1 class="text-heading">{title}</h1>
+		<p class="text-body text-fg-muted">{requestStanding(request)}</p>
+		<p class="text-small text-fg-subtle">Sent {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}{request.deletedAt ? ` · you deleted what it said ${formatDateTime(request.deletedAt)}` : ''}</p>
 	</header>
 
 	{#if data.submitted}
@@ -63,36 +63,36 @@
 
 	{#if request.decision}
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Decision</h2>
-			<p class="m-0 text-small text-fg-soft">
+			<h2 class="text-emphasis">Decision</h2>
+			<p class="text-small text-fg-soft">
 				{request.status === 'approved' ? 'Approved' : request.status === 'rejected' ? 'Rejected' : request.status === 'changes_requested' ? 'Changes requested' : 'Decided'}
 				{#if request.decision.by} by <Handle account={request.decision.by} />{/if} on {formatDateTime(request.decision.at)}.
 			</p>
-			{#if request.decision.reason}<blockquote class="m-0 border-l-2 border-line-strong pl-4 text-small whitespace-pre-line text-fg-soft">{request.decision.reason}</blockquote>{/if}
+			{#if request.decision.reason}<blockquote class="border-l-2 border-line-strong pl-4 text-small whitespace-pre-line text-fg-soft">{request.decision.reason}</blockquote>{/if}
 			{#if request.resultProjectSlug}<Button variant="secondary" size="sm" href="/projects/{request.resultProjectSlug}" class="self-start">View project</Button>{/if}
 		</Card>
 	{/if}
 
 	{#if request.kind === 'claim'}
 		<Card as="section" class="flex flex-col gap-3 text-small text-fg-soft">
-			<h2 class="m-0 text-emphasis font-semibold text-fg">Your claim</h2>
-			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(claimTerms(request.record).relationships, request.record.claim?.relationship)}</p>
-			<p class="m-0 whitespace-pre-line">{request.record.claim?.evidence}</p>
+			<h2 class="text-emphasis text-fg">Your claim</h2>
+			<p><span class="text-fg-subtle">Relationship:</span> {labelFor(claimTerms(request.record).relationships, request.record.claim?.relationship)}</p>
+			<p class="whitespace-pre-line">{request.record.claim?.evidence}</p>
 			{#if request.record.claim?.links?.length}
-				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+				<ul class="flex flex-col gap-1">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 			{/if}
 		</Card>
 	{:else if request.kind === 'update'}
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">{request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
+			<h2 class="text-emphasis">{request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
 			<DiffTable changes={data.changes} />
 		</Card>
 	{/if}
 
 	{#if request.record.message}
 		<Card as="section" class="flex flex-col gap-2">
-			<h2 class="m-0 text-emphasis font-semibold">Your note</h2>
-			<p class="m-0 text-small whitespace-pre-line text-fg-soft">{request.record.message}</p>
+			<h2 class="text-emphasis">Your note</h2>
+			<p class="text-small whitespace-pre-line text-fg-soft">{request.record.message}</p>
 		</Card>
 	{/if}
 
@@ -109,7 +109,7 @@
 		</div>
 		{#if request.kind === 'list' && request.status === 'changes_requested'}
 			<form method="POST" action="?/revise" class="card flex flex-col gap-4 p-5 sm:p-6">
-				<p class="m-0 text-small text-fg-soft">Once your profile has what staff asked for, send it back to them.</p>
+				<p class="text-small text-fg-soft">Once your profile has what staff asked for, send it back to them.</p>
 				<div>
 					<label class="label" for="message">Note</label>
 					<textarea id="message" name="message" class="input min-h-24 py-2.5">{values?.message ?? request.record.message ?? ''}</textarea>

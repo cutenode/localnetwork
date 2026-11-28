@@ -93,7 +93,7 @@
 			placeholder="City or venue area"
 			autocomplete="off"
 		/>
-		<button type="button" class="absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg disabled:opacity-50" aria-label="Use my location" title="Use my location" onclick={locate} disabled={locating}>
+		<button type="button" class="btn-icon absolute top-1/2 right-1.5 size-8 -translate-y-1/2" aria-label="Use my location" title="Use my location" onclick={locate} disabled={locating}>
 			<LocateFixed class="size-4 {locating ? 'animate-pulse' : ''}" />
 		</button>
 		<ComboboxOptions combobox={places} label="Places" noun="place" text={placeText} key={placeKey} id={listId} class="z-30" />

@@ -24,5 +24,5 @@
 <Story name="Recording" args={{ kind: 'recording', mbid: '6f1c2d84-3b9e-4c1a-9d57-0e2b8a4f7c31', name: 'Night Bus' }} />
 
 <Story name="After a track name" asChild>
-	<p class="m-0 text-small">Night Bus <MusicBrainzLink kind="recording" mbid="6f1c2d84-3b9e-4c1a-9d57-0e2b8a4f7c31" name="Night Bus" size={12} /></p>
+	<p class="text-small">Night Bus <MusicBrainzLink kind="recording" mbid="6f1c2d84-3b9e-4c1a-9d57-0e2b8a4f7c31" name="Night Bus" size={12} /></p>
 </Story>

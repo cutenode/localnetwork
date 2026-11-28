@@ -35,13 +35,13 @@
 {#snippet block()}
 	<!-- Focusable so a keyboard can scroll a long line into view. -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<pre tabindex="0" class="m-0 overflow-x-auto bg-canvas p-4 font-mono text-label leading-[1.75] text-fg-soft"><code
+	<pre tabindex="0" class="overflow-x-auto bg-canvas p-4 font-mono text-label leading-[1.75] text-fg-soft"><code
 			>{#each lines as line, i (i)}<span class="block min-h-[1lh]">{#each line as token, j (j)}{#if token.tone}<span class={token.tone}>{token.text}</span>{:else}{token.text}{/if}{/each}</span>{/each}</code
 		></pre>
 {/snippet}
 
 {#if framed}
-	<figure class="m-0 min-w-0 overflow-hidden rounded-xl border border-line bg-surface">
+	<figure class="min-w-0 overflow-hidden rounded-xl border border-line bg-surface">
 		{#if title || meta}
 			<figcaption class="flex justify-between gap-4 border-b border-line px-3.5 py-2.5 font-mono text-caption text-fg-subtle">
 				<span>{title}</span>

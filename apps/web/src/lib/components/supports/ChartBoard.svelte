@@ -24,7 +24,7 @@
 
 {#snippet list(id: string, title: string, rows: Snippet)}
 	<section aria-labelledby={id} class="flex min-w-0 flex-col gap-3">
-		<h2 {id} class="m-0 text-heading font-semibold">{title}</h2>
+		<h2 {id} class="text-heading">{title}</h2>
 		{@render rows()}
 	</section>
 {/snippet}
@@ -44,7 +44,7 @@
 			</div>
 		{:else}
 			{#snippet tracks()}
-				<ol class="card m-0 flex list-none flex-col divide-y divide-line p-0">
+				<ol class="card flex flex-col divide-y divide-line">
 					{#each result.tracks as track, i (track.id)}
 						<li class="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-3">
 							<span class="font-mono text-label text-fg-subtle">{i + 1}</span>
@@ -60,7 +60,7 @@
 				</ol>
 			{/snippet}
 			{#snippet artists()}
-				<ol class="card m-0 flex list-none flex-col divide-y divide-line p-0">
+				<ol class="card flex flex-col divide-y divide-line">
 					{#each result.artists as artist, i (artist.mbid ?? artist.name)}
 						<li class="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-3">
 							<span class="font-mono text-label text-fg-subtle">{i + 1}</span>
