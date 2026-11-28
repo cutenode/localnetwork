@@ -40,22 +40,21 @@ pub fn reads_main_page(pgno: u32, committed: Option<&wal::Committed<'_>>) -> boo
 }
 
 /// The pages of a WAL's `committed` transactions over a main file of `main_pages`, decrypted,
-/// that lie within the database size the last commit gives. Every page is decrypted first,
-/// which authenticates it against its page number. A database grows only by writing its new
-/// pages, so a size past the main file plus the WAL's pages beyond it (and one more: SQLite never
-/// writes the lock-byte page at 1 GiB) is corrupt or crafted, and is refused instead of
-/// allocated.
+/// that lie within the database size the last commit gives. Only those are decrypted (which
+/// authenticates each against its page number), as SQLCipher never reads the others. A database
+/// grows only by writing its new pages, so a size past the main file plus the WAL's pages
+/// beyond it (and one more: SQLite never writes the lock-byte page at 1 GiB) is corrupt or
+/// crafted, and is refused instead of allocated.
 pub fn wal_pages(codec: &Codec, committed: &wal::Committed<'_>, main_pages: usize) -> Result<Vec<(u32, Vec<u8>)>> {
-    let pages: Vec<(u32, Vec<u8>)> =
-        committed.pages.iter().map(|(&n, p)| Ok((n, codec.decrypt_page(n, p)?))).collect::<Result<_>>()?;
-    let known = main_pages + pages.iter().filter(|(n, _)| *n as usize > main_pages).count();
+    let known = main_pages + committed.pages.keys().filter(|&&n| n as usize > main_pages).count();
     let size = committed.db_pages as usize;
     if size > known + 1 {
         return Err(Error::Malformed(format!(
             "the WAL's last commit says the database has {size} pages, but only {known} exist"
         )));
     }
-    Ok(pages.into_iter().filter(|(n, _)| *n as usize <= size).collect())
+    let within = committed.pages.iter().filter(|&(&n, _)| n as usize <= size);
+    within.map(|(&n, p)| Ok((n, codec.decrypt_page(n, p)?))).collect()
 }
 
 #[cfg(test)]

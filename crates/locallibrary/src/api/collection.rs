@@ -10,8 +10,9 @@ use super::{resolve_drive, write_estimate};
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
 use crate::device::Device;
 use crate::import::{self, MatchKind, Matcher, Status};
+use crate::merge::{self, MergeOptions, PlaylistMode};
 use crate::model::{Library, TrackRef};
-use crate::op::{Operation, Planned, Probe, Touched, bytes};
+use crate::op::{AnyPlanned, Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -180,6 +181,74 @@ pub fn collection_export_plan(
     })?;
     // rekordbox saving its collection in between makes the plan stale.
     planned.touches(Touched::path(&collection.path, false, vec![Probe::Stamp(vec![String::new()])])).guard(None)
+}
+
+/// Adding the queue `req.options.queue` names to the drive `req.drive`, as rekordbox's Export
+/// playlist does: its tracks the drive already has (the same file, or the same artist, title and
+/// length) aren't copied again, the others are, with their analysis and artwork, and the playlist
+/// goes in at its path (added to, if the drive has one there). The rest of the drive's library is
+/// left as it is.
+///
+/// The queue is exported to a folder on this computer first (cloned from the audio files where the
+/// disk can), which is then merged into the drive ([`merge`]). A drive with no library gets the
+/// export itself ([`collection_export_plan`]).
+pub fn collection_queue_plan(req: &CollectionExportRequest, ctx: &Ctx<'_>) -> Result<Box<dyn AnyPlanned>> {
+    let Some(queue) = req.options.queue.clone() else {
+        return Err(Error::invalid("there's no queue to add"));
+    };
+    if !req.options.playlists.is_empty() || req.options.all {
+        return Err(Error::invalid("a queue is added on its own, without playlists or all"));
+    }
+    let target = resolve_drive(&req.drive)?;
+    if !target.has_export() {
+        return Ok(Box::new(collection_export_plan(req, ctx)?));
+    }
+    let collection = open_collection(&req.collection)?;
+    Ok(Box::new(queue_planned(&collection, &CloudFolders::this_computer(), &target, queue, ctx)?))
+}
+
+/// [`collection_queue_plan`] onto `target`, which has a library: the queue exported from
+/// `collection` (its files found through `cloud`) to a folder, merged into `target`.
+pub(crate) fn queue_planned(
+    collection: &Collection,
+    cloud: &CloudFolders,
+    target: &Device,
+    queue: collection_export::QueueExport,
+    ctx: &Ctx<'_>,
+) -> Result<Planned<merge::MergePlan, MergeOptions>> {
+    let staged = tempfile::Builder::new()
+        .prefix("locallibrary-queue-")
+        .tempdir()
+        .map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
+    let mut stage = Device::open(staged.path())?;
+    let export = CollectionExportOptions { queue: Some(queue.clone()), ..Default::default() };
+    let exported = collection_export::plan(collection, cloud, &stage, &export, ctx)?;
+    collection_export::apply(&exported, &mut stage, None, ctx)?;
+    let options = MergeOptions { playlists: PlaylistMode::ByName, ..Default::default() };
+    let mut plan = merge::plan(&stage, target, &options, ctx)?;
+    // The folder is gone once the plan is: the drive doesn't take its state in.
+    plan.takes_in_source = false;
+    plan.staged = Some(std::sync::Arc::new(staged));
+    let mut warnings = exported.warnings.clone();
+    warnings.extend(plan.warnings.iter().cloned());
+    let summary = vec![
+        format!("add {} to {} ({} track(s))", queue.playlist, target.name(), exported.tracks),
+        format!(
+            "copy {} track(s) ({}); {} already on it",
+            plan.new_tracks.len(),
+            bytes(plan.copy_bytes),
+            plan.matched_tracks
+        ),
+    ];
+    let noop = plan.is_noop();
+    Planned::new("collection queue", plan, options)
+        .summary(summary)
+        .warnings(warnings)
+        .noop(noop)
+        .touches(Touched::library(target, true))
+        .touches(Touched::library(&stage, false))
+        .reaching_clones(ctx)?
+        .guard(None)
 }
 
 /// An export (`operation`) to the drive or folder `drive` names, as `plan` plans it with `options`:

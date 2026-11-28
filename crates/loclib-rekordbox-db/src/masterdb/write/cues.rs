@@ -734,8 +734,8 @@ fn cues_of(conn: &Connection, track_id: &str) -> Result<CuesBefore> {
 /// Tracks `track_ids`' cues in the `master.db` at `path` (read as [`super::super::open`] reads it),
 /// as [`Edit::cues_before`] answers them, writing nothing.
 pub fn cue_rows_at(path: &Path, key: &str, track_ids: &[&str]) -> Result<Vec<CuesBefore>> {
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let (db, _) = super::super::open_copy(path, key, dir.path(), false)?;
+    let dir = crate::scratch::folder()?;
+    let (db, _) = super::super::open_copy(path, key, &dir, false)?;
     track_ids.iter().map(|t| cues_of(&db.conn, t)).collect()
 }
 
@@ -743,8 +743,8 @@ pub fn cue_rows_at(path: &Path, key: &str, track_ids: &[&str]) -> Result<Vec<Cue
 /// `contentCue` list isn't the one their `djmdCue` rows make, as [`Edit::repair_cue_lists`] would
 /// repair them.
 pub fn cue_list_mismatches(path: &Path, key: &str, create_missing: bool) -> Result<Vec<String>> {
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let (db, _) = super::super::open_copy(path, key, dir.path(), false)?;
+    let dir = crate::scratch::folder()?;
+    let (db, _) = super::super::open_copy(path, key, &dir, false)?;
     mismatches(&db.conn, create_missing, None)
 }
 

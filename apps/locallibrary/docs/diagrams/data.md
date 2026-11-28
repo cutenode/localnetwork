@@ -78,7 +78,7 @@ How `collection` reads `master.db` without touching it, `collection export` make
 ```mermaid
 flowchart TD
     find["LOCALLIBRARY_MASTERDB, else where rekordbox's<br/>settings say its library moved, else its own folder"] --> master
-    master[("master.db and its WAL")] --> copy["Copied to a temporary folder,<br/>decrypted, WAL replayed"]
+    master[("master.db and its WAL")] --> copy["Read into memory,<br/>decrypted, WAL replayed"]
     copy --> read["Opened read only"]
     read --> reads["collection info, tracks, playlists"]
     read --> diff["collection diff:<br/>what a drive lacks"]
@@ -106,6 +106,9 @@ Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib
 ```mermaid
 flowchart TD
     source["master.db, or a plugin's source<br/>with the folders you --grant"] --> plan["Plan the files that differ, with how long it'll take.<br/>A library it holds from elsewhere is replaced only when asked"]
+    queue["The player's queue from master.db:<br/>one playlist of its tracks"] --> has{"Target has a library?"}
+    has -->|no| plan
+    has -->|"yes: exported to a folder here,<br/>then merged in (see merge)"| merged["Only the tracks it lacks copied,<br/>the rest of its library kept"]
     plan --> saved["Save what only the target has in the store"]
     saved --> backup["Back up what it replaces, not audio,<br/>if it holds a library. Mark it as being written"]
     backup --> copy["Copy what differs: library_write, as pack does"]

@@ -175,6 +175,10 @@ pub struct MergePlan {
     /// by name (see [`holds_merge`]).
     #[serde(skip)]
     again: bool,
+    /// A source made for this merge alone (see [`crate::api::collection_queue_plan`]), kept until
+    /// the plan is gone.
+    #[serde(skip)]
+    pub(crate) staged: Option<std::sync::Arc<tempfile::TempDir>>,
 }
 
 impl MergePlan {
@@ -481,6 +485,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         again,
         state: Some(crate::commit::database_state(target)),
         source_state: databases_seen(&src_tree),
+        staged: None,
     })
 }
 

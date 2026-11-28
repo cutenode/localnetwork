@@ -36,7 +36,7 @@ rekordbox leaves the file in WAL mode, often with its latest changes only in
 `exportLibrary.db-wal`, so `OneLibrary::from_encrypted` takes the WAL too and replays its committed
 transactions.
 
-A `OneLibrary` is a decrypted working copy in a temporary folder, opened with SQLite through
+A `OneLibrary` is a decrypted working copy in a private folder (`scratch`, below), opened with SQLite through
 [rusqlite](https://github.com/rusqlite/rusqlite). Its key is public, so anyone can write the
 file: one whose schema holds views or triggers (rekordbox makes neither), or that SQLite finds
 damaged, is refused before anything reads it. It reads the tracks, playlists and history lists,
@@ -84,9 +84,11 @@ build, name it: `LOCALLIBRARY_MASTERDB=~/Library/Pioneer/rekordbox/master.db`. A
 `cargo test --release` counts as a release build.
 
 Nothing but `masterdb::write` writes to rekordbox's files, and nothing opens them with SQLite.
-`open` copies the database and its WAL to a temporary folder (again, should rekordbox restart its WAL meanwhile), decrypts the
-copy there with the WAL's committed transactions replayed, and reads only that, so rekordbox can
-keep running. A `Collection` holds the library, cues by track, My Tags, the intelligent
+`open` reads the database and its WAL into memory (again, should rekordbox restart its WAL
+meanwhile), decrypts them there with the WAL's committed transactions replayed, and hands SQLite
+that, so rekordbox can keep running and nothing here writes the decrypted copy to disk (a plain
+`master.db`, and one of 2 GiB or more, are read from a file instead, below). A `Collection` holds
+the library, cues by track, My Tags, the intelligent
 playlists' rules (`smartlist`: read, matched against tracks, and written as a filter where one
 can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`CloudFolders`,
 `Collection::audio_file`).
@@ -102,6 +104,22 @@ reads it back and swaps it in with one rename, if `master.db` hasn't changed mea
 cues are written as rekordbox lays them out, changing only the rows an edit changes, with the
 `contentCue` list made again from the rows and `CueUpdated` raised. Each edit answers what it
 replaced, which a later write puts back as a new change.
+
+## Decrypted copies on disk
+
+What SQLite needs as a file (an export's `VACUUM INTO`, a `OneLibrary` being edited, a plain
+`master.db`, one too big for SQLite to take into memory) goes in a `scratch::Folder`:
+`locallibrary-decrypted-*` in the temporary folder, its owner's alone (`0700` on Unix, an access
+list for the current user alone on Windows), removed when dropped. For an export, and for a
+`master.db` too big for memory, it's copied there as it is, still encrypted, and decrypted a page
+at a time into the file SQLite opens, so neither holds the library in memory. Its process keeps a file there
+locked, and the OS lets go of the lock however the process ends, so the first copy a later process
+makes sweeps away folders nobody holds, with the `.tmp*` folders earlier versions decrypted
+`master.db` and `exportLibrary.db` into. A sweep only looks into this user's own folders, and
+removes one without a lock, or an earlier version's, only when it holds nothing but the files
+those leave. Every connection to a decrypted copy keeps SQLite's temporary tables and sorts in
+memory (`temp_store`), and the buffers decrypted here are zeroed once done with. Tests make their
+folders in `locallibrary-scratch-tests` in the temporary folder, so they never sweep it.
 
 ## Features
 

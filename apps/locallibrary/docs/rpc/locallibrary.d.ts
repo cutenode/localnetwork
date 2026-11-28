@@ -2411,6 +2411,22 @@ export type CollectionExportRequest = {
   replace?: boolean;
   /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
   overwrite_archive?: boolean;
+  /**
+   * Export these tracks as one playlist instead of the collection's playlists (a queue
+   * arranged in the player). Not with `playlists` or `all`.
+   */
+  queue?: QueueExport | null;
+};
+
+/**
+ * Tracks of the collection to export as one playlist of their own, in their order: a queue
+ * arranged in the player, which the collection has no playlist for.
+ */
+export type QueueExport = {
+  /** The playlist's path on the target, like `Sets/2026-11-27`: the folders above it are made. */
+  playlist: string;
+  /** The collection's track ids, in playlist order (a track queued twice is listed once). */
+  tracks: number[];
 };
 
 export type BeginSignIn = {
@@ -2924,6 +2940,11 @@ export type SourceExport = {
   replace?: boolean;
   /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
   overwrite_archive?: boolean;
+  /**
+   * Export these tracks as one playlist instead of the collection's playlists (a queue
+   * arranged in the player). Not with `playlists` or `all`.
+   */
+  queue?: QueueExport | null;
 };
 
 /** What `initialize` answers. */
@@ -8783,8 +8804,13 @@ export type CollectionExportPlan = {
   source?: string | null;
   target: string;
   target_root: string;
-  /** The playlists chosen; empty for the whole collection. */
+  /**
+   * The playlists chosen (a queue's: the playlist it's written as); empty for the whole
+   * collection.
+   */
   playlists: string[];
+  /** The queue exported instead of the collection's playlists. */
+  queue?: QueueExport | null;
   tracks: number;
   /** Playlists exported (not counting folders). */
   playlist_count: number;

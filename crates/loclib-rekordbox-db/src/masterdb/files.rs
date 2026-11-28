@@ -1,8 +1,8 @@
 //! rekordbox's files on this computer, as a backup of them needs them (a plugin's
 //! `collection:files` reads, in loclib-plugin's types): where they are, whether rekordbox is running
 //! and which version it is, a copy of `master.db` made as rekordbox's own backup makes one, and
-//! what its tracks' files are. As everywhere in [`super`], `master.db` and its WAL are copied
-//! before anything reads them, and nothing is written to rekordbox's folders.
+//! what its tracks' files are. As everywhere in [`super`], `master.db` and its WAL are read into
+//! memory before anything reads them, and nothing is written to rekordbox's folders.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -14,7 +14,8 @@ use rusqlite::types::Value;
 use rustc_hash::FxHashMap;
 
 use super::{
-    Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, settings_dir, share_dir, text,
+    Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, open_db, settings_dir, share_dir,
+    text,
 };
 use crate::error::IoContext;
 use crate::onelibrary::cipher::{self, Codec};
@@ -144,8 +145,8 @@ const CREDENTIALS: &str = "registry_id = 'agentCredentials'";
 /// stays plain. The cloud agent's sign-in row (`agentCredentials`) is left out first, unless
 /// `with_credentials` (rekordbox's own backup keeps it). `into` is removed again when this fails.
 pub fn export(path: &Path, key: &str, with_credentials: bool, into: &Path) -> Result<CollectionCopy> {
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let (db, salt) = open_copy(path, key, dir.path(), true)?;
+    let dir = crate::scratch::folder()?;
+    let (db, salt) = open_copy(path, key, &dir, true)?;
     let credentials_removed = if with_credentials { 0 } else { db.remove_credentials()? };
     let (db_id, db_version) = (db.property("DBID")?, db.property("DBVersion")?);
     let rebuilt = dir.path().join("export.db");
@@ -213,8 +214,7 @@ impl Db<'_> {
 /// artist's and album's names as `djmdArtist` and `djmdAlbum` hold them, which rekordbox's own
 /// backup names its music folders after.
 pub fn tracks(path: &Path, key: &str, offset: u64, limit: u64) -> Result<CollectionTracks> {
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let (db, _) = open_copy(path, key, dir.path(), false)?;
+    let db = open_db(path, key)?;
     let total: i64 = db.conn.query_row("SELECT count(*) FROM djmdContent", [], |r| r.get(0)).map_err(|e| db.sql(e))?;
     let wanted = [
         "ID",

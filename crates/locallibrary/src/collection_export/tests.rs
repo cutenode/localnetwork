@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::op::AnyPlanned;
 use crate::{anlz, pdb};
 use loclib_rekordbox_db::masterdb::{self, DEFAULT_KEY};
 
@@ -1249,4 +1250,103 @@ fn prop_downloads_count_in_the_space_only_on_the_targets_disk(tc: hegel::TestCas
     let (downloaded, total, fits) = space(&written, &downloads, &target);
     assert_eq!((downloaded, total), (here, needed + here));
     assert_eq!(fits, free.is_none_or(|f| needed + here <= f));
+}
+
+/// A queue arranged in the player goes on as one playlist of its own, in its order and in the
+/// folders its path names, with only its tracks; exporting again writes it again.
+#[test]
+fn a_queue_exports_as_its_own_playlist_and_is_remembered() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    // Never Grow Old, then One More Time, queued twice; and a track the collection no longer has.
+    let queue = QueueExport { playlist: "Sets/Friday".into(), tracks: vec![205356547, 84935471, 205356547, 99] };
+    let opts = CollectionExportOptions { queue: Some(queue.clone()), ..Default::default() };
+    let (plan, report) = pc.export(&mut target, &opts);
+    assert_eq!((plan.tracks, report.playlists), (2, 1));
+    assert_eq!(plan.playlists, ["Sets/Friday"]);
+    assert!(plan.warnings.iter().any(|w| w.contains("1 queued track(s)")), "{:?}", plan.warnings);
+    let lib = target.library().unwrap();
+    assert!(lib.find_playlist("Shows/Friday").is_none(), "the collection's playlists stay behind");
+    let set = lib.find_playlist("Sets/Friday").unwrap();
+    let titles: Vec<&str> =
+        (set.track_ids.iter()).map(|id| lib.tracks.iter().find(|t| t.id == *id).unwrap().title.as_str()).collect();
+    assert_eq!(titles, ["Never Grow Old", "One More Time"]);
+    assert_eq!(record(&target).unwrap().unwrap().queue, Some(queue));
+    let (again, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    assert_eq!(again.playlists, ["Sets/Friday"], "the last queue");
+    let (all, _) = pc.export(&mut target, &CollectionExportOptions { all: true, ..Default::default() });
+    assert!(all.queue.is_none() && all.playlists.is_empty(), "all brings the collection back");
+}
+
+#[test]
+fn a_queue_is_exported_on_its_own() {
+    let pc = Computer::new();
+    let target = pc.folder("Export");
+    let q = |playlist: &str, tracks: Vec<u32>| Some(QueueExport { playlist: playlist.into(), tracks });
+    let err = plan_err(
+        &pc,
+        &target,
+        &CollectionExportOptions { queue: q("Set", vec![84935471]), all: true, ..Default::default() },
+    );
+    assert!(err.to_string().contains("on its own"), "{err}");
+    let err = plan_err(&pc, &target, &CollectionExportOptions { queue: q("Set", vec![99]), ..Default::default() });
+    assert!(err.to_string().contains("none of the queue's tracks"), "{err}");
+    let err =
+        plan_err(&pc, &target, &CollectionExportOptions { queue: q(" / ", vec![84935471]), ..Default::default() });
+    assert!(err.to_string().contains("needs a name"), "{err}");
+}
+
+/// A queue added to a drive that has a library, as rekordbox's Export playlist adds one: only the
+/// tracks it lacks are copied, those it has are used as they are, and the rest of its library
+/// stays.
+#[test]
+fn a_queue_added_to_a_drive_copies_only_the_tracks_it_lacks() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Stick");
+    // The drive has One More Time, in the playlist Sets/Early.
+    let early = QueueExport { playlist: "Sets/Early".into(), tracks: vec![84935471] };
+    pc.export(&mut target, &CollectionExportOptions { queue: Some(early), ..Default::default() });
+    let before = target.library().unwrap();
+    let omt = before.tracks.iter().find(|t| t.title == "One More Time").unwrap().file_path.clone();
+
+    let late = QueueExport { playlist: "Sets/Late".into(), tracks: vec![205356547, 84935471] };
+    let planned = crate::api::queue_planned(&pc.collection(), &pc.cloud(), &target, late, &Ctx::silent()).unwrap();
+    assert_eq!((planned.new_tracks.len(), planned.matched_tracks), (1, 1), "Never Grow Old is copied");
+    assert!(AnyPlanned::summary(&planned)[1].contains("1 already on it"), "{:?}", AnyPlanned::summary(&planned));
+    planned.apply(None, &Ctx::silent()).unwrap();
+
+    let lib = Device::open(target.root()).unwrap().library().unwrap();
+    assert_eq!(lib.tracks.len(), 2, "One More Time isn't there twice");
+    assert_eq!(lib.find_playlist("Sets/Early").unwrap().track_ids.len(), 1, "what it had stays");
+    let set = lib.find_playlist("Sets/Late").unwrap();
+    let paths: Vec<&str> =
+        set.track_ids.iter().map(|id| lib.tracks.iter().find(|t| t.id == *id).unwrap().file_path.as_str()).collect();
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[1], omt, "the drive's own copy, in the queue's order");
+    assert!(std::fs::read(target.path(&paths::key(paths[0]))).unwrap() == b"never grow old");
+
+    // Adding it again copies nothing.
+    let again = QueueExport { playlist: "Sets/Late".into(), tracks: vec![205356547, 84935471] };
+    let planned = crate::api::queue_planned(&pc.collection(), &pc.cloud(), &target, again, &Ctx::silent()).unwrap();
+    assert!(planned.new_tracks.is_empty() && planned.is_noop(), "{:?}", AnyPlanned::summary(&planned));
+}
+
+/// Adding a queue asks for one, and for it alone: not with playlists or the whole collection.
+#[test]
+fn adding_a_queue_needs_a_queue_and_nothing_else_chosen() {
+    let req = |options| crate::api::CollectionExportRequest {
+        collection: crate::api::CollectionRef { db: None, key: None },
+        drive: "/nowhere".into(),
+        options,
+    };
+    let refused = |options| crate::api::collection_queue_plan(&req(options), &Ctx::silent()).err().unwrap().to_string();
+    assert!(refused(CollectionExportOptions::default()).contains("there's no queue to add"));
+    let queue = Some(QueueExport { playlist: "Sets/Late".into(), tracks: vec![1] });
+    let with_playlists =
+        CollectionExportOptions { queue: queue.clone(), playlists: vec!["Shows/Friday".into()], ..Default::default() };
+    assert!(refused(with_playlists).contains("without playlists or all"));
+    assert!(
+        refused(CollectionExportOptions { queue, all: true, ..Default::default() })
+            .contains("without playlists or all")
+    );
 }
