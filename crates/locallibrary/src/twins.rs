@@ -50,13 +50,11 @@ impl Twins {
     /// The audio of rekordbox's collection on this computer. None when it has no collection, or
     /// one that can't be read: a pull doesn't need it.
     pub(crate) fn of_collection(store: &Store) -> Twins {
-        // A test's pulls stay away from this computer's collection unless it names one.
-        let path = match cfg!(debug_assertions) {
-            true => std::env::var_os(masterdb::PATH_ENV).map(PathBuf::from),
-            false => masterdb::default_path(),
-        };
-        let collection =
-            path.filter(|p| p.is_file()).and_then(|p| masterdb::open(&p, &masterdb::resolve_key(None)).ok());
+        // A test's pulls stay away from this computer's collection unless it names one, as
+        // `default_path` has every test do.
+        let collection = masterdb::default_path()
+            .filter(|p| p.is_file())
+            .and_then(|p| masterdb::open(&p, &masterdb::resolve_key(None)).ok());
         let Some(collection) = collection else { return Twins::among(store, Vec::new()) };
         let cloud = CloudFolders::this_computer();
         let files = collection.library.tracks.iter().filter_map(|t| collection.audio_file(t, &cloud)).collect();

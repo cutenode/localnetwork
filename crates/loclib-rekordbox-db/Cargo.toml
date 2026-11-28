@@ -31,6 +31,7 @@ quick-xml = "0.42"
 # `serialize`: a decrypted master.db is read from memory, never written to disk.
 rusqlite = { workspace = true, features = ["serialize"] }
 rustc-hash.workspace = true
+same-file = "1.0.6"
 schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
@@ -63,6 +64,7 @@ loclib-testkit.workspace = true
 workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["user"] }
 plist = { version = "1.10.1", optional = true }
 
 [target."cfg(unix)".dependencies]

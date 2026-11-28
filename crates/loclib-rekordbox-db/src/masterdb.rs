@@ -76,34 +76,120 @@ pub const KEY_ENV: &str = "LOCALLIBRARY_MASTERDB_KEY";
 /// Environment variable with the path of the `master.db` to read instead of rekordbox's.
 pub const PATH_ENV: &str = "LOCALLIBRARY_MASTERDB";
 
-/// Where rekordbox keeps `master.db` on this computer: [`PATH_ENV`] when set, else where
-/// rekordbox's own settings say once the library was moved (`masterDbDirectory` in
-/// `rekordbox3.settings`, else `db-path` in its agent's `options.json`), otherwise
-/// `~/Library/Pioneer/rekordbox/master.db` on macOS and `%APPDATA%\Pioneer\rekordbox\master.db`
-/// on Windows. `None` elsewhere (rekordbox runs on neither).
+/// Environment variable with the path of Pioneer's settings folder (the one holding `rekordbox6/`
+/// and `rekordboxAgent/`) to read instead of rekordbox's. A test reads rekordbox's settings only
+/// from there.
+pub const SETTINGS_ENV: &str = "LOCALLIBRARY_REKORDBOX_SETTINGS";
+
+/// The `master.db` to read when none is given: [`PATH_ENV`] when set, else rekordbox's own
+/// (where its settings say, else its platform's place). A test (a debug build, or any process
+/// nextest starts) never falls back to rekordbox's own: it reads (and writes) only the collection
+/// it names, never that of whoever runs it.
 pub fn default_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
     }
+    (!under_test()).then(rekordbox_path).flatten()
+}
+
+/// Whether this process is a test's: a debug build (every test's, as `cargo test` and
+/// `cargo nextest run` build by default), this crate's own tests in any build, or anything
+/// nextest started in any build. A plain `cargo test --release` of another crate sets nothing
+/// that tells, so it counts as a release build.
+fn under_test() -> bool {
+    started_by_nextest_or(cfg!(any(debug_assertions, test)))
+}
+
+/// `test_build`, or whether nextest started this process: it sets `NEXTEST` in each test's
+/// process, and the programs a test starts inherit it.
+fn started_by_nextest_or(test_build: bool) -> bool {
+    test_build || std::env::var_os("NEXTEST").is_some()
+}
+
+/// Where rekordbox keeps `master.db` on this computer: where its own settings say once the
+/// library was moved (`masterDbDirectory` in `rekordbox3.settings`, else `db-path` in its agent's
+/// `options.json`), otherwise `~/Library/Pioneer/rekordbox/master.db` on macOS and
+/// `%APPDATA%\Pioneer\rekordbox\master.db` on Windows. `None` elsewhere (rekordbox runs on
+/// neither).
+fn rekordbox_path() -> Option<PathBuf> {
     moved(settings_path().as_deref(), agent_options_path().as_deref()).or_else(platform_path)
 }
 
+/// Every `master.db` that could be rekordbox's own: in each of [`places`], its platform's place
+/// and where its settings there say the library moved. Only `masterDbDirectory` and `db-path`
+/// are taken from those settings, and nothing of them is kept.
+fn own_collections() -> Vec<PathBuf> {
+    let at =
+        |p: Place| [moved(Some(&settings_file(&p.pioneer)), Some(&agent_options_file(&p.pioneer))), Some(p.master_db)];
+    places().into_iter().flat_map(at).flatten().collect()
+}
+
+/// Refuses `path` when it's one of `own`, rekordbox's own `master.db`, and [`PATH_ENV`] doesn't
+/// name it: in a test ([`under_test`]) nothing then reads it, so a test that reaches it, by
+/// whatever way, fails instead.
+fn refuse_unnamed(path: &Path, own: &[PathBuf]) {
+    // The same file, not the same path: macOS reaches /Users through /System/Volumes/Data too,
+    // and a hard link has a path of its own.
+    let same = |a: &Path, b: &Path| same_file::is_same_file(a, b).unwrap_or(false);
+    let named = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()).is_some_and(|p| same(path, Path::new(&p)));
+    let theirs = own.iter().any(|own| same(path, own));
+    assert!(
+        named || !theirs,
+        "{} is rekordbox's own collection: a test reads it only when {PATH_ENV} names it",
+        path.display()
+    );
+}
+
+/// Where rekordbox keeps its files under one home.
+#[derive(Debug, Clone, PartialEq)]
+struct Place {
+    /// `master.db`, until the library is moved.
+    master_db: PathBuf,
+    /// Pioneer's settings folder.
+    pioneer: PathBuf,
+}
+
+/// rekordbox's [`Place`]s on this computer, the first where it is for this account.
+fn places() -> Vec<Place> {
+    #[cfg(test)]
+    if let Some(fake) = tests::PLACES.with_borrow(Clone::clone) {
+        return fake;
+    }
+    platform_places()
+}
+
+/// `~/Library/Pioneer/rekordbox/master.db` and `~/Library/Application Support/Pioneer/`, under
+/// `$HOME` and, when it differs (a test may fake `$HOME`), the account's home in the password
+/// database.
 #[cfg(target_os = "macos")]
-fn platform_path() -> Option<PathBuf> {
-    let home = directories::BaseDirs::new()?.home_dir().to_path_buf();
-    Some(home.join("Library/Pioneer/rekordbox/master.db"))
+fn platform_places() -> Vec<Place> {
+    let account = nix::unistd::User::from_uid(nix::unistd::getuid()).ok().flatten().map(|u| u.dir);
+    let mut homes: Vec<PathBuf> =
+        directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()).into_iter().chain(account).collect();
+    homes.dedup();
+    let place = |h: PathBuf| Place {
+        master_db: h.join("Library/Pioneer/rekordbox/master.db"),
+        pioneer: h.join("Library/Application Support/Pioneer"),
+    };
+    homes.into_iter().map(place).collect()
 }
 
+/// `%APPDATA%\Pioneer\rekordbox\master.db` and `%APPDATA%\Pioneer\`. Windows names the roaming
+/// application data folder itself (`SHGetKnownFolderPath`), from no environment variable.
 #[cfg(windows)]
-fn platform_path() -> Option<PathBuf> {
-    // %APPDATA% is the roaming application data folder.
-    let roaming = directories::BaseDirs::new()?.config_dir().to_path_buf();
-    Some(roaming.join("Pioneer").join("rekordbox").join("master.db"))
+fn platform_places() -> Vec<Place> {
+    let roaming = directories::BaseDirs::new().map(|b| b.config_dir().join("Pioneer"));
+    roaming.map(|p| Place { master_db: p.join("rekordbox").join("master.db"), pioneer: p }).into_iter().collect()
 }
 
+/// None: rekordbox runs on macOS and Windows only.
 #[cfg(not(any(target_os = "macos", windows)))]
+fn platform_places() -> Vec<Place> {
+    Vec::new()
+}
+
 fn platform_path() -> Option<PathBuf> {
-    None
+    places().into_iter().next().map(|p| p.master_db)
 }
 
 /// rekordbox's `share` folder beside the `master.db` at `path`, which its `AnalysisDataPath` and
@@ -237,21 +323,40 @@ fn agent_option(path: &Path, name: &str) -> Option<String> {
     option[1].as_str().map(str::to_string)
 }
 
-/// Pioneer's folder of rekordbox's settings: `~/Library/Application Support/Pioneer/` on macOS,
-/// `%APPDATA%\Pioneer\` (roaming) on Windows.
+/// Pioneer's folder of rekordbox's settings: [`SETTINGS_ENV`] when set, else rekordbox's own,
+/// `~/Library/Application Support/Pioneer/` on macOS and `%APPDATA%\Pioneer\` (roaming) on
+/// Windows. A test ([`under_test`]) never falls back to rekordbox's own.
 fn pioneer_dir() -> Option<PathBuf> {
-    let base = directories::BaseDirs::new()?;
-    cfg!(any(target_os = "macos", windows)).then(|| base.config_dir().join("Pioneer"))
+    if let Some(p) = std::env::var_os(SETTINGS_ENV).filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(p));
+    }
+    (!under_test()).then(|| places().into_iter().next().map(|p| p.pioneer)).flatten()
+}
+
+/// rekordbox 6 and 7's settings folder, `rekordbox6/` in Pioneer's: its `rekordbox3.settings`
+/// and the My Settings files it exports. A test gets one only from [`SETTINGS_ENV`].
+pub fn settings_dir() -> Option<PathBuf> {
+    pioneer_dir().map(|p| p.join("rekordbox6"))
 }
 
 /// rekordbox 6 and 7's settings file, in `rekordbox6/` there.
 fn settings_path() -> Option<PathBuf> {
-    Some(pioneer_dir()?.join("rekordbox6").join("rekordbox3.settings"))
+    pioneer_dir().as_deref().map(settings_file)
 }
 
 /// rekordbox's agent's options, in `rekordboxAgent/storage/` there.
 fn agent_options_path() -> Option<PathBuf> {
-    Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
+    pioneer_dir().as_deref().map(agent_options_file)
+}
+
+/// rekordbox 6 and 7's settings file in the Pioneer folder `pioneer`.
+fn settings_file(pioneer: &Path) -> PathBuf {
+    pioneer.join("rekordbox6").join("rekordbox3.settings")
+}
+
+/// rekordbox's agent's options in the Pioneer folder `pioneer`.
+fn agent_options_file(pioneer: &Path) -> PathBuf {
+    pioneer.join("rekordboxAgent").join("storage").join("options.json")
 }
 
 /// rekordbox's agent's log, which says whether Cloud Library Sync is on (`sync mode: standalone`).
@@ -641,8 +746,13 @@ fn decrypt_pages(path: &Path, key: &str, len: u64, wal: Option<&[u8]>, pages: &m
 /// then restart its WAL in between: the copy would lack what the old WAL held and the new one
 /// doesn't. A restart changes the WAL header's checkpoint sequence and salts, so the header is
 /// read before copying and again after the WAL is read, and the copy made again when either
-/// differs from the header the WAL was read with.
+/// differs from the header the WAL was read with. Every read of an encrypted `master.db`, into
+/// memory or a scratch folder, starts here, so a test ([`under_test`]) is refused rekordbox's own
+/// here too.
 fn snapshot(path: &Path, copy: impl Fn() -> std::io::Result<u64>) -> Result<Option<Vec<u8>>> {
+    if under_test() {
+        refuse_unnamed(path, &own_collections());
+    }
     let wal_path = PathBuf::from(format!("{}-wal", path.display()));
     snapshot_with(path, copy, |limit| read_wal(&wal_path, limit))
 }

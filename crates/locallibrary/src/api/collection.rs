@@ -44,7 +44,9 @@ pub(crate) fn collection_path(db: Option<&Path>) -> Result<PathBuf> {
         Some(p) => p.to_path_buf(),
         None => masterdb::default_path().ok_or_else(|| {
             Error::NotFound(
-                "rekordbox's collection: give the master.db to read (rekordbox runs on macOS and Windows)".into(),
+                "rekordbox's collection: give the master.db to read (rekordbox runs on macOS and Windows; a debug \
+                 build reads only the one given or named by LOCALLIBRARY_MASTERDB)"
+                    .into(),
             )
         })?,
     };

@@ -4,7 +4,7 @@ use rusqlite::params;
 use serde_json::json;
 
 use super::*;
-use crate::masterdb::{DEFAULT_KEY, PATH_ENV, sqlcipher};
+use crate::masterdb::{DEFAULT_KEY, PATH_ENV, SETTINGS_ENV, sqlcipher};
 use crate::onelibrary::cipher::{SALT_LEN, SQLITE_MAGIC};
 use crate::test_util::{Fixture, SECRET, has, library, plain, registry, sample};
 
@@ -20,7 +20,10 @@ fn locations_are_where_rekordbox_keeps_its_files() {
     let dir = tempfile::tempdir().unwrap();
     let master = dir.path().join("rekordbox/master.db");
     // SAFETY: nextest runs each test in a process of its own.
-    unsafe { std::env::set_var(PATH_ENV, &master) };
+    unsafe {
+        std::env::set_var(PATH_ENV, &master);
+        std::env::remove_var(SETTINGS_ENV);
+    }
     let at = locations();
     assert_eq!(at.master_db.as_deref(), Some(master.as_path()));
     assert_eq!(at.data.as_deref(), Some(dir.path().join("rekordbox").as_path()));
@@ -29,8 +32,9 @@ fn locations_are_where_rekordbox_keeps_its_files() {
     std::fs::create_dir(dir.path().join("rekordbox")).unwrap();
     std::fs::write(&master, "").unwrap();
     assert!(locations().master_db_exists);
-    let settings = at.settings.map(|s| s.ends_with(Path::new("Pioneer").join("rekordbox6")));
-    assert_eq!(settings, cfg!(any(target_os = "macos", windows)).then_some(true));
+    assert_eq!(at.settings, None, "a test names rekordbox's settings, or reads none");
+    unsafe { std::env::set_var(SETTINGS_ENV, dir.path().join("Pioneer")) };
+    assert_eq!(locations().settings, Some(dir.path().join("Pioneer/rekordbox6")));
 }
 
 /// Anything named for rekordbox is taken for it (a false one only holds a write back), but its agent.

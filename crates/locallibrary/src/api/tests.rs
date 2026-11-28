@@ -629,25 +629,21 @@ fn prop_the_default_store_s_disk_is_kept_too(tc: hegel::TestCase) {
     }
 }
 
-/// Settings imported with no drive come from rekordbox's own folder on this computer: its My
-/// Settings files become the profile's base, and importing them again changes nothing. A computer
-/// without that folder has none to give.
+/// Settings imported with no drive come from rekordbox's own folder on this computer (in a test,
+/// the one `LOCALLIBRARY_REKORDBOX_SETTINGS` names, and none without it): its My Settings files
+/// become the profile's base, and importing them again changes nothing. A computer without that
+/// folder has none to give.
 #[cfg(unix)]
 #[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(installed = true)]
 fn prop_settings_are_imported_from_rekordbox_on_this_computer(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let home = tempfile::tempdir().unwrap();
+    let pioneer = home.path().join("Pioneer");
     // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
     // environment while the test runs.
-    unsafe {
-        std::env::set_var("HOME", home.path());
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    let dir = match cfg!(target_os = "macos") {
-        true => home.path().join("Library/Application Support/Pioneer/rekordbox6"),
-        false => home.path().join(".config/Pioneer/rekordbox6"),
-    };
+    unsafe { std::env::set_var(loclib_rekordbox_db::masterdb::SETTINGS_ENV, &pioneer) };
+    let dir = pioneer.join("rekordbox6");
     let installed = tc.draw(gs::booleans());
     if installed {
         std::fs::create_dir_all(&dir).unwrap();
@@ -670,6 +666,8 @@ fn prop_settings_are_imported_from_rekordbox_on_this_computer(tc: hegel::TestCas
     let profile = settings_import(&store, &ImportSettings::default()).unwrap();
     assert_eq!(profile.base.len(), planned.plan.changes.len());
     assert!(settings_import_plan(&store, &ImportSettings::default()).unwrap().noop, "imported already");
+    unsafe { std::env::remove_var(loclib_rekordbox_db::masterdb::SETTINGS_ENV) };
+    assert_eq!(settings::rekordbox_settings_dir(), None, "a test reads only the settings it names");
 }
 
 /// A format plan, through the API, says first that it erases the whole disk, named by its model,

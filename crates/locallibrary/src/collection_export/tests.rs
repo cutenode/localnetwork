@@ -949,11 +949,7 @@ fn a_pull_under_test_leaves_this_computers_collection_alone() {
         std::env::remove_var(masterdb::PATH_ENV);
         std::env::set_var("HOME", &home);
     }
-    assert_eq!(
-        masterdb::default_path(),
-        Some(rekordbox.join("master.db")),
-        "rekordbox's own path, which a release build would open"
-    );
+    assert_eq!(masterdb::default_path(), None, "a release build would open rekordbox's own here");
 
     let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
     crate::store::prefs::StorePrefs { copy_on_write: true }.save(&store).unwrap();
