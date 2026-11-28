@@ -6,10 +6,8 @@
 - A context line with the drive, the list, the search and how much is marked, and a status line with
   what keys do, the latest job or message, where the selection is, space left and who's signed in.
   Under 30 rows the header carries the context.
-- Pane titles have numbers, and digits jump to panes. The pane with focus has a marker in its title
-  as well as its border.
-- `g` and a letter goes to a view: `g l`, `g p`, `g d`, `g r`, `g n`, with a hint after a moment.
-  `g g` is the first row. The digits play hot cues while the pads are on, now in every view.
+- The pane with focus has a marker in its title as well as its border.
+- `1` to `5` go to the views. The digits play hot cues while the pads are on, now in every view.
 - The Drives view's History pane: what players recorded on the drive open in the library.
 
 ### Changed

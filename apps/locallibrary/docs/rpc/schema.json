@@ -21578,7 +21578,13 @@
         "plugins": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`\namong them).",
+          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` among them).",
+          "default": {}
+        },
+        "keybinds": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The keys set in the player ([`Keybinds`], `keybinds.json`), without when they last changed\nhere.",
           "default": {}
         }
       },
@@ -21591,7 +21597,8 @@
         "mix",
         "store",
         "plugin_host",
-        "plugins"
+        "plugins",
+        "keybinds"
       ],
       "description": "What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty\nmaps and lists left out."
     },
@@ -21629,7 +21636,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"keys.analyze\"]`."
+          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"services.watch\"]`."
         },
         "action": {
           "$ref": "#/$defs/SettingsFileAction"

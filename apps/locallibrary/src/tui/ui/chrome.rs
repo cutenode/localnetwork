@@ -1,5 +1,5 @@
-//! What's on every screen: the header, the footer, toasts and the log, and the small pieces every
-//! view draws with.
+//! What's on every screen besides the header and the footer (see [`super::Header`] and
+//! [`super::Footer`]): messages and the log, and the small pieces every view draws with.
 
 use locallibrary::DeviceInfo;
 use ratatui::Frame;
@@ -9,16 +9,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
-use crate::output::bytes;
-use crate::tui::app::{App, Focus, Level, UNDO_HINT, View, typed_tail};
+use crate::tui::app::{App, Level, UNDO_HINT, typed_tail};
 use crate::tui::edits::Modal;
-use crate::tui::first_run::intro_line;
-use crate::tui::theme::{self, bold, dim, faint, fg, text};
-use crate::tui::{icons, keymap};
+use crate::tui::icons;
+use crate::tui::keymap::{self, Act, Hint, Scope};
+use crate::tui::theme::{self, bold, dim, faint, fg};
 
 use super::*;
-
-const NAME: &str = "locallibrary";
 
 pub(in crate::tui) fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
     Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title.into())
@@ -32,16 +29,14 @@ fn title_style(focused: bool) -> Style {
     if focused { bold(theme::current().info) } else { bold(theme::current().dim) }
 }
 
-/// How a pane's title starts: a marker when it has focus, so that reads without colour, and the
-/// number that jumps to it.
-pub(in crate::tui) fn pane_start(number: u8, focused: bool) -> Vec<Span<'static>> {
-    let mark = if focused { Span::styled(icons::FOCUS.padded(), title_style(true)) } else { Span::raw(" ") };
-    vec![mark, Span::styled(format!("{number} "), if focused { theme::key() } else { faint() })]
+/// How a pane's title starts: a marker when it has focus, so that reads without colour.
+pub(in crate::tui) fn pane_start(focused: bool) -> Vec<Span<'static>> {
+    vec![if focused { Span::styled(icons::FOCUS.padded(), title_style(true)) } else { Span::raw(" ") }]
 }
 
 /// A pane's title.
-pub(in crate::tui) fn pane_title(number: u8, s: &str, focused: bool) -> Line<'static> {
-    let mut spans = pane_start(number, focused);
+pub(in crate::tui) fn pane_title(s: &str, focused: bool) -> Line<'static> {
+    let mut spans = pane_start(focused);
     spans.extend([Span::styled(s.to_string(), title_style(focused)), Span::raw(" ")]);
     Line::from(spans)
 }
@@ -50,6 +45,64 @@ pub(in crate::tui) fn pane_title(number: u8, s: &str, focused: bool) -> Line<'st
 pub(super) fn title_row(f: &mut Frame, title: impl Into<Line<'static>>, focused: bool, area: Rect) {
     let b = Block::new().borders(Borders::TOP).border_type(theme::border_type(focused));
     f.render_widget(b.border_style(theme::border(focused)).title(title.into()), area);
+}
+
+/// A dialog's hints in `scopes` as its border writes them (see [`hint_bar`]): the last dialog's are
+/// kept while the keys and how it looks stay as they are.
+pub(super) fn dialog_bar(scopes: &[Scope]) -> std::rc::Rc<Line<'static>> {
+    let same = |k: &(Vec<Scope>, theme::Look)| k.0 == scopes && k.1 == theme::look();
+    keymap::effective::memo(same, || (scopes.to_vec(), theme::look()), || hint_bar(&keymap::dialog_hints(scopes), &[]))
+}
+
+/// `line` lent to a widget that takes a line of its own, without copying what it says.
+pub(super) fn lent<'a>(line: &'a Line<'_>) -> Line<'a> {
+    lent_spans(&line.spans).collect::<Line>().style(line.style)
+}
+
+/// `spans` lent, as [`lent`] lends a line.
+pub(super) fn lent_spans<'a>(spans: &'a [Span<'_>]) -> impl Iterator<Item = Span<'a>> {
+    spans.iter().map(|s| Span::styled(s.content.as_ref(), s.style))
+}
+
+/// Hints as a dialog's border writes them: each key in the key colour and what it does after it,
+/// ` · ` between; `says` names an act's hint otherwise here (what enter does in this dialog).
+pub(in crate::tui) fn hint_bar(hints: &[Hint], says: &[(Act, &str)]) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    for (i, h) in hints.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" · ", faint()));
+        }
+        let label = says.iter().find(|(act, _)| *act == h.act).map_or(h.label, |(_, s)| s);
+        spans.push(Span::styled(h.keys.clone(), theme::key()));
+        spans.push(Span::styled(format!(" {label}"), faint()));
+    }
+    spans.push(Span::raw(" "));
+    Line::from(spans)
+}
+
+/// `act`'s key where `scopes` apply, drawn as a key, then `says`; with no key there, what `:`
+/// finds it by, or nothing when `:` doesn't list it either.
+pub(in crate::tui) fn key_says(scopes: &[Scope], act: Act, says: &str, style: Style) -> Vec<Span<'static>> {
+    match keymap::key_name(scopes, act) {
+        Some(k) => vec![Span::styled(k, theme::key()), Span::styled(says.to_string(), style)],
+        None => keymap::typed_name(act).map_or_else(Vec::new, |n| vec![Span::styled(format!("{n} in :"), style)]),
+    }
+}
+
+/// With nothing playing: the key that carries on where the last run left off, or the one that
+/// plays the track picked, as they are where the player is now.
+pub(super) fn idle_line(app: &App) -> Line<'static> {
+    let scopes = keymap::scopes(app);
+    let Some((t, at)) = app.resumable() else {
+        let pick = keymap::key_name(&scopes, Act::Activate)
+            .map_or_else(|| "Pick a track.".to_string(), |k| format!("Pick a track and press {k}."));
+        return Line::styled(pick, dim());
+    };
+    let carries = format!(" carries on with {} from {}", t.display_name(), crate::output::clock(at.as_secs_f64()));
+    match keymap::key_name(&scopes, Act::PlayPause) {
+        Some(k) => Line::from(vec![Span::styled(k, theme::key()), Span::styled(carries, dim())]),
+        None => Line::styled(format!("{} in :{carries}", keymap::name(Act::PlayPause)), dim()),
+    }
 }
 
 /// `left` and `right` on one line, `right` flush right when it fits.
@@ -70,7 +123,7 @@ pub(in crate::tui) fn clip(s: &str, max: usize) -> String {
 }
 
 /// Keep spans from the front while they fit in `max` columns, cutting the last one short.
-pub(super) fn fit(spans: Vec<Span<'static>>, max: usize) -> Vec<Span<'static>> {
+pub(super) fn fit(spans: Vec<Span<'_>>, max: usize) -> Vec<Span<'_>> {
     let mut out = Vec::new();
     let mut used = 0;
     for s in spans {
@@ -107,200 +160,6 @@ pub(super) fn spinner(app: &App) -> &'static str {
     frames[(app.started.elapsed().as_secs_f32() * 12.0) as usize % frames.len()]
 }
 
-/// What the screen's about, as far as a line can say: the drive, the list shown, the search and
-/// how much is marked. Nothing until a drive is open.
-fn context(app: &App) -> Vec<Span<'static>> {
-    let Some(l) = &app.loaded else { return Vec::new() };
-    let mut spans = vec![
-        Span::styled(app.drive_label(l.root()), bold(theme::current().text)),
-        Span::styled(" › ", faint()),
-        Span::styled(l.playlist_name(), dim()),
-    ];
-    if !app.query.is_empty() {
-        spans.extend([Span::styled("  / ", theme::key()), Span::styled(clip(&app.query, 28), text())]);
-        if app.search_all {
-            spans.push(Span::styled(" whole drive", fg(theme::current().info)));
-        }
-    }
-    let marked = app.marks.len() + app.list_marks.len();
-    if marked > 0 {
-        spans.push(Span::styled(format!("  {}{marked} marked", icons::CHECK.padded()), bold(theme::current().accent)));
-    }
-    spans
-}
-
-pub(super) fn draw_context(f: &mut Frame, app: &App, area: Rect) {
-    if !area.is_empty() {
-        let mut spans = vec![Span::raw(" ")];
-        spans.extend(fit(context(app), (area.width as usize).saturating_sub(1)));
-        f.render_widget(Line::from(spans), area);
-    }
-}
-
-/// The view whose tab stands apart at the right end: localnetwork, what goes out to Local Network
-/// rather than work on the music.
-const ASIDE: View = View::Profile;
-
-/// The logo, a tab for each view and, when it has no row of its own (`carries_context`), the
-/// context, then [`ASIDE`]'s tab at the right end. The player's name goes first as the width runs
-/// out, then the room around the logo and between the tabs.
-pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_context: bool) {
-    // The logo dot pulses with the music.
-    let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
-    let pulsing = app.is_playing() && !theme::reduced_motion();
-    let logo_style = bold(if pulsing { pulse } else { theme::current().accent });
-    let width = area.width as usize;
-    let label = |v: View, pad: &str| format!("{pad}{} {}{pad}", keymap::view_letter(v), v.title());
-    let style = |v: View| if app.view == v { theme::chip(theme::current().info) } else { dim() };
-    let views = View::ALL.into_iter().filter(|v| *v != ASIDE);
-    let aside = Span::styled(label(ASIDE, " "), style(ASIDE));
-    let aside_w = aside.width();
-    // Roomy: the logo and each tab padded; else the tabs touch but for a space between them.
-    let roomy_w = icons::LOGO.padded().width() + views.clone().map(|v| label(v, " ").width()).sum::<usize>();
-    let roomy = width > roomy_w + aside_w;
-    let (logo, pad, between) = if roomy { (icons::LOGO.padded(), " ", "") } else { (icons::LOGO.spaced(), "", " ") };
-    let about = if carries_context { context(app) } else { Vec::new() };
-    let about_w: usize = about.iter().map(Span::width).sum::<usize>() + if about.is_empty() { 0 } else { 2 };
-    let mut left = vec![Span::styled(logo, logo_style)];
-    if roomy && width > roomy_w + NAME.len() + 3 + about_w + aside_w {
-        left.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
-    }
-    let mut x = area.x + left.iter().map(|s| s.width() as u16).sum::<u16>();
-    for (i, v) in views.enumerate() {
-        if i > 0 && !between.is_empty() {
-            left.push(Span::raw(between));
-            x += between.width() as u16;
-        }
-        let tab = Span::styled(label(v, pad), style(v));
-        let w = tab.width() as u16;
-        app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
-        left.push(tab);
-        x += w;
-    }
-    let left_w: usize = left.iter().map(Span::width).sum();
-    // The context sits two spaces before the aside's tab, with room to spare after the tabs.
-    let mut right = fit(about, width.saturating_sub(left_w + aside_w + 4));
-    if !right.is_empty() {
-        right.push(Span::raw("  "));
-    }
-    right.push(aside);
-    let right_w: usize = right.iter().map(Span::width).sum();
-    // `spread` leaves the right side out when it doesn't fit.
-    if left_w + right_w < width {
-        app.areas.tabs.push((ASIDE, Rect::new(area.right() - aside_w as u16, area.y, aside_w as u16, 1)));
-    }
-    f.render_widget(spread(left, right, area.width), area);
-}
-
-/// What the player's doing: the job's progress first, cut short if need be, else the first of what
-/// the job list (`&`) holds, so the two can't say different things.
-fn busy(app: &App) -> Vec<Span<'static>> {
-    let mut busy = Vec::new();
-    if let Some(j) = &app.job {
-        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().warning)));
-        busy.push(Span::styled(format!("{} ", j.label), bold(theme::current().warning)));
-        let secs = j.started.elapsed().as_secs();
-        if secs > 0 {
-            busy.push(Span::styled(format!("{secs}s "), faint()));
-        }
-        if j.committed {
-            busy.push(Span::styled("can't stop now ", fg(theme::current().warning)));
-        }
-        if !j.detail.is_empty() {
-            busy.push(Span::styled(format!("{} ", j.detail), dim()));
-        }
-        if !j.committed {
-            busy.push(Span::styled(" esc ", theme::key()));
-            busy.push(Span::styled("cancel ", dim()));
-        }
-        busy.push(Span::styled(" & ", theme::key()));
-        busy.push(Span::styled("jobs ", dim()));
-    } else if let Some(row) = crate::tui::jobs::rows(app).first() {
-        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().info)));
-        busy.push(Span::styled(format!("{} ", row.label), dim()));
-    }
-    busy
-}
-
-/// What keys do now, for the status line.
-fn mode(app: &App) -> &'static str {
-    let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
-    if app.chord.is_some() {
-        if app.chord_queue { "QUEUE" } else { "GO TO" }
-    } else if app.searching {
-        "SEARCH"
-    } else if typing {
-        "TYPING"
-    } else if app.picking.is_some() {
-        "PICK"
-    } else if app.deck_showing() {
-        "PLAYER"
-    } else if app.deck.pads {
-        "PADS"
-    } else {
-        "BROWSE"
-    }
-}
-
-/// Where the selection is in its list, the space left on the drive, and who's signed in. What's
-/// about the drive comes from the last read of the drive list, so a frame touches no disk.
-fn whereabouts(app: &mut App) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    let (selected, len) = match (app.view, app.focus) {
-        (View::Library, Focus::Drives) if !app.deck_showing() => (app.source_row(), app.source_rows()),
-        _ => {
-            let (selected, len) = app.list_selection();
-            (*selected, len)
-        }
-    };
-    if let Some(at) = selected.filter(|_| len > 0) {
-        spans.push(Span::styled(format!("{}/{len}", at.min(len - 1) + 1), dim()));
-    }
-    let root = app.action_drive();
-    let free = app.drives.iter().find(|d| Some(&d.root) == root.as_ref()).and_then(|d| d.free_space);
-    if let Some(free) = free {
-        spans.push(Span::styled(format!("  {} free", bytes(free)), dim()));
-    }
-    if let Some(handle) = app.profile.account.handle() {
-        spans.push(Span::styled(format!("  @{handle}"), fg(theme::current().info)));
-    }
-    spans.push(Span::raw(" "));
-    spans
-}
-
-/// The status line: what keys do on the left, where things are on the right and between them
-/// what's under way. Returns where that leaves for the latest message.
-pub(super) fn draw_status(f: &mut Frame, app: &mut App, area: Rect) -> Rect {
-    if area.is_empty() {
-        return area;
-    }
-    let width = area.width as usize;
-    let mode = Span::styled(format!(" {} ", mode(app)), theme::chip(theme::current().dim));
-    let mode_w = mode.width() + 1;
-    // The right side gives way first, from its end. With the deck showing, the modes that are on
-    // lead it.
-    let mut right = whereabouts(app);
-    if app.deck_showing() {
-        let mut states = super::deck::deck_states(app);
-        if !states.is_empty() {
-            states.push(Span::raw("   "));
-            right.splice(0..0, states);
-        }
-    }
-    while right.len() > 1 && right.iter().map(Span::width).sum::<usize>() * 2 > width.saturating_sub(mode_w) {
-        right.remove(right.len() - 2);
-    }
-    let right_w: usize = right.iter().map(Span::width).sum();
-    let room = width.saturating_sub(mode_w + right_w + 1);
-    let doing = fit(busy(app), room);
-    let doing_w: u16 = doing.iter().map(|s| s.width() as u16).sum();
-    let mut left = vec![mode, Span::raw(" ")];
-    left.extend(doing);
-    f.render_widget(spread(left, right, area.width), area);
-    let x = area.x + mode_w as u16 + doing_w;
-    Rect { x, width: (room as u16).saturating_sub(doing_w), ..area }
-}
-
 /// A line being typed: the search box, or a prompt for a name.
 pub(super) fn input_line(
     label: Vec<Span<'static>>,
@@ -316,72 +175,6 @@ pub(super) fn input_line(
     let used: usize = spans.iter().map(Span::width).sum();
     spans.extend(fit(after, (width as usize).saturating_sub(used)));
     Line::from(spans)
-}
-
-pub(super) fn draw_footer(f: &mut Frame, app: &mut App, area: Rect) {
-    if let Some(Modal::Prompt(p)) = &app.modal {
-        let label = vec![Span::styled(format!(" {}: ", p.label), theme::key())];
-        let after = vec![Span::styled("   enter ok · esc cancel", faint())];
-        f.render_widget(Paragraph::new(input_line(label, &p.text, after, area.width)), area);
-        return;
-    }
-    if app.searching {
-        let n = app.visible.len();
-        let mut after = vec![
-            Span::styled(format!("   {n} match{}", if n == 1 { "" } else { "es" }), dim()),
-            Span::styled(
-                if app.search_all { "  in the whole drive" } else { "  in this list" },
-                fg(theme::current().info),
-            ),
-        ];
-        match (&app.filter_error, &app.filter_note) {
-            (Some(e), _) => after.push(Span::styled(format!("   {e}"), fg(theme::current().warning))),
-            (None, Some(n)) => after.push(Span::styled(format!("   {n}"), dim())),
-            (None, None) => after.push(Span::styled("   tab whole drive · enter keep · esc clear", faint())),
-        }
-        let label = vec![Span::styled(" / ", theme::key())];
-        f.render_widget(Paragraph::new(input_line(label, &app.query, after, area.width)), area);
-        return;
-    }
-    if let Some(p) = &app.picking {
-        let spans = vec![
-            Span::styled(icons::DIAMOND.padded(), bold(theme::current().warning)),
-            Span::styled(format!("Add {} to which playlist? ", p.target.what), bold(theme::current().text)),
-            Span::styled("  enter choose · esc cancel", faint()),
-        ];
-        f.render_widget(Paragraph::new(Line::from(fit(spans, area.width as usize))), area);
-        return;
-    }
-    if app.intro {
-        return f.render_widget(Line::from(fit(intro_line(), area.width as usize)), area);
-    }
-    // The keymap's hints for where focus is, as many as fit. Each key that's one key is a button,
-    // and the label is its first key's.
-    let mut spans = vec![Span::raw(" ")];
-    let mut x = area.x + 1;
-    for (k, label) in crate::tui::keymap::hints(app, area.width as usize) {
-        let mut first = None;
-        for (i, token) in k.split(' ').enumerate() {
-            let w = token.width() as u16;
-            let at = Rect { x: x + u16::from(i > 0), width: w, ..area };
-            x = at.right();
-            if let Some(key) = crate::tui::keymap::hint_key(token) {
-                first.get_or_insert(key);
-                app.areas.hints.push((at, key));
-            }
-        }
-        let label = format!(" {label}  ");
-        if let Some(key) = first {
-            // The label, not the space before it or the gap after.
-            let w = label.trim().width() as u16;
-            app.areas.hints.push((Rect { x: x + 1, width: w, ..area }, key));
-        }
-        x += label.width() as u16;
-        spans.push(Span::styled(k, theme::key()));
-        spans.push(Span::styled(label, dim()));
-    }
-    app.areas.hints.retain(|(r, _)| r.right() <= area.right());
-    f.render_widget(Line::from(spans), area);
 }
 
 /// `s` in lines of at most `width` columns, broken between words, and inside words too long
@@ -417,9 +210,19 @@ fn level_style(level: Level) -> (&'static str, [u8; 3]) {
     }
 }
 
+/// A message's text in colour `c`, with the key that takes a change back (where `scopes` apply)
+/// drawn as a key in place of [`UNDO_HINT`].
+fn undo_spans(text: &str, c: [u8; 3], scopes: &[Scope]) -> Vec<Span<'static>> {
+    let Some((said, rest)) = text.split_once(UNDO_HINT) else { return vec![Span::styled(text.to_string(), fg(c))] };
+    let mut spans = vec![Span::styled(format!("{said} · "), fg(c))];
+    spans.extend(key_says(scopes, Act::Undo, " undo", dim()));
+    spans.push(Span::styled(rest.to_string(), fg(c)));
+    spans
+}
+
 /// A message as lines `width` wide: its icon, then the text wrapped under itself, with the key that
-/// takes a change back drawn as a key.
-fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
+/// takes a change back (where `scopes` apply) drawn as a key.
+fn message_lines(msg: &str, level: Level, width: u16, scopes: &[Scope]) -> Vec<Line<'static>> {
     let (icon, c) = level_style(level);
     let mut lines: Vec<Line> = wrap_text(msg, (width as usize).saturating_sub(4))
         .into_iter()
@@ -429,16 +232,9 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
             Line::from(vec![head, Span::styled(part, fg(c))])
         })
         .collect();
-    if let Some(last) = lines.last_mut()
-        && let Some((said, rest)) = last.spans[1].content.clone().split_once(UNDO_HINT)
-    {
-        last.spans.truncate(1);
-        last.spans.extend([
-            Span::styled(format!("{said} · "), fg(c)),
-            Span::styled("u", theme::key()),
-            Span::styled(" undo", dim()),
-            Span::styled(rest.to_string(), fg(c)),
-        ]);
+    if let Some(last) = lines.last_mut() {
+        let text = last.spans.pop().map(|s| s.content.into_owned()).unwrap_or_default();
+        last.spans.extend(undo_spans(&text, c, scopes));
     }
     lines
 }
@@ -458,34 +254,35 @@ pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, room: Rect) {
                 | Modal::Form(_)
                 | Modal::Jobs(_)
         )
-    );
+    ) || app.keys.is_some();
     let width = area.width;
+    let scopes = keymap::scopes(app);
     let mut lines: Vec<Line> = Vec::new();
     if let Some(o) = app.replay_offer.as_ref().filter(|_| !dialog) {
         let edits = if o.edits == 1 { "1 edit".to_string() } else { format!("{} edits", o.edits) };
-        let spans = vec![
+        let mut spans = vec![
             Span::styled(icons::DIAMOND.padded(), bold(theme::current().warning)),
             Span::styled(
                 format!("rekordbox exported over {edits} on {}. Replay? ", o.drive),
                 fg(theme::current().warning),
             ),
-            Span::styled("y", theme::key()),
-            Span::styled(" replay · ", dim()),
-            Span::styled("esc", theme::key()),
-            Span::styled(" not now", dim()),
         ];
+        spans.extend(key_says(&scopes, Act::Replay, " replay", dim()));
+        spans.push(Span::styled(" · ", dim()));
+        spans.extend(key_says(&scopes, Act::Escape, " not now", dim()));
         lines.push(Line::from(fit(spans, width as usize)));
     }
     if let Some(m) = app.held.as_ref().filter(|_| !dialog) {
-        lines.extend(message_lines(m, Level::Error, width));
+        lines.extend(message_lines(m, Level::Error, width, &scopes));
     }
     if let Some((m, level, _)) = &app.toast {
         if dialog {
             let (icon, c) = level_style(*level);
-            let spans = vec![Span::styled(format!(" {icon} "), bold(c)), Span::styled(m.clone(), fg(c))];
+            let mut spans = vec![Span::styled(format!(" {icon} "), bold(c))];
+            spans.extend(undo_spans(m, c, &scopes));
             lines.push(Line::from(fit(spans, room.width as usize)));
         } else {
-            lines.extend(message_lines(m, *level, width));
+            lines.extend(message_lines(m, *level, width, &scopes));
         }
     }
     if lines.is_empty() {
@@ -493,8 +290,12 @@ pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, room: Rect) {
     }
     // Errors stay until esc: say so where there's room.
     let error = app.held.is_some() || app.toast.as_ref().is_some_and(|t| t.1 == Level::Error);
-    if let Some(last) = lines.last_mut().filter(|l| error && l.width() + 13 <= width as usize) {
-        last.spans.push(Span::styled("  esc hides", faint()));
+    let hides = keymap::key_name(&scopes, Act::Escape).map(|k| format!("  {k} hides"));
+    if let Some(hides) =
+        hides.filter(|h| error && lines.last().is_some_and(|l| l.width() + h.width() + 2 <= width as usize))
+        && let Some(last) = lines.last_mut()
+    {
+        last.spans.push(Span::styled(hides, faint()));
     }
     if let [line] = &lines[..]
         && line.width() <= room.width as usize
@@ -523,13 +324,14 @@ pub(super) fn ago(d: std::time::Duration) -> String {
     }
 }
 
-/// `!`: every message since starting, newest first.
+/// The messages (in `:`): every message since starting, newest first.
 pub(super) fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     let w = 100.min(area.width);
     let inner_w = w.saturating_sub(4);
     let mut lines: Vec<Line> = Vec::new();
+    let scopes = keymap::scopes(app);
     for (msg, level, at) in app.log.iter().rev() {
-        let mut msg_lines = message_lines(msg, *level, inner_w.saturating_sub(12));
+        let mut msg_lines = message_lines(msg, *level, inner_w.saturating_sub(12), &scopes);
         if let Some(first) = msg_lines.first_mut() {
             let spans = std::mem::take(&mut first.spans);
             *first = spread(spans, vec![Span::styled(ago(at.elapsed()), faint())], inner_w);
@@ -541,8 +343,9 @@ pub(super) fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let total = lines.len() as u16;
     let r = popup(area, w, total + 2, None);
+    let bar = dialog_bar(&keymap::dialogs::MESSAGES);
     let b = block(title("Messages", true), true)
-        .title_bottom(Line::styled(" ↑↓ scroll · any other key closes ", faint()).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r);
     app.log_scroll = app.log_scroll.min(total.saturating_sub(inner.height));

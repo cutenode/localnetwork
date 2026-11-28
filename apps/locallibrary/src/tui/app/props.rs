@@ -187,10 +187,9 @@ fn prop_a_caught_panic_says_what_went_wrong(tc: TestCase) {
     }
 }
 
-/// The help and the log scroll with the arrows, j and k, the page keys, space and the wheel (never
-/// above the top, nor once drawn past the end), and any other key or a click puts them away; each
-/// opens at its top. The log
-/// keeps the last 200 messages.
+/// The help and the messages scroll with the arrows, j and k, the page keys, space and the wheel
+/// (never above the top, nor once drawn past the end), esc or a click puts them away and any other
+/// key leaves them be; each opens at its top. The log keeps the last 200 messages.
 #[hegel::test(test_cases = 50)]
 fn prop_the_help_and_the_log_scroll_and_close(tc: TestCase) {
     let (mut app, _dir) = blank(View::Library);
@@ -211,7 +210,7 @@ fn prop_the_help_and_the_log_scroll_and_close(tc: TestCase) {
         (KeyCode::PageDown, Some(10)),
         (KeyCode::Char(' '), Some(10)),
         (KeyCode::Esc, None),
-        (KeyCode::Char('x'), None),
+        (KeyCode::Char('x'), Some(0)),
     ];
     let clicks = [
         (MouseEventKind::ScrollUp, Some(-3)),
@@ -224,7 +223,11 @@ fn prop_the_help_and_the_log_scroll_and_close(tc: TestCase) {
     let (mut scroll, mut next_help): (Option<(bool, u16)>, bool) = (None, tc.draw(gs::booleans()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(14).max_value(40)) {
         let Some((help, at)) = scroll else {
-            press(&mut app, if next_help { "?" } else { "!" });
+            if next_help {
+                press(&mut app, "?");
+            } else {
+                app.perform(Act::Messages, None);
+            }
             scroll = Some((next_help, 0));
             next_help = !next_help;
             continue;
@@ -266,9 +269,10 @@ fn prop_the_help_and_the_log_scroll_and_close(tc: TestCase) {
     assert_eq!(app.log.front().map(|(m, ..)| m.clone()), Some(format!("message {}", total - LOG)));
 }
 
-/// Quitting (q, ctrl-c, ctrl-q, or the terminal going) quits at once with nothing under way,
-/// stops a plan (which only reads), but waits for a write to finish, saying so once; esc then
-/// stays. Once the write is done, the player quits.
+/// Quitting (the palette's quit, ctrl-c, ctrl-q, or the terminal going) quits at once with nothing
+/// under way, stops a plan (which only reads), but waits for a write to finish, saying so once; esc
+/// then stays. Once the write is done, the player quits. Asked by a key or the palette with a job
+/// under way, it asks first, and that's answered yes here.
 #[hegel::test(test_cases = 100)]
 fn prop_quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
@@ -281,13 +285,29 @@ fn prop_quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     }
     let (mut waiting, mut armed) = (false, 0);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
+        let asked = |app: &mut App| {
+            let asking = matches!(&app.modal, Some(Modal::Ask(q, _)) if q.ends_with("quit anyway?"));
+            assert_eq!(asking, app.job.is_some() && !waiting, "asked with a job under way, once");
+            if asking {
+                press(app, "y");
+            }
+        };
         match tc.draw(gs::integers::<u8>().max_value(4)) {
-            0 => press(&mut app, "Q"),
-            1 => app.on_key(key_of(KeyCode::Char('c'), true)),
-            2 => app.on_key(key_of(KeyCode::Char('q'), true)),
+            0 => {
+                app.perform(Act::Quit, None);
+                asked(&mut app);
+            }
+            1 => {
+                app.on_key(key_of(KeyCode::Char('c'), true));
+                asked(&mut app);
+            }
+            2 => {
+                app.on_key(key_of(KeyCode::Char('q'), true));
+                asked(&mut app);
+            }
             3 => app.request_quit(),
             _ => {
-                press(&mut app, "\u{1b}");
+                esc_and_yes(&mut app);
                 if waiting {
                     waiting = false;
                     assert_eq!(last_message(&app), "staying: not quitting after the write");
@@ -764,9 +784,13 @@ fn prop_the_next_run_carries_on_with_the_queue(tc: TestCase) {
     assert_eq!(from.as_millis() as u64, at.as_millis() as u64 / 15_000 * 15_000);
 }
 
-/// The keys of playing through the queue, as the library takes them.
-const PLAY_KEYS: &[&str] =
-    &[" ", " ", "n", "n", "p", "x", "s", "r", "S", "A", "c", "f", "\n", "j", "k", "o", "<right>"];
+/// The keys of playing through the queue, as the library takes them, and the commands chosen in
+/// the palette (`:` and a name) for those with no key.
+#[rustfmt::skip]
+const PLAY_KEYS: &[&str] = &[
+    " ", " ", "n", "n", "p", ":stop", ":shuffle", ":repeat", ":single", ":auto cue", "c", "h", "f", "\n", "j", "k",
+    ":go to playing", "<right>",
+];
 
 /// Playing a queue of short tracks (at two sample rates; some with no audio in them, some
 /// whose file has gone) with the player's keys as time passes, while its output goes away (and
@@ -1046,8 +1070,13 @@ fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 assert_eq!(app.next_pick.selected(), Some(0), "the best match picked");
             }
             6 => {
+                // Letting go of the drive leaves nothing of it open; a track on another drive (step 8's) plays on.
+                let elsewhere = app.now.as_ref().filter(|n| !n.root.starts_with(&root)).map(|n| n.id);
                 app.let_go_of(&root);
-                assert!(app.now.is_none() && app.upcoming.is_none(), "nothing left open on the drive");
+                let on = |p: &Path| p.starts_with(&root);
+                assert!(!app.now.as_ref().is_some_and(|n| on(&n.root)), "nothing left open on the drive");
+                assert!(!app.upcoming.as_ref().is_some_and(|u| on(&u.now.root)), "nothing up next on the drive");
+                assert_eq!(app.now.as_ref().map(|n| n.id), elsewhere, "another drive's track plays on");
             }
             7 => {
                 let set = root.join("Contents/1.wav");
@@ -1142,12 +1171,24 @@ fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
             11 => {
                 // Found from a search that hides it: the list goes back to all its tracks.
                 press(&mut app, "/zzz\n");
-                let playing = app.now.as_ref().filter(|_| app.playing_queue()).map(|n| n.track.file_path.clone());
-                press(&mut app, "o");
-                if let Some(p) = playing {
-                    let l = app.loaded.as_ref().unwrap();
-                    assert!(app.query.is_empty(), "the search cleared to show it");
-                    assert_eq!(app.selected_track().map(|i| l.library.tracks[i].file_path.clone()), Some(p));
+                // Chosen in :, whose enter catches up with the queue first, as every key does.
+                app.follow_queue();
+                let playing = app
+                    .now
+                    .as_ref()
+                    .filter(|_| app.playing_queue())
+                    .map(|n| (n.root.clone(), n.track.file_path.clone()));
+                app.perform(Act::GoTo, None);
+                // Only a track on the drive open is in its list to go to; one on another drive (step 8's)
+                // leaves the search as it was.
+                match playing {
+                    Some((on, p)) if on == root => {
+                        let l = app.loaded.as_ref().unwrap();
+                        assert!(app.query.is_empty(), "the search cleared to show it");
+                        assert_eq!(app.selected_track().map(|i| l.library.tracks[i].file_path.clone()), Some(p));
+                    }
+                    Some(_) => assert_eq!(app.query, "zzz", "another drive's track leaves the search"),
+                    None => {}
                 }
                 app.view = View::Library;
             }
@@ -1157,19 +1198,36 @@ fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let matched = app.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len());
                 let queued = app.deck_layout && app.playing_queue() && picked.is_some_and(|p| p < matched);
                 let set = app.now.is_some() && !app.playing_queue();
-                if key == "<right>" {
-                    app.on_key(key_of(KeyCode::Right, false));
-                } else {
-                    press(&mut app, key);
+                let command = match key {
+                    ":stop" => Some(Act::Stop),
+                    ":shuffle" => Some(Act::Shuffle),
+                    ":repeat" => Some(Act::Repeat),
+                    ":single" => Some(Act::Single),
+                    ":auto cue" => Some(Act::AutoCue),
+                    ":go to playing" => Some(Act::GoTo),
+                    _ => None,
+                };
+                // The palette opens with nothing else taking the keys.
+                let free = !app.input_taken();
+                match command {
+                    Some(act) if free => {
+                        // As the palette's enter does, catching up with the queue first.
+                        app.follow_queue();
+                        app.perform(act, None);
+                    }
+                    Some(_) => {}
+                    None if key == "<right>" => app.on_key(key_of(KeyCode::Right, false)),
+                    None => press(&mut app, key),
                 }
                 match key {
-                    "x" => assert!(app.now.is_none(), "x stops"),
+                    _ if command.is_some() && !free => {}
+                    ":stop" => assert!(app.now.is_none(), "stop stops"),
                     "\n" if queued => {
                         assert!(last_message(&app).starts_with("next: "), "full screen, enter queues the pick");
                         assert!(matches!(app.next_up(true), Some(Next::Pick(..))), "to play next");
                     }
-                    "o" if set => assert_eq!(app.view, View::Mixes, "a set is shown with the mixes"),
-                    "o" if app.now.is_some() && app.loaded.as_ref().is_some_and(|l| l.root() == root) => {
+                    ":go to playing" if set => assert_eq!(app.view, View::Mixes, "a set is shown with the mixes"),
+                    ":go to playing" if app.now.is_some() && app.loaded.as_ref().is_some_and(|l| l.root() == root) => {
                         let now = app.now.as_ref().unwrap().track.file_path.clone();
                         let l = app.loaded.as_ref().unwrap();
                         assert_eq!(app.selected_track().map(|i| l.library.tracks[i].file_path.clone()), Some(now));
@@ -1269,7 +1327,7 @@ fn prop_esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         return;
     }
     for what in left {
-        press(&mut app, "\u{1b}");
+        esc_and_yes(&mut app);
         match what {
             Away::Waiting => {
                 assert!(!app.quit_after_write && last_message(&app) == "staying: not quitting after the write");
@@ -1554,11 +1612,11 @@ fn prop_the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     let pos = tc.draw(gs::integers::<u64>().max_value(40_000));
     app.resume = Some(Duration::from_millis(pos));
     app.deck_layout = true;
-    // In any of the visualisers, which v goes round.
+    // In any of the visualisers, which the next visualiser (in :) goes round.
     let vis = [Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck];
     let turns = tc.draw(gs::integers::<usize>().max_value(5));
     for _ in 0..turns {
-        press(&mut app, "v");
+        app.perform(Act::Visualiser, None);
     }
     assert_eq!(app.vis, vis[turns % 4]);
     let s = super::super::ui::screen(&mut app, 220, 60);
@@ -1644,7 +1702,12 @@ fn prop_a_click_does_what_it_points_at(tc: TestCase) {
     let paths: Vec<String> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.file_path.clone()).collect();
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     app.add_to_crate(&root, &paths);
-    let draw = |app: &mut App| super::super::ui::screen(app, 160, 40);
+    // The clicks need only where things were drawn, so a frame goes to one terminal kept for the case, without the
+    // screen's text, at the smallest size that has every target: drawing is most of a case's time.
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 32)).unwrap();
+    let mut draw = |app: &mut App| {
+        terminal.draw(|f| super::super::ui::draw(f, app)).unwrap();
+    };
     let mut info = Device::open(&root).unwrap().info();
     info.name = Some("TEST".into());
     app.drives = vec![info.clone(), DeviceInfo { root: root.join("OTHER"), name: Some("OTHER".into()), ..info }];
@@ -1688,8 +1751,8 @@ fn prop_a_click_does_what_it_points_at(tc: TestCase) {
                 let k = tc.draw(gs::integers::<usize>().max_value(rows.len() - 1));
                 mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + 2 * k as u16 + tc.draw(gs::integers::<u16>().max_value(1))));
                 assert_eq!(app.drive_row(&rows), Some(k), "the row clicked");
-                // R there reads the drives again (not here: the tests' player looks at none).
-                press(&mut app, "R");
+                // F5 there reads the drives again (not here: the tests' player looks at none).
+                app.on_key(key_of(KeyCode::F(5), false));
                 assert!(!app.status_loading);
             }
             10 => {
@@ -1714,10 +1777,11 @@ fn prop_a_click_does_what_it_points_at(tc: TestCase) {
                 let m = app.areas.menu;
                 mouse(&mut app, LEFT, (m.x + 2, m.y + m.height - 1));
                 assert!(matches!(app.modal, Some(Modal::Menu(_))), "still open");
-                // A question takes no clicks.
-                app.modal = Some(Modal::Ask("Sure?".into(), Box::new(|_: &mut App| {})));
-                mouse(&mut app, LEFT, (1, 1));
-                assert!(matches!(app.modal, Some(Modal::Ask(..))), "a question waits for y or n");
+                // A click outside a question puts it away, answering nothing.
+                app.modal = Some(Modal::Ask("Sure?".into(), Box::new(|app: &mut App| app.toast("yes", Level::Info))));
+                draw(&mut app);
+                mouse(&mut app, LEFT, (0, 0));
+                assert!(app.modal.is_none() && last_message(&app) != "yes", "a click outside answers nothing");
             }
             12 => {
                 // A view by name; leaving the library puts the search away.
@@ -2056,7 +2120,7 @@ fn prop_only_the_latest_start_is_opened(tc: TestCase) {
     assert!(rx.recv_timeout(Duration::from_millis(10)).is_err(), "nothing more");
 }
 
-/// What the store holds shows where it's asked for: R in the Drives view's snapshots lists every library's
+/// What the store holds shows where it's asked for: f5 in the Drives view's snapshots lists every library's
 /// snapshots, and enter on one asks which playlist to bring back from it; the drive list arriving
 /// with no drive open opens the one open last time when it's there, else the library there is on
 /// it (by name), a library row no longer listed isn't selected any more, and a read of the list
@@ -2066,11 +2130,13 @@ fn prop_the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
     use super::super::drives::DriveRow;
     use super::super::screens::Fixture;
     let Fixture { _dir, mut app, .. } = super::super::props::walk_fixture();
-    app.on_key(key_of(KeyCode::Char('g'), false));
-    app.on_key(key_of(KeyCode::Char('d'), false));
+    // The Drives view, then its snapshots: tab past the drive's details.
     app.on_key(key_of(KeyCode::Char('3'), false));
+    app.on_key(key_of(KeyCode::Tab, false));
+    app.on_key(key_of(KeyCode::Tab, false));
+    assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::Snapshots));
     app.history = None;
-    app.on_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+    app.on_key(key_of(KeyCode::F(5), false));
     wait(&mut app, |a| a.history.is_some());
     let store = locallibrary::Store::open(&app.store_root).unwrap();
     let want: usize = (store.libraries().unwrap().iter())
@@ -2424,8 +2490,8 @@ fn prop_the_ways_of_mixing_in_take_turns(tc: TestCase) {
     }
 }
 
-/// Picks play in the order they're queued (`q n` puts its block at the front of those still to
-/// play, `q a` and `a` at the end), before the list they were started from, whatever shuffle,
+/// Picks play in the order they're queued (`q` puts its block at the front of those still to
+/// play, `a` at the end), before the list they were started from, whatever shuffle,
 /// repeat and new lists happen meanwhile. The list's play order stays a permutation of its tracks,
 /// the queue holds each track once, and played picks stay in it.
 #[hegel::test(test_cases = 150)]
@@ -2455,14 +2521,14 @@ fn prop_picks_play_in_the_order_picked(tc: TestCase) {
                 } else {
                     vec![path(&app, ks[0])]
                 };
-                match tc.draw(gs::integers::<u8>().max_value(2)) {
+                match tc.draw(gs::integers::<u8>().max_value(1)) {
                     0 => {
-                        press(&mut app, "qn");
+                        press(&mut app, "q");
                         model.retain(|p| !block.contains(p));
                         model.splice(0..0, block);
                     }
-                    k => {
-                        press(&mut app, if k == 1 { "qa" } else { "a" });
+                    _ => {
+                        press(&mut app, "a");
                         for p in block {
                             if !model.contains(&p) {
                                 model.push(p);
@@ -2471,8 +2537,8 @@ fn prop_picks_play_in_the_order_picked(tc: TestCase) {
                     }
                 }
             }
-            3 => press(&mut app, "s"),
-            4 => press(&mut app, "r"),
+            3 => app.perform(Act::Shuffle, None),
+            4 => app.perform(Act::Repeat, None),
             5 => {
                 // A new list started: only what plays after the picks changes.
                 app.track_state.select(Some(tc.draw(gs::integers::<usize>().max_value(n - 1))));

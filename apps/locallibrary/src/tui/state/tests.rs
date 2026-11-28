@@ -1,5 +1,6 @@
 use locallibrary::query::SortField;
 
+use super::super::app::collection_root;
 use super::super::browse::Category;
 use super::*;
 
@@ -56,6 +57,37 @@ fn round_trips_beside_the_store_until_there_is_one() {
         save(&link.join("store"), &Saved { root: Some(drive.canonicalize().unwrap()), ..Default::default() });
         assert_eq!(std::fs::read_dir(&drive).unwrap().count(), 0);
     }
+}
+
+/// rekordbox's collection opens as a drive at `/`: the state is still saved while it's open (it
+/// once never was, so the queue came back as it had been before the collection was opened).
+#[test]
+fn saves_while_the_collection_is_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    std::fs::write(store.join("store.json"), "{}").unwrap();
+    let saved = Saved { root: Some(collection_root()), volume: Some(0.3), ..Default::default() };
+    save(&store, &saved);
+    assert_eq!(load(&store).as_ref(), Some(&saved));
+}
+
+/// Only the collection's root is let through: a drive opened at its own root, as Windows opens
+/// one at `E:\` (which has no parent), still keeps the state off it.
+#[test]
+fn a_drive_opened_at_its_root_is_kept_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    std::fs::write(store.join("store.json"), "{}").unwrap();
+    // The temp folder's own drive root (`C:\`). Elsewhere the only root is the collection's, so
+    // the drive is the folder just under it instead.
+    #[cfg(windows)]
+    let drive = dir.path().ancestors().last().unwrap();
+    #[cfg(not(windows))]
+    let drive = dir.path().ancestors().filter(|a| a.parent().is_some()).last().unwrap();
+    save(&store, &Saved { root: Some(drive.into()), volume: Some(0.3), ..Default::default() });
+    assert!(!store.join(FILE).exists(), "saved inside {}", drive.display());
 }
 
 /// Whatever's saved reads back the same, beside the store before there is one and in it
@@ -167,6 +199,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         art,
         art_halfblocks,
         hints,
+        help_hint,
         recent_commands,
     } = saved.clone();
     Saved {
@@ -192,6 +225,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         art,
         art_halfblocks,
         hints,
+        help_hint,
         recent_commands,
         ..Default::default()
     }
@@ -237,6 +271,7 @@ fn prop_its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::Te
         bands: maybe("rgb"),
         end_warning: tc.draw(gs::optional(gs::integers::<u16>().max_value(60))),
         hints: maybe("compact"),
+        help_hint: tc.draw(gs::optional(gs::booleans())),
         recent_commands: on().then(|| "shuffle on or off".to_string()).into_iter().collect(),
         intro_seen: Some("0.1.0".into()),
         art: tc.draw(gs::optional(gs::booleans())),

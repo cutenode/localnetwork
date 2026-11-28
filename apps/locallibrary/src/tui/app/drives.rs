@@ -13,6 +13,7 @@ use loclib_rekordbox_db::masterdb::{self, CloudFolders};
 use ratatui::widgets::TableState;
 
 use crate::tui::browse::{self, Category, NodeId, Problems, SavedNode};
+use crate::tui::keymap::{self, Act, Scope};
 
 use super::*;
 
@@ -123,9 +124,12 @@ impl App {
         }
         self.status_loading = true;
         let root = self.store_root.clone();
+        // Saving a snapshot is in the drive's actions menu.
+        let menu = keymap::key_name(&[Scope::Drives, Scope::Global], Act::DriveActions)
+            .map_or_else(String::new, |k| format!(" ({k})"));
         let job = move || {
             let r = Store::open(&root)
-                .map_err(|_| "no store yet: saving a snapshot of a drive (e) makes one".to_string())
+                .map_err(|_| format!("no store yet: saving a snapshot of a drive{menu} makes one"))
                 .and_then(|s| {
                     let req = api::FleetRequest::default();
                     api::fleet_status(Some(&s), &req, &Ctx::silent()).map_err(|e| e.to_string())

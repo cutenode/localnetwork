@@ -1,9 +1,9 @@
 //! Every key the player answers to, in one table: which key, where it applies, what it does,
 //! how the help, the footer and the command palette name it. Keys are looked up here and then
-//! done by [`App::perform`](super::app::App::perform); the help (`?`) and the footer's hints are
-//! drawn from the same rows, so they can't drift from what the keys do. Dialogs (the actions
-//! menu, a confirmation, a prompt, the help, typing a search or a path) keep their own keys while
-//! open.
+//! done by [`App::perform`](super::app::App::perform), or by the dialog that's open; the help
+//! (`?`), the footer's hints and each dialog's bottom line are drawn from the same rows, so they
+//! can't drift from what the keys do. A hint names what it does, and its key is the one that does
+//! it where it's shown.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
@@ -13,6 +13,7 @@ use super::choices::Hints;
 use super::cli::Cli;
 use super::deck::BandMode;
 use super::keys::{KeyPalette, Notation};
+use locallibrary::keybinds::{Key, Named};
 
 /// Where a binding applies. The keys of the most specific scope win: a key bound in the crate
 /// panel means that there, and what it means elsewhere everywhere else.
@@ -34,14 +35,10 @@ pub enum Scope {
     Details,
     /// The crate panel.
     Crate,
-    /// The digit row plays hot cues (player mode, or with the pads on).
+    /// The digit row plays hot cues (player mode, or with the pads on), not the views.
     Pads,
     /// Player mode.
     Deck,
-    /// What follows `g`.
-    Goto,
-    /// What follows `q`: the queue.
-    Queue,
     Prepare,
     Drives,
     Snapshots,
@@ -51,10 +48,101 @@ pub enum Scope {
     Mixes,
     /// The offer to replay edits after a rekordbox export is showing.
     Replay,
+    // Dialogs, each with the keys every dialog has (`Dialog`) and those for moving through its
+    // list (`List`, or `Typed` where letters are typed). They answer before the view's keys.
+    /// Every dialog: closing it, and doing what's selected.
+    Dialog,
+    /// A list in a dialog: the arrows, j k, a page, the ends.
+    List,
+    /// A list in a dialog typed into: the keys that type nothing.
+    Typed,
+    /// The actions menu (`e`), in every view: its letters.
+    Actions,
+    /// The rating or colour under the actions menu.
+    SubMenu,
+    /// A plan to confirm before it writes.
+    Confirm,
+    /// A question to answer yes or no.
+    Ask,
+    /// Results to read.
+    Report,
+    /// A form of fields.
+    Form,
+    /// The command palette and the other lists chosen from by typing.
+    Picker,
+    /// The jobs under way (`&`).
+    Jobs,
+    /// The help (`?`).
+    Help,
+    /// The messages since starting (by name in `:`).
+    Messages,
+    /// The outputs to play through (by name in `:`).
+    Outputs,
+    /// Typing a search (`/`).
+    Search,
+    /// A name being typed.
+    Prompt,
+    /// Picking the playlist to add to.
+    Picking,
+    /// The actions menu while a filter is typed: esc clears it before it closes the menu.
+    Filter,
+    /// The keys (`change the keys`, by name in `:`): typing narrows the actions.
+    Keys,
+    /// What a key pressed there would do, before it's kept: enter keeps it.
+    KeysAnswer,
+    // The Keys screen's other stages, for their hints: their keys are the answer's, or none.
+    /// Waiting for the key to give an action: every key but esc is the answer.
+    KeysCapture,
+    /// An answer that puts an action's own keys back.
+    KeysReset,
+    /// An answer that swaps keys with another action.
+    KeysSwap,
+    /// An answer that can't be kept: enter waits for another key.
+    KeysRefused,
+}
+
+impl Scope {
+    /// Whether it's a dialog's: its keys answer only while that dialog is open.
+    pub fn dialog(self) -> bool {
+        self as u8 >= Scope::Dialog as u8
+    }
+}
+
+/// The scopes a dialog looks its keys up in, most specific first.
+pub const fn dialog_scopes(own: Scope, typed: bool) -> [Scope; 3] {
+    [own, if typed { Scope::Typed } else { Scope::List }, Scope::Dialog]
+}
+
+/// The scopes each dialog looks its keys up in, and draws its hints from.
+pub mod dialogs {
+    use super::{Scope, dialog_scopes};
+
+    pub const ACTIONS: [Scope; 3] = dialog_scopes(Scope::Actions, false);
+    /// The actions menu while a filter is typed: its letters are typed, not chosen.
+    pub const FILTERING: [Scope; 3] = dialog_scopes(Scope::Filter, true);
+    pub const SUB_MENU: [Scope; 3] = dialog_scopes(Scope::SubMenu, false);
+    pub const CONFIRM: [Scope; 3] = dialog_scopes(Scope::Confirm, false);
+    pub const ASK: [Scope; 3] = dialog_scopes(Scope::Ask, false);
+    pub const REPORT: [Scope; 3] = dialog_scopes(Scope::Report, false);
+    pub const FORM: [Scope; 3] = dialog_scopes(Scope::Form, true);
+    pub const PICKER: [Scope; 3] = dialog_scopes(Scope::Picker, true);
+    pub const JOBS: [Scope; 3] = dialog_scopes(Scope::Jobs, false);
+    pub const HELP: [Scope; 3] = dialog_scopes(Scope::Help, true);
+    pub const MESSAGES: [Scope; 3] = dialog_scopes(Scope::Messages, false);
+    pub const OUTPUTS: [Scope; 3] = dialog_scopes(Scope::Outputs, false);
+    pub const SEARCH: [Scope; 3] = dialog_scopes(Scope::Search, true);
+    pub const PROMPT: [Scope; 3] = dialog_scopes(Scope::Prompt, true);
+    pub const PICKING: [Scope; 3] = dialog_scopes(Scope::Picking, false);
+    pub const KEYS: [Scope; 3] = dialog_scopes(Scope::Keys, true);
+    pub const KEYS_ANSWER: [Scope; 3] = dialog_scopes(Scope::KeysAnswer, false);
+    pub const KEYS_CAPTURE: [Scope; 3] = dialog_scopes(Scope::KeysCapture, false);
+    pub const KEYS_RESET: [Scope; 3] = dialog_scopes(Scope::KeysReset, false);
+    pub const KEYS_SWAP: [Scope; 3] = dialog_scopes(Scope::KeysSwap, false);
+    pub const KEYS_REFUSED: [Scope; 3] = dialog_scopes(Scope::KeysRefused, false);
 }
 
 /// A key a binding answers to.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum K {
     /// A character, typed as it is (uppercase letters come with shift).
     Ch(char),
@@ -69,7 +157,7 @@ pub enum K {
 }
 
 impl K {
-    fn matches(self, key: &KeyEvent) -> bool {
+    pub fn matches(self, key: &KeyEvent) -> bool {
         let ctrl = key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         match self {
             K::Ch(c) => !ctrl && key.code == KeyCode::Char(c),
@@ -77,6 +165,111 @@ impl K {
             K::Shift(c) => !ctrl && key.code == c && key.modifiers.contains(KeyModifiers::SHIFT),
             K::Ctrl(c) => key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char(c),
             K::Digits(a, b) => !ctrl && matches!(key.code, KeyCode::Char(d) if (a..=b).contains(&d)),
+        }
+    }
+
+    /// How it's written in the footer, the palette and the menus.
+    pub fn name(&self) -> String {
+        let code = |c: &KeyCode| match c {
+            KeyCode::Up => "↑".to_string(),
+            KeyCode::Down => "↓".into(),
+            KeyCode::Left => "←".into(),
+            KeyCode::Right => "→".into(),
+            KeyCode::PageUp => "pgup".into(),
+            KeyCode::PageDown => "pgdn".into(),
+            KeyCode::Delete => "del".into(),
+            KeyCode::BackTab => "shift-tab".into(),
+            KeyCode::F(n) => format!("f{n}"),
+            other => format!("{other:?}").to_lowercase(),
+        };
+        match self {
+            K::Ch(' ') => "space".into(),
+            K::Ch(c) => c.to_string(),
+            K::Code(c) => code(c),
+            K::Shift(c) => format!("shift {}", code(c)),
+            K::Ctrl(c) => format!("ctrl-{c}"),
+            K::Digits(a, b) => format!("{a}-{b}"),
+        }
+    }
+
+    /// The key as a terminal sends it, for a hint that's clicked.
+    pub fn pressed(self) -> KeyEvent {
+        match self {
+            K::Ch(c) => KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+            K::Ctrl(c) => KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL),
+            K::Shift(c) => KeyEvent::new(c, KeyModifiers::SHIFT),
+            K::Code(c) => KeyEvent::new(c, KeyModifiers::NONE),
+            K::Digits(a, _) => KeyEvent::new(KeyCode::Char(a), KeyModifiers::NONE),
+        }
+    }
+
+    /// The key that was pressed, as a binding would name it: a character as typed (shift makes the
+    /// capital already), ctrl and a letter, or a key by its code, shift said for the named ones.
+    /// None for what no binding can be (alt held, a key with no name).
+    pub fn of(key: &KeyEvent) -> Option<K> {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        match key.code {
+            _ if key.modifiers.contains(KeyModifiers::ALT) => None,
+            KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => Some(K::Ctrl(c.to_ascii_lowercase())),
+            KeyCode::Char(c) => Some(K::Ch(c)),
+            KeyCode::BackTab => Some(K::Code(KeyCode::BackTab)),
+            code @ KeyCode::F(_) => Some(K::Code(code)),
+            code if named(code).is_some() && shift => Some(K::Shift(code)),
+            code if named(code).is_some() || code == KeyCode::Esc => Some(K::Code(code)),
+            _ => None,
+        }
+    }
+
+    /// As `keybinds.json` spells it: none for what it can't (esc, a run of digits).
+    pub fn portable(self) -> Option<Key> {
+        match self {
+            K::Ch(' ') => Some(Key::Named(Named::Space)),
+            K::Ch(c) => Some(Key::Char(c)),
+            K::Code(KeyCode::BackTab) | K::Shift(KeyCode::BackTab) => Some(Key::Shift(Named::Tab)),
+            K::Code(KeyCode::F(n)) => Some(Key::F(n)),
+            K::Code(c) => named(c).map(Key::Named),
+            K::Shift(c) => named(c).map(Key::Shift),
+            K::Ctrl(c) => Some(Key::Ctrl(c)),
+            K::Digits(..) => None,
+        }
+    }
+}
+
+/// The name `keybinds.json` has for a key the terminal sends as `code`.
+fn named(code: KeyCode) -> Option<Named> {
+    Named::ALL.into_iter().find(|n| code_of(*n) == code)
+}
+
+/// The code a terminal sends for the key `n`.
+fn code_of(n: Named) -> KeyCode {
+    match n {
+        Named::Space => KeyCode::Char(' '),
+        Named::Enter => KeyCode::Enter,
+        Named::Tab => KeyCode::Tab,
+        Named::Backspace => KeyCode::Backspace,
+        Named::Delete => KeyCode::Delete,
+        Named::Insert => KeyCode::Insert,
+        Named::Home => KeyCode::Home,
+        Named::End => KeyCode::End,
+        Named::PageUp => KeyCode::PageUp,
+        Named::PageDown => KeyCode::PageDown,
+        Named::Up => KeyCode::Up,
+        Named::Down => KeyCode::Down,
+        Named::Left => KeyCode::Left,
+        Named::Right => KeyCode::Right,
+    }
+}
+
+impl From<Key> for K {
+    fn from(key: Key) -> K {
+        match key {
+            Key::Char(c) => K::Ch(c),
+            Key::Named(Named::Space) => K::Ch(' '),
+            Key::Named(n) => K::Code(code_of(n)),
+            Key::Shift(Named::Tab) => K::Code(KeyCode::BackTab),
+            Key::Shift(n) => K::Shift(code_of(n)),
+            Key::Ctrl(c) => K::Ctrl(c),
+            Key::F(n) => K::Code(KeyCode::F(n)),
         }
     }
 }
@@ -94,13 +287,9 @@ pub enum Act {
     Messages,
     /// The job list.
     Jobs,
-    /// A pane, by the digit pressed.
-    PaneKey,
-    /// `g`: what follows goes somewhere.
-    Goto,
-    /// `q`: what follows queues.
-    QueueChord,
     ShowView(View),
+    /// One of the library's actions menu's, from the palette, on what's selected.
+    Edit(super::edits::Action),
     Refresh,
     // Playback
     PlayPause,
@@ -178,7 +367,7 @@ pub enum Act {
     CratePanel,
     Mark,
     MarkAll,
-    /// Add to the end of the queue (`a`, `q a`).
+    /// Add to the end of the queue (`a`).
     CrateAdd,
     /// Put at the front of the queue's picks, to play next.
     QueueNext,
@@ -220,6 +409,23 @@ pub enum Act {
     MixZoom,
     MixExport,
     MixReport,
+    /// Play the set, or pause it.
+    MixPlay,
+    /// The set's next (true) or previous track, while it plays.
+    MixTrack(bool),
+    /// The selected track, in the library.
+    MixGoTo,
+    /// Forget a recording from this computer, or the folder it was found in.
+    MixForget,
+    // Dialogs
+    /// Yes (true) or no to what's asked.
+    Answer(bool),
+    /// The next (1) or previous (-1) of a field's choices.
+    Change(i8),
+    /// Cancel the job selected.
+    CancelJob,
+    /// Search the whole drive, or the list shown.
+    SearchWhere,
     /// A plugin's command, by the plugin's id and its name (from the palette and the drive
     /// menu, never a key).
     Plugin(&'static str, &'static str),
@@ -258,6 +464,8 @@ pub enum Act {
     Icons(Option<super::icons::IconSet>),
     /// How much the footer says.
     Hints(Hints),
+    /// The footer's `? help` with no hints, or not.
+    HelpHint(bool),
     /// Open a folder holding an export, by a path typed.
     OpenFolder,
     /// The Drives view, on the store's snapshots.
@@ -278,6 +486,21 @@ pub enum Act {
     /// Show a command line to copy, for what the player doesn't do itself: `DRIVE` stands for
     /// the drive (see `tui::cli`).
     Copy(&'static str),
+    /// The keys: change any of them (see `tui::keybinds`).
+    Keys,
+    /// Use keys someone published, by their handle.
+    KeysImport,
+    /// Every key back to its default.
+    KeysReset,
+    /// Keys made for a kind of keyboard (see `tui::keybinds::presets`).
+    KeysPreset(Preset),
+}
+
+/// Keys made for a kind of keyboard. The defaults are [`Act::KeysReset`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preset {
+    /// The digit row's keys unshifted on a French keyboard: & é " ' ( - è _.
+    Azerty,
 }
 
 /// The help's sections.
@@ -297,6 +520,7 @@ pub enum Group {
     History,
     Profile,
     Mixes,
+    Dialogs,
     Commands,
 }
 
@@ -317,6 +541,7 @@ impl Group {
             Group::History => "History",
             Group::Profile => "localnetwork",
             Group::Mixes => "Recordings",
+            Group::Dialogs => "In a dialog",
             Group::Commands => "Commands (type : and a few letters)",
         }
     }
@@ -337,9 +562,12 @@ pub struct Binding {
     /// The help's line; empty to leave it out.
     pub help: &'static str,
     pub group: Group,
-    /// The footer's label for it, and how long it stays there as the footer narrows (higher
+    /// What it's called in a hint: on the first row of an act that has one, for every hint of
+    /// that act; on a later row, only for that row (what enter does in this pane).
+    pub label: &'static str,
+    /// In the footer (or the dialog's bottom line), and how long it stays as it narrows (higher
     /// stays longer).
-    pub hint: Option<(&'static str, u8)>,
+    pub hint: Option<u8>,
     /// More words the palette finds it by, comma-separated: what it's for, as someone looking for
     /// it might put it ("duplicates", "MP3 to FLAC").
     pub words: &'static str,
@@ -354,7 +582,7 @@ const fn key(
     help: &'static str,
     group: Group,
 ) -> Binding {
-    Binding { scope, keys, shown, act, name, help, group, hint: None, words: "" }
+    Binding { scope, keys, shown, act, name, help, group, label: "", hint: None, words: "" }
 }
 
 /// A help line that isn't a key of its own (or one bound elsewhere, explained for this view).
@@ -362,14 +590,20 @@ const fn note(scope: Scope, shown: &'static str, help: &'static str, group: Grou
     key(scope, &[], shown, Act::None, "", help, group)
 }
 
-/// A footer hint for a key bound elsewhere, as it reads in this scope.
-const fn tip(scope: Scope, shown: &'static str, label: &'static str, prio: u8) -> Binding {
-    key(scope, &[], shown, Act::None, "", "", Group::Player).hint(label, prio)
+/// A hint here for `act`, bound in a wider scope: its key is the one that does it here, unless
+/// `shown` writes a pair (`↑↓`, `n p`).
+const fn tip(scope: Scope, shown: &'static str, act: Act, prio: u8) -> Binding {
+    key(scope, &[], shown, act, "", "", Group::Player).hint(prio)
 }
 
 impl Binding {
-    const fn hint(mut self, label: &'static str, prio: u8) -> Binding {
-        self.hint = Some((label, prio));
+    const fn hint(mut self, prio: u8) -> Binding {
+        self.hint = Some(prio);
+        self
+    }
+
+    const fn label(mut self, label: &'static str) -> Binding {
+        self.label = label;
         self
     }
 
@@ -385,274 +619,257 @@ use Group as G;
 use KeyCode as C;
 use Scope as S;
 
-/// `L` in the Profile view: signing in to the Atmosphere account and out.
+/// Sign in/out in the Profile view (in `e` there, or `:`): signing in to the Atmosphere account and out.
 #[cfg(feature = "account")]
 #[rustfmt::skip]
-const ACCOUNT_KEY: Binding = key(S::Profile, &[K::Ch('L')], "L", A::ProfileAccount, "sign in to your Atmosphere account (or out)", "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out", G::Profile)
-    .hint("sign in/out", 4);
+const ACCOUNT_KEY: Binding = key(S::Profile, &[], "", A::ProfileAccount, "sign in to your Atmosphere account (or out)", "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, sign out (asks first)", G::Profile)
+    .label("sign in/out").words("log in, logout, bluesky");
 
-/// Built without the account (the `account` feature), `L` only says so.
+/// Built without the account (the `account` feature), it only says so.
 #[cfg(not(feature = "account"))]
 const ACCOUNT_KEY: Binding = key(
     S::Profile,
-    &[K::Ch('L')],
-    "L",
+    &[],
+    "",
     A::ProfileAccount,
     "the Atmosphere account (not in this build)",
     "the Atmosphere account: this locallibrary was built without it",
     G::Profile,
 );
 
-/// The table. Order matters: within a scope the first row a key matches wins, and the help and
-/// the footer list rows in this order.
+/// The table. Order matters: within a scope the first row a key matches wins, the first label an
+/// act has is what its hints say, and the help and the footer list rows in this order.
 #[rustfmt::skip]
 pub static KEYMAP: &[Binding] = &[
     // -----------------------------------------------------------------------------------------
     // The Library view
     // -----------------------------------------------------------------------------------------
     // The offer to replay edits rekordbox exported over, while it's up.
-    key(S::Replay, &[K::Ch('y')], "y", A::Replay, "", "replay edits rekordbox overwrote (while it says so)", G::Changing),
-    tip(S::Replay, "y", "replay edits", 10),
-    tip(S::Replay, "esc", "not now", 9),
+    key(S::Replay, &[K::Ch('y')], "y", A::Replay, "", "replay edits rekordbox overwrote (while it says so)", G::Changing).label("replay edits").hint(10),
+    tip(S::Replay, "", A::Escape, 9).label("not now"),
     // What the footer says in each pane (the keys are below).
-    tip(S::Steps, "enter", "run", 9),
-    tip(S::Steps, "↑↓", "select", 8),
-    tip(S::Tracks, "enter", "play", 9),
-    tip(S::Tracks, "space", "pause", 8),
-    tip(S::Tracks, "/", "search", 8),
-    tip(S::Tracks, "b", "sort", 5),
-    tip(S::Tracks, "m", "mark", 6),
-    tip(S::Tracks, "q n", "play next", 4),
-    tip(S::Tracks, "a", "to queue", 6),
-    tip(S::Tracks, "e", "actions", 7),
-    tip(S::Tracks, "i", "info", 4),
-    tip(S::Tracks, "t", "queue", 3),
-    tip(S::Tracks, "T", "My Tag", 3),
-    tip(S::Tracks, "f", "player", 2),
-    tip(S::Tracks, "tab", "focus", 5),
-    tip(S::Tree, "enter", "open", 9),
-    tip(S::Tree, "e", "actions", 7),
-    tip(S::Tree, "del", "delete", 5),
-    tip(S::Tree, "/", "search", 6),
-    tip(S::Tree, "tab", "focus", 5),
-    tip(S::Details, "enter", "play", 9),
-    tip(S::Details, "a", "to queue", 6),
-    tip(S::Details, "e", "actions", 7),
-    tip(S::Details, "i", "close", 5),
-    tip(S::Details, "tab", "focus", 5),
-    tip(S::Crate, "enter", "play", 9),
-    tip(S::Crate, "q n", "play next", 7),
-    tip(S::Crate, "shift ↑↓", "move", 6),
-    tip(S::Crate, "del", "remove", 6),
-    tip(S::Crate, "w", "save to drive", 7),
-    tip(S::Crate, "X", "clear", 4),
-    tip(S::Crate, "t", "close", 5),
-    tip(S::Crate, "tab", "focus", 5),
-    tip(S::DriveList, "enter", "browse", 9),
-    tip(S::DriveList, "space", "pause", 8),
-    tip(S::DriveList, "/", "search", 6),
-    tip(S::DriveList, "tab", "focus", 5),
+    tip(S::Steps, "", A::Activate, 9).label("run"),
+    tip(S::Tracks, "", A::Activate, 9).label("play"),
+    tip(S::Tracks, "", A::Search, 8),
+    tip(S::Tracks, "", A::Actions, 8),
+    tip(S::Tracks, "", A::Mark, 7),
+    tip(S::Tracks, "", A::CrateAdd, 7),
+    tip(S::Tracks, "", A::Details, 5),
+    tip(S::Tracks, "", A::CratePanel, 4),
+    tip(S::Tracks, "", A::QueueNext, 3),
+    tip(S::Tracks, "", A::Focus(false), 3),
+    tip(S::Tracks, "", A::DeckLayout, 2),
+    tip(S::Tree, "", A::Activate, 9).label("open"),
+    tip(S::Tree, "", A::Actions, 8),
+    tip(S::Tree, "", A::Remove, 6).label("delete"),
+    tip(S::Tree, "", A::Search, 6),
+    tip(S::Tree, "", A::Focus(false), 3),
+    tip(S::Details, "", A::Activate, 9).label("play"),
+    tip(S::Details, "", A::Actions, 8),
+    tip(S::Details, "", A::CrateAdd, 7),
+    tip(S::Details, "", A::Escape, 6),
+    tip(S::Details, "", A::Focus(false), 3),
+    tip(S::Crate, "", A::Activate, 9).label("play"),
+    tip(S::Crate, "", A::QueueNext, 7),
+    tip(S::Crate, "shift ↑↓", A::CrateMove(-1), 6),
+    tip(S::Crate, "", A::Remove, 6),
+    tip(S::Crate, "", A::Escape, 5),
+    tip(S::Crate, "", A::Focus(false), 3),
+    tip(S::DriveList, "", A::Activate, 9).label("browse"),
+    tip(S::DriveList, "", A::Search, 6),
+    tip(S::DriveList, "", A::Focus(false), 3),
     // The queue's own keys, while it has focus.
-    key(S::Crate, &[K::Shift(C::Up), K::Ch('K')], "shift ↑↓ K J", A::CrateMove(-1), "move up in the queue", "move a track up / down the queue", G::Crate),
-    key(S::Crate, &[K::Shift(C::Down), K::Ch('J')], "", A::CrateMove(1), "move down in the queue", "", G::Crate),
-    key(S::Crate, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "in the queue: take the track out", G::Crate),
-    key(S::Crate, &[K::Ch('w')], "w", A::CrateSave, "save the queue to the drive as a playlist", "write the queue to the drive as a playlist (played tracks too)", G::Crate),
-    key(S::Crate, &[K::Ch('X')], "X", A::CrateClear, "clear the queue", "clear the queue (the drive isn't touched; the list it plays on with stays)", G::Crate),
-    key(S::Library, &[K::Ch('/')], "/", A::Search, "search or filter the tracks", "search title, artist, album, genre, label, key, comment and path as you type", G::Browsing),
+    key(S::Crate, &[K::Shift(C::Up)], "shift ↑↓", A::CrateMove(-1), "move up in the queue", "move a track up / down the queue", G::Crate).label("move"),
+    key(S::Crate, &[K::Shift(C::Down)], "", A::CrateMove(1), "move down in the queue", "", G::Crate),
+    key(S::Crate, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "in the queue: take the track out", G::Crate).label("remove"),
+    key(S::Crate, &[], "", A::CrateSave, "save the queue to the drive as a playlist", "write the queue to the drive as a playlist (played tracks too)", G::Crate).label("save to drive").words("save the queue, queue to a playlist"),
+    key(S::Crate, &[], "", A::CrateClear, "clear the queue", "clear the queue (the drive isn't touched; the list it plays on with stays)", G::Crate).label("clear").words("empty the queue"),
+    key(S::Library, &[K::Ch('/')], "/", A::Search, "search or filter the tracks", "search title, artist, album, genre, label, key, comment and path as you type", G::Browsing).label("search"),
     note(S::Library, "", "or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep", G::Browsing),
-    note(S::Library, "", "in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
+    note(S::Library, "", "in the box: ↑↓ and pgup pgdn move the list, enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
     note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems", G::Browsing),
-    key(S::Library, &[K::Ch('O')], "O", A::OpenFolder, "open a folder holding an export", "open a folder holding a rekordbox export, by its path", G::Browsing),
-    key(S::Library, &[K::Ch('U')], "U", A::ResetPlayed, "forget what's been played", "bring back the tracks dimmed as played since starting", G::Browsing),
-    key(S::Library, &[K::Ch('b')], "b  B", A::Sort, "sort by the next column", "sort by the next column / the other way (or click a header)", G::Browsing),
-    key(S::Library, &[K::Ch('B')], "", A::SortReverse, "sort the other way", "", G::Browsing),
-    key(S::Library, &[K::Ch('*')], "*", A::Ratings, "show or hide the rating column", "show / hide the rating column", G::Browsing),
-    key(S::Library, &[K::Ch('#')], "#", A::TagsColumn, "show or hide the My Tags column", "show / hide the My Tags column", G::Browsing),
+    key(S::Library, &[], "", A::OpenFolder, "open a folder holding an export", "open a folder holding a rekordbox export, by its path", G::Browsing).label("open…").words("open an export, load a folder"),
+    key(S::Library, &[], "", A::ResetPlayed, "forget what's been played", "bring back the tracks dimmed as played since starting", G::Browsing).words("unplayed, forget played"),
+    key(S::Library, &[], "", A::Sort, "sort by the next column", "sort by the next column / the other way (or click a header)", G::Browsing).label("sort").words("sort by, order"),
+    key(S::Library, &[], "", A::SortReverse, "sort the other way", "", G::Browsing).words("reverse sort, descending"),
+    key(S::Library, &[], "", A::Ratings, "show or hide the rating column", "show / hide the rating column", G::Browsing),
+    key(S::Library, &[], "", A::TagsColumn, "show or hide the My Tags column", "show / hide the My Tags column", G::Browsing),
     note(S::Library, "", "green keys mix with the playing track, or the selected one (⇄ its key)", G::Browsing),
-    key(S::Library, &[K::Ch('i')], "i", A::Details, "show or hide the track's details", "the selected track: details, playlists, what mixes into it", G::Browsing),
-    key(S::Library, &[K::Ch('m'), K::Code(C::Insert)], "m  insert", A::Mark, "mark or unmark the track", "mark / unmark the selected track (in the tree: a playlist or folder, to pack)", G::Crate),
-    key(S::Library, &[K::Ch('M')], "M", A::MarkAll, "mark everything shown, or clear the marks", "mark everything shown / clear the marks", G::Crate),
-    key(S::Library, &[], "q n", A::QueueNext, "play next", "", G::Crate),
-    key(S::Library, &[K::Ch('a')], "a", A::CrateAdd, "add to the queue", "add the marked (or selected) tracks to the end of the queue, as q a", G::Crate),
-    key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the queue", "show / hide the queue, as q q", G::Crate),
+    key(S::Library, &[K::Ch('i')], "i", A::Details, "show or hide the track's details", "the selected track: details, playlists, what mixes into it (esc closes it)", G::Browsing).label("info").words("info"),
+    key(S::Library, &[K::Ch('m'), K::Code(C::Insert)], "m  insert", A::Mark, "mark or unmark the track", "mark / unmark the selected track (in the tree: a playlist or folder, to pack)", G::Crate).label("mark"),
+    key(S::Library, &[], "", A::MarkAll, "mark everything shown, or clear the marks", "mark everything shown / clear the marks", G::Crate).words("select all, mark all"),
+    key(S::Library, &[K::Ch('a')], "a", A::CrateAdd, "add to the queue", "add the marked (or selected) tracks to the end of the queue", G::Crate).label("add to queue").words("tag list, crate"),
+    key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the queue", "show / hide the queue (esc closes it)", G::Crate).label("queue").words("tag list, crate"),
     note(S::Library, "enter", "in the queue: play that track now (the others stay to play)", G::Crate),
-    note(S::Library, "", "The drive is backed up before a change is written. A change u can take back is made at once and says so; any other shows what it will do and asks first.", G::Changing),
-    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions for the selection", "actions for the marked or selected tracks, the playlist shown and the queue, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
+    note(S::Library, "", "The drive is backed up before a change is written. A change that u takes back is made at once and says so; any other shows what it will do and asks first.", G::Changing),
+    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions for the selection", "actions for the marked or selected tracks, the playlist shown and the queue, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing).label("actions"),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
-    key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
+    key(S::Library, &[], "", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing).label("My Tag").words("my tag, tag the tracks"),
     note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away)", G::Changing),
     key(S::Library, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "remove from the playlist shown; delete the selected playlist", G::Changing),
     // -----------------------------------------------------------------------------------------
     // The Prepare view
     // -----------------------------------------------------------------------------------------
     note(S::Prepare, "enter", "run the job selected, on the drive open in the library", G::Prepare),
-    key(S::Prepare, &[K::Ch('e')], "e", A::PaneActions, "", "the same jobs by their keys", G::Prepare).hint("actions", 7),
-    tip(S::Prepare, "enter", "run", 9),
-    tip(S::Prepare, "↑↓", "select", 4),
+    key(S::Prepare, &[K::Ch('e')], "e", A::PaneActions, "", "the same jobs, each with its letter", G::Prepare).label("actions"),
+    tip(S::Prepare, "", A::Activate, 9).label("run"),
+    tip(S::Prepare, "", A::PaneActions, 8),
+    tip(S::Prepare, "", A::Refresh, 3),
     // -----------------------------------------------------------------------------------------
     // The Drives view
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
-    tip(S::Drives, "enter", "browse", 9),
-    tip(S::Drives, "↑↓", "select", 4),
-    tip(S::Drives, "e", "actions", 8),
-    tip(S::Drives, "u", "undo", 6),
-    tip(S::Drives, "R", "refresh status", 5),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives).label("actions"),
+    tip(S::Drives, "", A::Activate, 9).label("browse"),
+    tip(S::Drives, "", A::DriveActions, 8),
+    tip(S::Drives, "", A::Undo, 6),
+    tip(S::Drives, "", A::Refresh, 4),
+    tip(S::Drives, "", A::Focus(false), 3),
     note(S::Snapshots, "", "every library in the store, its snapshots newest first (locallibrary pull adds one)", G::Snapshots),
     note(S::Snapshots, "enter", "bring back a playlist from the selected snapshot onto the drive open in the library", G::Snapshots),
-    key(S::Snapshots, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selected snapshot", G::Snapshots).hint("actions", 6),
-    tip(S::Snapshots, "enter", "bring back a playlist", 7),
-    tip(S::Snapshots, "↑↓", "scroll", 4),
-    tip(S::Snapshots, "R", "refresh", 5),
+    key(S::Snapshots, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selected snapshot", G::Snapshots),
+    tip(S::Snapshots, "", A::Activate, 9).label("bring back"),
+    tip(S::Snapshots, "", A::PaneActions, 8),
+    tip(S::Snapshots, "", A::Refresh, 4),
+    tip(S::Snapshots, "", A::Escape, 3).label("back"),
     note(S::History, "enter", "open the list players recorded in the library", G::History),
-    key(S::History, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selected list", G::History).hint("actions", 6),
-    tip(S::History, "enter", "open", 7),
-    tip(S::History, "↑↓", "select", 4),
+    key(S::History, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selected list", G::History),
+    tip(S::History, "", A::Activate, 9).label("open"),
+    tip(S::History, "", A::PaneActions, 8),
+    tip(S::History, "", A::Escape, 3).label("back"),
     // -----------------------------------------------------------------------------------------
     // The localnetwork view
     // -----------------------------------------------------------------------------------------
-    tip(S::Profile, "↑↓", "select", 3),
-    key(S::Profile, &[K::Ch('e')], "e", A::PaneActions, "", "these actions, for the section selected", G::Profile).hint("actions", 7),
-    key(S::Profile, &[K::Ch('i')], "i", A::ProfileInclude, "put the section in the document, or take it out", "put the section in the document, or take it out", G::Profile)
-        .hint("in/out of document", 8),
+    key(S::Profile, &[K::Ch('e')], "e", A::PaneActions, "", "these actions, for the section selected, with hiding an artist and rounding", G::Profile),
+    key(S::Profile, &[], "", A::ProfileInclude, "put the section in the document, or take it out", "put the section in the document, or take it out", G::Profile).label("in document"),
     note(S::Profile, "tab  enter", "move between sections and their lists (esc goes back)", G::Profile),
-    key(S::Profile, &[K::Ch('h'), K::Ch('H')], "h", A::ProfileHideArtist, "never name the artist", "never name an artist under Artists (still counted)", G::Profile)
-        .hint("hide artist", 6),
-    key(S::Profile, &[K::Ch('D')], "D", A::ProfileDocument, "show the profile document", "show the document a public profile would get", G::Profile)
-        .hint("document", 7),
-    key(S::Profile, &[K::Ch('w')], "w", A::ProfileWrite, "write the profile document to the store folder", "write the document as JSON in the store folder", G::Profile)
-        .hint("write", 5),
-    key(S::Profile, &[K::Ch('#')], "#", A::ProfileRounding, "rounded or exact numbers in the document", "rounded or exact numbers in the document", G::Profile)
-        .hint("rounding", 3),
-    tip(S::Profile, "R", "rebuild", 4),
+    key(S::Profile, &[], "", A::ProfileDocument, "show the profile document", "show the document a public profile would get", G::Profile).label("document"),
+    key(S::Profile, &[], "", A::ProfileWrite, "write the profile document to the store folder", "write the document as JSON in the store folder", G::Profile).label("save document"),
     ACCOUNT_KEY,
+    // In the actions menu (`e`) and the palette.
+    key(S::Profile, &[], "hide artist", A::ProfileHideArtist, "never name the artist", "never name an artist under Artists (still counted)", G::Commands),
+    key(S::Profile, &[], "rounding", A::ProfileRounding, "rounded or exact numbers in the document", "rounded or exact numbers in the document", G::Commands),
+    tip(S::Profile, "", A::Activate, 9).label("open"),
+    tip(S::Profile, "", A::PaneActions, 8),
+    tip(S::Profile, "", A::Refresh, 3),
+    tip(S::Profile, "", A::Focus(false), 3),
     // -----------------------------------------------------------------------------------------
     // The Recordings view
     // -----------------------------------------------------------------------------------------
     note(S::Mixes, "", "A recorded set, and which of the open drive's tracks it plays (like locallibrary mix).", G::Mixes),
     note(S::Mixes, "enter", "on a recording: find its tracks; on a track: play the set from there", G::Mixes),
-    key(S::Mixes, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selection", G::Mixes).hint("actions", 7),
-    tip(S::Mixes, "enter", "open · play from", 9),
-    note(S::Mixes, "space", "play the set, or pause it", G::Mixes),
-    tip(S::Mixes, "space", "play", 8),
-    note(S::Mixes, "n  p", "while the set plays: its next / previous track", G::Mixes),
-    tip(S::Mixes, "n p", "next/prev track", 6),
-    key(S::Mixes, &[K::Ch('O')], "O", A::MixOpen, "open a recording by path", "open a recording by path, or a folder of them (subfolders too) to keep listed", G::Mixes)
-        .hint("open a file", 7),
-    key(S::Mixes, &[K::Ch('z')], "z", A::MixZoom, "zoom the set's timeline", "zoom the timeline: the whole set, 2×, 4×, 8×", G::Mixes)
-        .hint("zoom", 4),
-    key(S::Mixes, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "on a recording from this computer: forget it, or the folder it was found in", G::Mixes),
-    note(S::Mixes, "o", "go to the selected track in the library", G::Mixes),
-    tip(S::Mixes, "o", "in library", 5),
-    key(S::Mixes, &[K::Ch('E')], "E", A::MixExport, "export the set for Local Network", "export the set as data (.mix.json) for Local Network", G::Mixes)
-        .hint("export", 4),
-    key(S::Mixes, &[K::Ch('w')], "w", A::MixReport, "write the set's HTML report and open it", "write the HTML report and open it in a browser", G::Mixes)
-        .hint("report", 4),
+    key(S::Mixes, &[K::Ch('e')], "e", A::PaneActions, "", "actions for the selection, with exporting the set", G::Mixes),
+    key(S::Mixes, &[K::Ch(' ')], "space", A::MixPlay, "play the set, or pause it", "play the set, or pause it", G::Mixes).label("play"),
+    key(S::Mixes, &[K::Ch('n')], "n  p", A::MixTrack(true), "the set's next track", "while the set plays: its next / previous track", G::Mixes).label("next/prev track"),
+    key(S::Mixes, &[K::Ch('p')], "", A::MixTrack(false), "the set's previous track", "", G::Mixes),
+    key(S::Mixes, &[], "", A::MixOpen, "open a recording by path", "open a recording by path, or a folder of them (subfolders too) to keep listed", G::Mixes).label("open…").words("open a recording, load a set"),
+    key(S::Mixes, &[], "", A::MixZoom, "zoom the set's timeline", "zoom the timeline: the whole set, 2×, 4×, 8×", G::Mixes).label("zoom").words("zoom the timeline"),
+    key(S::Mixes, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::MixForget, "", "on a recording from this computer: forget it, or the folder it was found in", G::Mixes).label("forget"),
+    key(S::Mixes, &[], "", A::MixGoTo, "the selected track in the library", "go to the selected track in the library", G::Mixes).label("show in library").words("show in the library"),
+    key(S::Mixes, &[], "", A::MixReport, "write the set's HTML report and open it", "write the HTML report and open it in a browser", G::Mixes).label("save report").words("html report"),
     note(S::Mixes, "click", "on the timeline: play from there, or pick the track under it", G::Mixes),
-    tip(S::Mixes, "tab", "focus", 3),
+    // In the actions menu (`e`) and the palette.
+    key(S::Mixes, &[], "export set", A::MixExport, "export the set for Local Network", "export the set as data (.mix.json) for Local Network", G::Commands),
+    tip(S::Mixes, "", A::Activate, 9).label("open · play from"),
+    tip(S::Mixes, "", A::PaneActions, 8),
+    tip(S::Mixes, "", A::MixPlay, 7),
+    tip(S::Mixes, "n p", A::MixTrack(true), 6),
+    tip(S::Mixes, "", A::Focus(false), 3),
+    tip(S::Mixes, "", A::MixForget, 2),
     // -----------------------------------------------------------------------------------------
     // Player mode (hints: the few a set needs; `?` has the rest)
     // -----------------------------------------------------------------------------------------
-    tip(S::Deck, "1-8", "hot cue", 9),
-    tip(S::Deck, "l", "loop", 7),
-    tip(S::Deck, "space", "pause", 8),
-    tip(S::Deck, "↑↓ enter", "play next", 7),
-    key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over player mode; loading a track or esc comes back", G::Visuals).hint("browse", 9),
-    key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals),
-    tip(S::Deck, "f", "back", 7),
-    tip(S::Deck, "?", "keys", 3),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
-    tip(S::Pads, "1-8", "hot cue", 9),
-    // -----------------------------------------------------------------------------------------
-    // After g
-    // -----------------------------------------------------------------------------------------
-    key(S::Goto, &[K::Ch('l')], "g l", A::ShowView(View::Library), "go to Library", "Library", G::Player),
-    key(S::Goto, &[K::Ch('p')], "g p", A::ShowView(View::Prepare), "go to Prepare", "Prepare", G::Player),
-    key(S::Goto, &[K::Ch('d')], "g d", A::ShowView(View::Drives), "go to Drives", "Drives, their snapshots and history", G::Player),
-    key(S::Goto, &[K::Ch('r')], "g r", A::ShowView(View::Mixes), "go to Recordings", "Recordings", G::Player),
-    key(S::Goto, &[K::Ch('n')], "g n", A::ShowView(View::Profile), "go to localnetwork", "localnetwork", G::Player),
-    key(S::Goto, &[K::Ch('g')], "g g", A::End(-1), "", "the first row", G::Moving),
-    // -----------------------------------------------------------------------------------------
-    // After q: the queue, picks that play in order after the playing track, then the list they
-    // were started from
-    // -----------------------------------------------------------------------------------------
-    key(S::Queue, &[K::Ch('n')], "q n", A::QueueNext, "play next", "play the marked (or selected) tracks next, before the other picks (in player mode, the match picked)", G::Playback),
-    key(S::Queue, &[K::Ch('a')], "q a", A::CrateAdd, "add to the end", "add the marked (or selected) tracks to the end of the queue", G::Playback),
-    key(S::Queue, &[K::Ch('q')], "q q", A::CratePanel, "show or hide the queue", "show / hide the queue: what's playing, the picks to play (played ones greyed) and the list it plays on with, a CDJ's TAG LIST", G::Playback),
+    tip(S::Deck, "1-8", A::HotCue, 9),
+    tip(S::Deck, "", A::Loop, 8),
+    tip(S::Deck, "", A::PlayPause, 8),
+    tip(S::Deck, "↑↓ enter", A::Activate, 7).label("play next"),
+    key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "the waveform's next colours", "in player mode: the waveform's colours, BLUE, RGB, 3Band, as the drive says", G::Visuals),
+    key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over player mode; loading a track or esc comes back", G::Visuals).label("browse").hint(6),
+    tip(S::Deck, "", A::Escape, 5),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays)", G::Deck).label("hot cue"),
+    tip(S::Pads, "1-8", A::HotCue, 9),
     // -----------------------------------------------------------------------------------------
     // Everywhere
     // -----------------------------------------------------------------------------------------
     key(S::Global, &[K::Code(C::Enter)], "enter", A::Activate, "", "play the selected track (queues the list it's in); open a playlist or folder; browse a drive", G::Playback),
-    key(S::Global, &[K::Ch(' ')], "space", A::PlayPause, "play or pause", "pause / resume", G::Playback).hint("pause", 8),
-    key(S::Global, &[K::Code(C::Left)], "← →", A::Seek(-1), "seek back", "seek 5 s (shift: 30 s)", G::Playback),
+    key(S::Global, &[K::Ch(' ')], "space", A::PlayPause, "play or pause", "pause / resume", G::Playback).label("pause"),
+    key(S::Global, &[K::Code(C::Left)], "← →", A::Seek(-1), "seek back", "seek 5 s (shift: 30 s)", G::Playback).words("rewind"),
     key(S::Global, &[K::Code(C::Right)], "", A::Seek(1), "seek forward", "", G::Playback),
-    key(S::Global, &[K::Ch('n')], "n  p", A::Next, "next track", "next / previous track", G::Playback),
-    key(S::Global, &[K::Ch('p')], "", A::Prev, "previous track", "", G::Playback),
-    key(S::Global, &[K::Ch('c')], "c  C", A::Cue(true), "next cue", "jump to the next / previous cue", G::Playback),
-    key(S::Global, &[K::Ch('C')], "", A::Cue(false), "previous cue", "", G::Playback),
-    key(S::Global, &[K::Ch('N')], "N  P", A::Phrase(true), "next phrase", "jump to the next / previous phrase", G::Playback),
-    key(S::Global, &[K::Ch('P')], "", A::Phrase(false), "previous phrase", "", G::Playback),
+    key(S::Global, &[K::Ch('n')], "n  p", A::Next, "next track", "next / previous track", G::Playback).words("skip"),
+    key(S::Global, &[K::Ch('p')], "", A::Prev, "previous track", "", G::Playback).words("skip back"),
+    key(S::Global, &[K::Ch('c')], "c  h", A::Cue(true), "next cue", "jump to the next / previous cue", G::Playback),
+    key(S::Global, &[K::Ch('h')], "", A::Cue(false), "previous cue", "", G::Playback).words("back to the cue, cue back, last cue"),
+    key(S::Global, &[], "", A::Phrase(true), "next phrase", "jump to the next / previous phrase", G::Playback).words("jump a phrase, phrase forward"),
+    key(S::Global, &[], "", A::Phrase(false), "previous phrase", "", G::Playback).words("phrase back"),
     key(S::Global, &[K::Ch('+'), K::Ch('=')], "+  -", A::Volume(1), "volume up", "volume", G::Playback),
     key(S::Global, &[K::Ch('-'), K::Ch('_')], "", A::Volume(-1), "volume down", "", G::Playback),
-    key(S::Global, &[K::Ch('s')], "s  r", A::Shuffle, "shuffle on or off", "shuffle / repeat (off, all, one)", G::Playback),
-    key(S::Global, &[K::Ch('r')], "", A::Repeat, "repeat: off, all, one", "", G::Playback),
-    key(S::Global, &[K::Ch('x')], "x", A::Stop, "stop", "stop", G::Playback),
-    key(S::Global, &[K::Ch('o')], "o", A::GoTo, "go to the playing track", "go to the playing track (in Recordings, the selected track in the library)", G::Playback),
-    key(S::Global, &[K::Ch('\'')], "'", A::Pads, "pads on or off", "pads on / off: the digit row plays hot cues instead of jumping to panes", G::Deck),
+    key(S::Global, &[], "", A::Shuffle, "shuffle on or off", "shuffle / repeat (off, all, one)", G::Playback).words("random, shuffle play"),
+    key(S::Global, &[], "", A::Repeat, "repeat: off, all, one", "", G::Playback).words("repeat one, repeat all"),
+    key(S::Global, &[], "", A::Stop, "stop", "stop", G::Playback).words("stop playing"),
+    key(S::Global, &[], "", A::GoTo, "go to the playing track", "go to the playing track", G::Playback).words("now playing, find the playing track"),
+    key(S::Global, &[], "", A::Pads, "pads on or off", "pads on / off: the digit row plays hot cues instead of going to the views", G::Deck).words("hot cue pads, performance pads"),
     key(S::Global, &[K::Ch(',')], ",  .", A::BeatJump(-1), "beat jump back", "beat jump: one beat back / forward", G::Deck),
     key(S::Global, &[K::Ch('.')], "", A::BeatJump(1), "beat jump forward", "", G::Deck),
-    key(S::Global, &[K::Ch('<')], "<  >", A::BeatJump(-4), "a bar back", "one bar (4 beats) back / forward", G::Deck),
-    key(S::Global, &[K::Ch('>')], "", A::BeatJump(4), "a bar forward", "", G::Deck),
-    key(S::Global, &[K::Ch('{')], "{  }", A::BeatJump(-32), "8 bars back", "8 bars (32 beats, a phrase) back / forward", G::Deck),
-    key(S::Global, &[K::Ch('}')], "", A::BeatJump(32), "8 bars forward", "", G::Deck),
-    key(S::Global, &[K::Ch('Z')], "Z", A::Quantize, "quantize on or off", "quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one", G::Deck),
-    key(S::Global, &[K::Ch('l')], "l", A::Loop, "loop here, or exit the loop", "loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit", G::Deck),
-    key(S::Global, &[K::Ch('(')], "(  )", A::LoopSize(false), "halve the loop", "halve / double the loop", G::Deck),
-    key(S::Global, &[K::Ch(')')], "", A::LoopSize(true), "double the loop", "", G::Deck),
+    key(S::Global, &[], "", A::BeatJump(-4), "a bar back", "one bar (4 beats) back / forward", G::Deck),
+    key(S::Global, &[], "", A::BeatJump(4), "a bar forward", "", G::Deck),
+    key(S::Global, &[], "", A::BeatJump(-32), "8 bars back", "8 bars (32 beats, a phrase) back / forward", G::Deck),
+    key(S::Global, &[], "", A::BeatJump(32), "8 bars forward", "", G::Deck),
+    key(S::Global, &[], "", A::Quantize, "quantize on or off", "quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one", G::Deck).words("snap to the beat, grid"),
+    key(S::Global, &[K::Ch('l')], "l", A::Loop, "loop here, or exit the loop", "loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit", G::Deck).label("loop"),
+    key(S::Global, &[], "", A::LoopSize(false), "halve the loop", "halve / double the loop", G::Deck).words("shorter loop, loop length"),
+    key(S::Global, &[], "", A::LoopSize(true), "double the loop", "", G::Deck).words("longer loop, loop length"),
     note(S::Global, "", "A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it.", G::Deck),
-    key(S::Global, &[K::Ch('S')], "S", A::Single, "autoplay on or off (single play)", "autoplay off (single play): stop after each track, the next one ready for space; again to play on", G::Deck),
-    key(S::Global, &[K::Ch('A')], "A", A::AutoCue, "auto cue on or off", "auto cue: tracks start at their first memory cue, else their first beat", G::Deck),
-    key(S::Global, &[K::Ch('d')], "d", A::Outputs, "the output to play through", "the output: the system's default, or another (headphones, an interface), remembered", G::Deck),
-    key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · none, in player mode where there's room", G::Visuals),
-    key(S::Global, &[K::Ch('[')], "[  ]", A::Zoom(false), "zoom the waveform out", "zoom the detail waveform out / in", G::Visuals),
-    key(S::Global, &[K::Ch(']')], "", A::Zoom(true), "zoom the waveform in", "", G::Visuals),
-    key(S::Global, &[K::Ch('f')], "f", A::DeckLayout, "open or close player mode", "player mode: the playing track on the whole screen, from any tab; again to go back", G::Visuals),
-    key(S::Global, &[K::Code(C::Up), K::Ch('k')], "↑ ↓  j k", A::Move(-1), "", "move", G::Moving),
+    key(S::Global, &[], "", A::Single, "autoplay on or off (single play)", "autoplay off (single play): stop after each track, the next one ready for space; again to play on", G::Deck).words("autoplay, single play, stop after each track"),
+    key(S::Global, &[], "", A::AutoCue, "auto cue on or off", "auto cue: tracks start at their first memory cue, else their first beat", G::Deck).words("start at the first cue"),
+    key(S::Global, &[], "", A::Outputs, "the output to play through", "the output: the system's default, or another (headphones, an interface), remembered", G::Deck).words("headphones, audio device, sound card, interface, speakers, output"),
+    key(S::Global, &[], "", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · none, in player mode where there's room", G::Visuals).words("spectrum, scope, mirror, visualizer"),
+    key(S::Global, &[], "waveform colours", A::NextBands, "the waveform's next colours", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Commands),
+    key(S::Global, &[], "", A::Zoom(false), "zoom the waveform out", "zoom the detail waveform out / in", G::Visuals).words("zoom out"),
+    key(S::Global, &[], "", A::Zoom(true), "zoom the waveform in", "", G::Visuals).words("zoom in"),
+    key(S::Global, &[K::Ch('f')], "f", A::DeckLayout, "open or close player mode", "player mode: the playing track on the whole screen, from any tab; again (or esc) to go back", G::Visuals).label("player mode").words("full screen, fullscreen"),
+    key(S::Global, &[K::Code(C::Up), K::Ch('k')], "↑ ↓  j k", A::Move(-1), "", "move", G::Moving).label("move"),
     key(S::Global, &[K::Code(C::Down), K::Ch('j')], "", A::Move(1), "", "", G::Moving),
     key(S::Global, &[K::Code(C::PageUp)], "pgup  pgdn", A::Page(-1), "", "a page up / down", G::Moving),
     key(S::Global, &[K::Code(C::PageDown)], "", A::Page(1), "", "", G::Moving),
-    key(S::Global, &[K::Code(C::Home)], "home  G", A::End(-1), "", "the first / last row (end too)", G::Moving),
-    key(S::Global, &[K::Code(C::End), K::Ch('G')], "", A::End(1), "", "", G::Moving),
-    key(S::Global, &[K::Code(C::Tab)], "tab", A::Focus(false), "", "next pane (shift-tab: back)", G::Moving),
+    key(S::Global, &[K::Code(C::Home)], "home  end", A::End(-1), "", "the first / last row", G::Moving),
+    key(S::Global, &[K::Code(C::End)], "", A::End(1), "", "", G::Moving),
+    key(S::Global, &[K::Code(C::Tab)], "tab", A::Focus(false), "", "next pane (shift-tab: back)", G::Moving).label("next pane"),
     key(S::Global, &[K::Code(C::BackTab)], "", A::Focus(true), "", "", G::Moving),
-    key(S::Global, &[K::Code(C::Esc)], "esc", A::Escape, "", "stop a change before it writes; hide an error; clear the search, then the marks (press twice)", G::Moving),
-    key(S::Global, &[K::Digits('1', '5')], "1 … 5", A::PaneKey, "", "the pane with that number in its title (while the pads are off)", G::Moving),
-    key(S::Global, &[K::Ch('g')], "g", A::Goto, "", "then a letter, for a view (the letter beside its tab), or g for the first row", G::Moving),
-    key(S::Global, &[K::Ch('q')], "q", A::QueueChord, "", "then n plays next, a adds to the end of the queue, q shows it", G::Playback),
-    key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
-    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the ones used lately first, plugins' commands and suggestions", G::Player).hint("commands", 6),
-    key(S::Global, &[K::Ch('?')], "?", A::Help, "help: the keys", "this help: type to narrow it, enter runs the row selected", G::Player).hint("help", 5),
-    key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the status line said since starting", G::Player),
-    key(S::Global, &[K::Ch('&')], "&", A::Jobs, "jobs: what's running", "jobs: what's running, with a cancel for each that can still stop", G::Player),
+    key(S::Global, &[K::Code(C::Esc)], "esc", A::Escape, "", "back one step: leave player mode, stop a change before it writes, hide an error, clear the search, close the details or the queue, then clear the marks (twice); with nothing left, twice quits", G::Moving).label("close"),
+    key(S::Global, &[K::Code(C::F(5))], "f5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player).label("refresh"),
+    key(S::Global, &[K::Ch('q')], "q", A::QueueNext, "play next", "play the marked (or selected) tracks next, before the other picks (in player mode, the match picked)", G::Playback).label("play next"),
+    key(S::Global, &[K::Ch('1')], "1", A::ShowView(View::Library), "go to Library", "Library (in player mode the digits are hot cues)", G::Player),
+    key(S::Global, &[K::Ch('2')], "2", A::ShowView(View::Prepare), "go to Prepare", "Prepare", G::Player),
+    key(S::Global, &[K::Ch('3')], "3", A::ShowView(View::Drives), "go to Drives", "Drives, their snapshots and history", G::Player),
+    key(S::Global, &[K::Ch('4')], "4", A::ShowView(View::Mixes), "go to Recordings", "Recordings", G::Player),
+    key(S::Global, &[K::Ch('5')], "5", A::ShowView(View::Profile), "go to localnetwork", "localnetwork", G::Player).words("profile, publish"),
+    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the ones used lately first, plugins' commands and suggestions", G::Player).label("commands").hint(1),
+    key(S::Global, &[K::Ch('?')], "?", A::Help, "help: the keys", "this help: type to narrow it, enter runs the row selected", G::Player).label("help").hint(1),
+    note(S::Global, "", "with no hints the footer still says ? help; \"no ? help with no hints\" in : turns that off too", G::Player),
+    key(S::Global, &[], "", A::Messages, "messages since starting", "messages: everything the status line said since starting", G::Player).words("log, errors, status"),
+    key(S::Global, &[K::Ch('&')], "&", A::Jobs, "jobs: what's running", "jobs: what's running, with a cancel for each that can still stop", G::Player).words("cancel"),
+    key(S::Global, &[], "", A::Keys, "change the keys", "change any key, or give an action one: pick it and press the new key", G::Player).words("keybinds, shortcuts, hotkeys, remap, rebind"),
+    key(S::Global, &[], "", A::KeysImport, "import someone's keys…", "use keys someone published, by their handle (shows what changes first)", G::Commands).words("keybinds, import keys, copy keys"),
+    key(S::Global, &[], "", A::KeysReset, "all keys back to their defaults", "every key as it came (asks first)", G::Commands).words("reset keys, default keys"),
+    key(S::Global, &[], "", A::KeysPreset(Preset::Azerty), "keys for an AZERTY keyboard", "the views and hot cues on & é \" ' ( - è _ (shows what changes first)", G::Commands).words("french keyboard, azerty"),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
-    key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", PULL, G::Commands),
-    key(S::Global, &[], "check", A::Check, "check the drive for problems", CHECK, G::Commands),
+    key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", PULL, G::Commands).label("snapshot"),
+    key(S::Global, &[], "check", A::Check, "check the drive for problems", CHECK, G::Commands).label("check"),
     key(S::Global, &[], "set prep", A::SetPrep, "check all the library's drives", "check the drive and the other mounted drives of its library together, for a set", G::Commands),
-    key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", SYNC, G::Commands),
-    key(S::Global, &[], "pack", A::Pack, "pack playlists for a set…", PACK, G::Commands),
+    key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", SYNC, G::Commands).label("sync"),
+    key(S::Global, &[], "pack", A::Pack, "pack playlists for a set…", PACK, G::Commands).label("pack"),
     key(S::Global, &[], "restore", A::RestorePlaylist, "bring back a playlist from a snapshot…", "a playlist or folder as a snapshot in the store had it, onto the drive", G::Commands),
     key(S::Global, &[], "fill", A::Fill, "fill the queue from matches, on or off", "when the queue runs out, play on with the best match for the last track that hasn't played (off until turned on)", G::Commands),
     key(S::Global, &[], "replay", A::Replay, "replay edits rekordbox overwrote", "make the drive's recorded edits again after rekordbox exported over them", G::Commands),
-    key(S::Global, &[K::Ch('u')], "u", A::Undo, "undo the last change", "undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back", G::Changing),
+    key(S::Global, &[K::Ch('u')], "u", A::Undo, "undo the last change", "undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back", G::Changing).label("undo"),
     key(S::Global, &[], "smart", A::SmartList, "smart playlists: the rules", "the rule-based playlists kept in the store", G::Commands),
     key(S::Global, &[], "smart apply", A::SmartApply, "fill the smart playlists on the drive", "fill the rule-based playlists on the drive from its own library (shows what changes first)", G::Commands),
     key(S::Global, &[], "smart new", A::SmartNew, "smart playlist from the search", "a rule-based playlist from the search box's filter and the list's sort", G::Commands),
     key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, set, session or all tracks shown to a file on this computer", G::Commands),
-    key(S::Global, &[], "eject", A::Eject, "eject the drive", EJECT, G::Commands),
-    key(S::Global, &[], "g d 3", A::Snapshots, "browse snapshots", "the snapshots in the store, in the Drives view", G::Commands),
-    key(S::Global, &[], "g n L", A::SignIn, "sign in", "sign in to your Atmosphere account, in the localnetwork view", G::Commands),
+    key(S::Global, &[], "eject", A::Eject, "eject the drive", EJECT, G::Commands).label("eject"),
+    key(S::Global, &[], "", A::Snapshots, "browse snapshots", "the snapshots in the store, in the Drives view", G::Commands),
+    key(S::Global, &[], "", A::SignIn, "sign in", "sign in to your Atmosphere account, in the localnetwork view", G::Commands),
     // The command line's jobs, run on the drive: reports in a panel, changes planned and confirmed.
     key(S::Global, &[], "doctor", A::Run(Cli::Doctor), "health report: duplicates, missing and orphaned files", "duplicates, missing and orphaned files, tracks in no playlist, files too big for FAT32 (results in a panel)", G::Commands)
         .words("duplicates, missing files, orphaned files, broken tracks, unfiled, health, problems"),
@@ -689,20 +906,112 @@ pub static KEYMAP: &[Binding] = &[
         .words("backup, back up, NAS, cloud, offsite, mirror"),
     key(S::Global, &[], "bug", A::Copy("bug"), "report a bug (in a terminal)", "the command that reports a bug, with this version and system filled in", G::Commands)
         .words("problem, issue, crash, feedback"),
-    key(S::Global, &[K::Ch('Q'), K::Ctrl('q'), K::Ctrl('c')], "Q", A::Quit, "quit", "quit, also ctrl-q (a write to the drive finishes first)", G::Player).hint("quit", 1),
+    key(S::Global, &[K::Ctrl('c'), K::Ctrl('q')], "ctrl-c", A::Quit, "quit", "quit, also esc twice with nothing open, or ctrl-q (a write to the drive finishes first)", G::Player)
+        .words("exit, close, leave"),
     // -----------------------------------------------------------------------------------------
-    // The drive's jobs, by key where they have a home (here so `about` finds the rows above)
+    // The actions menu's letters (`e`): each runs its action when the menu offers it. A view's
+    // own key for an action is the same letter here.
     // -----------------------------------------------------------------------------------------
-    key(S::Prepare, &[K::Ch('V')], "V", A::Check, "", CHECK, G::Prepare).hint("check", 6),
-    key(S::Prepare, &[K::Ch('W')], "W", A::Pull, "", PULL, G::Prepare).hint("snapshot", 5),
-    key(S::Prepare, &[K::Ch('Y')], "Y", A::SyncGroup, "", SYNC, G::Prepare).hint("sync", 5),
-    key(S::Prepare, &[K::Ch('K')], "K", A::Pack, "", PACK, G::Prepare).hint("pack", 5),
-    key(S::Prepare, &[K::Ch('E')], "E", A::Eject, "", EJECT, G::Prepare).hint("eject", 4),
-    key(S::Drives, &[K::Ch('V')], "V", A::Check, "", CHECK, G::Drives).hint("check", 5),
-    key(S::Drives, &[K::Ch('W')], "W", A::Pull, "", PULL, G::Drives).hint("snapshot", 4),
-    key(S::Drives, &[K::Ch('Y')], "Y", A::SyncGroup, "", SYNC, G::Drives).hint("sync", 4),
-    key(S::Drives, &[K::Ch('K')], "K", A::Pack, "", PACK, G::Drives).hint("pack", 3),
-    key(S::Drives, &[K::Ch('E')], "E", A::Eject, "", EJECT, G::Drives).hint("eject", 3),
+    key(S::Actions, &[K::Ch('/')], "/", A::Search, "", "in the actions menu (e): each action's letter runs it, and / filters it by what's typed", G::Dialogs).label("filter").hint(3),
+    key(S::Actions, &[K::Ch('e')], "", A::Escape, "", "", G::Dialogs),
+    tip(S::Actions, "", A::Activate, 2).label("run"),
+    tip(S::Actions, "esc", A::Escape, 1),
+    key(S::Actions, &[K::Ch('c')], "", A::Check, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('a')], "", A::SetPrep, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('g')], "", A::SyncGroup, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('p')], "", A::Pack, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('s')], "", A::Pull, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('b')], "", A::RestorePlaylist, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('y')], "", A::Replay, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('u')], "", A::Undo, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('d')], "", A::Eject, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('r')], "", A::Refresh, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('m')], "", A::ProfileInclude, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('i')], "", A::ProfileDocument, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('h')], "", A::ProfileHideArtist, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('#')], "", A::ProfileRounding, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('w')], "", A::ProfileWrite, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('l')], "", A::ProfileAccount, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('f')], "", A::MixOpen, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('z')], "", A::MixZoom, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('o')], "", A::MixGoTo, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('x')], "", A::MixExport, "", "", G::Dialogs),
+    key(S::Actions, &[K::Ch('w')], "", A::MixReport, "", "", G::Dialogs),
+    key(S::SubMenu, &[K::Code(C::Left), K::Code(C::Backspace)], "", A::Escape, "", "", G::Dialogs),
+    tip(S::SubMenu, "", A::Activate, 2).label("set"),
+    tip(S::SubMenu, "esc", A::Escape, 1).label("back"),
+    // -----------------------------------------------------------------------------------------
+    // Dialogs: every one closes on esc and does what's selected on enter; lists move alike
+    // -----------------------------------------------------------------------------------------
+    key(S::Confirm, &[K::Ch('y')], "y  n", A::Answer(true), "", "in a plan or a question: yes (once it's been up long enough to read) / no", G::Dialogs).label("yes").hint(9),
+    key(S::Confirm, &[K::Ch('n')], "", A::Answer(false), "", "", G::Dialogs).label("no").hint(8),
+    key(S::Confirm, &[K::Ch(' ')], "", A::Page(1), "", "", G::Dialogs),
+    tip(S::Confirm, "esc", A::Escape, 1).label("cancel"),
+    key(S::Ask, &[K::Ch('y')], "", A::Answer(true), "", "", G::Dialogs).hint(9),
+    key(S::Ask, &[K::Ch('n')], "", A::Answer(false), "", "", G::Dialogs).hint(8),
+    tip(S::Ask, "esc", A::Escape, 1).label("cancel"),
+    key(S::Report, &[K::Ch(' ')], "space", A::Page(1), "", "in results or the messages: a page down", G::Dialogs),
+    key(S::Report, &[K::Code(C::Enter)], "", A::Escape, "", "", G::Dialogs),
+    tip(S::Report, "↑↓", A::Move(-1), 8).label("scroll"),
+    tip(S::Report, "esc", A::Escape, 1),
+    key(S::Messages, &[K::Code(C::Enter)], "", A::Escape, "", "", G::Dialogs),
+    key(S::Messages, &[K::Ch(' ')], "", A::Page(1), "", "", G::Dialogs),
+    tip(S::Messages, "↑↓", A::Move(-1), 8).label("scroll"),
+    tip(S::Messages, "esc", A::Escape, 1),
+    key(S::Form, &[K::Code(C::Tab)], "tab", A::Move(1), "", "in a form: the next field (shift-tab: back), ←→ or space change a choice", G::Dialogs),
+    key(S::Form, &[K::Code(C::BackTab)], "", A::Move(-1), "", "", G::Dialogs),
+    key(S::Form, &[K::Code(C::Right), K::Ch(' ')], "", A::Change(1), "", "", G::Dialogs).label("change"),
+    key(S::Form, &[K::Code(C::Left)], "", A::Change(-1), "", "", G::Dialogs),
+    tip(S::Form, "↑↓", A::Move(-1), 7).label("field"),
+    tip(S::Form, "←→", A::Change(1), 6),
+    tip(S::Form, "", A::Activate, 2),
+    tip(S::Form, "esc", A::Escape, 1).label("cancel"),
+    key(S::Picker, &[K::Ch(' ')], "space", A::Mark, "", "in a list some of which may be chosen: mark one", G::Dialogs).hint(3),
+    tip(S::Picker, "", A::Activate, 2),
+    tip(S::Picker, "esc", A::Escape, 1),
+    key(S::Jobs, &[K::Ch('x'), K::Code(C::Delete)], "x", A::CancelJob, "", "in the jobs: cancel the one selected", G::Dialogs).label("cancel job").hint(8),
+    key(S::Jobs, &[K::Ch('&')], "", A::Escape, "", "", G::Dialogs),
+    tip(S::Jobs, "esc", A::Escape, 1),
+    key(S::Help, &[K::Ch('?')], "", A::Escape, "", "", G::Dialogs),
+    tip(S::Help, "", A::Activate, 2).label("run it"),
+    tip(S::Help, "esc", A::Escape, 1),
+    tip(S::Outputs, "", A::Activate, 2).label("play through it"),
+    tip(S::Outputs, "esc", A::Escape, 1),
+    key(S::Search, &[K::Code(C::Tab), K::Code(C::BackTab)], "", A::SearchWhere, "", "", G::Dialogs).label("whole drive").hint(7),
+    tip(S::Search, "", A::Activate, 2).label("keep"),
+    tip(S::Search, "esc", A::Escape, 1).label("clear"),
+    tip(S::Prompt, "", A::Activate, 2).label("ok"),
+    tip(S::Prompt, "esc", A::Escape, 1).label("cancel"),
+    tip(S::Picking, "", A::Activate, 2).label("choose"),
+    tip(S::Picking, "esc", A::Escape, 1).label("cancel"),
+    tip(S::Filter, "esc", A::Escape, 1).label("clear"),
+    tip(S::Keys, "", A::Activate, 2).label("change"),
+    tip(S::Keys, "esc", A::Escape, 1).label("close"),
+    tip(S::KeysAnswer, "", A::Activate, 2).label("save"),
+    tip(S::KeysAnswer, "esc", A::Escape, 1).label("cancel"),
+    tip(S::KeysCapture, "esc", A::Escape, 1).label("cancel"),
+    tip(S::KeysReset, "", A::Activate, 2).label("reset"),
+    tip(S::KeysReset, "esc", A::Escape, 1).label("cancel"),
+    tip(S::KeysSwap, "", A::Activate, 2).label("swap"),
+    tip(S::KeysSwap, "esc", A::Escape, 1).label("cancel"),
+    tip(S::KeysRefused, "", A::Activate, 2).label("try another"),
+    tip(S::KeysRefused, "esc", A::Escape, 1).label("cancel"),
+    key(S::List, &[K::Code(C::Up), K::Ch('k')], "↑ ↓  j k", A::Move(-1), "", "move; pgup pgdn a page, home end the ends (in a list you type into, the arrows and those keys only)", G::Dialogs),
+    tip(S::List, "↑↓", A::Move(-1), 5),
+    key(S::List, &[K::Code(C::Down), K::Ch('j')], "", A::Move(1), "", "", G::Dialogs),
+    key(S::List, &[K::Code(C::PageUp)], "", A::Page(-1), "", "", G::Dialogs),
+    key(S::List, &[K::Code(C::PageDown)], "", A::Page(1), "", "", G::Dialogs),
+    key(S::List, &[K::Code(C::Home)], "", A::End(-1), "", "", G::Dialogs),
+    key(S::List, &[K::Code(C::End)], "", A::End(1), "", "", G::Dialogs),
+    key(S::Typed, &[K::Code(C::Up)], "", A::Move(-1), "", "", G::Dialogs),
+    tip(S::Typed, "↑↓", A::Move(-1), 5),
+    key(S::Typed, &[K::Code(C::Down)], "", A::Move(1), "", "", G::Dialogs),
+    key(S::Typed, &[K::Code(C::PageUp)], "", A::Page(-1), "", "", G::Dialogs),
+    key(S::Typed, &[K::Code(C::PageDown)], "", A::Page(1), "", "", G::Dialogs),
+    key(S::Typed, &[K::Code(C::Home)], "", A::End(-1), "", "", G::Dialogs),
+    key(S::Typed, &[K::Code(C::End)], "", A::End(1), "", "", G::Dialogs),
+    key(S::Dialog, &[K::Code(C::Esc)], "esc", A::Escape, "", "close a dialog (cancel a plan, a prompt, a search)", G::Dialogs).hint(1),
+    key(S::Dialog, &[K::Code(C::Enter)], "enter", A::Activate, "", "do what's selected", G::Dialogs).label("ok"),
 ];
 
 /// What the drive's jobs do, in the help under each of their homes.
@@ -712,32 +1021,66 @@ const SYNC: &str = "copy the newest drive of the library over the others plugged
 const PACK: &str = "the marked playlists, the playlist shown or the queue, from the open drive onto another";
 const EJECT: &str = "unmount the drive and power it off (playing from it stops first)";
 
+/// What decides the scopes keys are looked up in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Situation {
+    /// The offer to replay edits is up.
+    pub replay: bool,
+    /// The deck has the screen (player mode, Browse closed).
+    pub deck: bool,
+    pub view: View,
+    pub focus: Focus,
+    /// The library has nothing open: the track list shows the next steps.
+    pub empty: bool,
+    /// The digit row plays hot cues.
+    pub pads: bool,
+    pub drive_pane: DrivePane,
+}
+
 /// The scopes keys are looked up in now, most specific first.
 pub fn scopes(app: &App) -> Vec<Scope> {
+    scopes_of(&situation(app))
+}
+
+/// What decides the scopes keys are looked up in now: what's kept drawn from the keys is kept for it.
+pub fn situation(app: &App) -> Situation {
+    Situation {
+        replay: app.replay_offer.is_some(),
+        deck: app.deck_showing(),
+        view: app.view,
+        focus: app.focus,
+        empty: app.empty(),
+        pads: app.pads_on(),
+        drive_pane: app.drive_pane,
+    }
+}
+
+/// The scopes keys are looked up in, in situation `s`, most specific first.
+pub fn scopes_of(s: &Situation) -> Vec<Scope> {
     let mut v = Vec::new();
-    if app.replay_offer.is_some() {
+    if s.replay {
         v.push(Scope::Replay);
     }
-    if app.deck_showing() {
+    if s.deck {
         v.push(Scope::Deck);
     }
-    if app.view == View::Library {
-        v.push(match app.focus {
+    if s.view == View::Library {
+        v.push(match s.focus {
             Focus::Drives => Scope::DriveList,
             Focus::Playlists => Scope::Tree,
-            Focus::Tracks if app.empty() => Scope::Steps,
+            Focus::Tracks if s.empty => Scope::Steps,
             Focus::Tracks => Scope::Tracks,
             Focus::Details => Scope::Details,
             Focus::Crate => Scope::Crate,
         });
     }
-    if app.pads_on() {
+    if s.pads {
         v.push(Scope::Pads);
     }
-    match app.view {
+    match s.view {
         View::Library => v.push(Scope::Library),
         View::Prepare => v.push(Scope::Prepare),
-        View::Drives => v.push(match app.drive_pane {
+        View::Drives => v.push(match s.drive_pane {
             DrivePane::List | DrivePane::Info => Scope::Drives,
             DrivePane::Snapshots => Scope::Snapshots,
             DrivePane::History => Scope::History,
@@ -759,75 +1102,212 @@ pub fn about(act: Act) -> &'static str {
     KEYMAP.iter().find(|b| b.act == act && !b.help.is_empty()).map_or("", |b| b.help)
 }
 
-/// The key `act` answers to in `scope`, if it has one there.
-pub fn key_in(scope: Scope, act: Act) -> Option<&'static K> {
-    KEYMAP.iter().find(|b| b.scope == scope && b.act == act).and_then(|b| b.keys.first())
+/// The key `act` answers to in the first of `scopes` (most specific first) that has one.
+pub fn key_for(scopes: &[Scope], act: Act) -> Option<K> {
+    let e = effective::current();
+    let found = e.key_row(scopes, act).map(|i| e.rows()[i].keys[0]);
+    #[cfg(test)]
+    tests::looked_up(scopes, act, found);
+    found
 }
 
-/// The letter after `g` that goes to `view`.
-pub fn view_letter(view: View) -> &'static str {
-    let row = KEYMAP.iter().find(|b| b.scope == Scope::Goto && b.act == Act::ShowView(view));
-    row.map_or("", |b| &b.shown[2..])
+/// The key `act` answers to in `scopes`, written as text that names it: none when it has none
+/// there.
+pub fn key_name(scopes: &[Scope], act: Act) -> Option<String> {
+    key_for(scopes, act).map(|k| k.name())
 }
 
-/// The binding `key` means in `scopes` (most specific first).
-pub fn lookup(scopes: &[Scope], key: &KeyEvent) -> Option<&'static Binding> {
-    scopes.iter().find_map(|s| KEYMAP.iter().find(|b| b.scope == *s && b.keys.iter().any(|k| k.matches(key))))
+/// What to type in `:` to find `act`, for text that names it where it has no key: its label, or
+/// its name when it has no label. Nothing when `:` doesn't list it.
+pub fn typed_name(act: Act) -> Option<&'static str> {
+    let label = label(act);
+    match name(act) {
+        "" => None,
+        name => Some(if label.is_empty() { name } else { label }),
+    }
 }
 
-/// The key a footer hint's key stands for, when it's one key: `l`, `space`, `enter`. A range
-/// (`1-8`) or a pair of arrows isn't one.
-pub fn hint_key(shown: &str) -> Option<KeyEvent> {
-    let code = match shown {
-        "space" => C::Char(' '),
-        "enter" => C::Enter,
-        "esc" => C::Esc,
-        "tab" => C::Tab,
-        "del" => C::Delete,
-        _ => {
-            let mut chars = shown.chars();
-            match (chars.next(), chars.next()) {
-                (Some(c), None) if !c.is_control() && !"←→↑↓".contains(c) => C::Char(c),
-                _ => return None,
+/// The key that goes to `view`: empty when it has none.
+pub fn view_key(view: View) -> String {
+    key_name(&[Scope::Global], Act::ShowView(view)).unwrap_or_default()
+}
+
+/// What a key does, and the scope it does it in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hit {
+    pub act: Act,
+    pub scope: Scope,
+}
+
+/// What `key` does in `scopes` (most specific first).
+pub fn lookup(scopes: &[Scope], key: &KeyEvent) -> Option<Hit> {
+    let e = effective::current();
+    e.hit(scopes, key).map(|i| Hit { act: e.rows()[i].act, scope: e.rows()[i].scope })
+}
+
+/// What `key` does in the dialog whose scopes are `scopes` (see [`dialog_scopes`]).
+pub fn dialog_act(scopes: &[Scope], key: &KeyEvent) -> Option<Act> {
+    lookup(scopes, key).map(|h| h.act)
+}
+
+/// Whether `key` quits from anywhere, a dialog open or not: ctrl-c, and the quit's other keys
+/// that type nothing (ctrl and a letter, an f key).
+pub fn quits(key: &KeyEvent) -> bool {
+    let types_nothing = |k: &K| matches!(k, K::Ctrl(_) | K::Code(KeyCode::F(_)));
+    let keys = effective::current().keys(Act::Quit);
+    K::Ctrl('c').matches(key) || keys.iter().any(|k| types_nothing(k) && k.matches(key))
+}
+
+/// Which hot cue `key` plays: its place among the hot cues' keys.
+pub fn pad_of(key: &KeyEvent) -> Option<u8> {
+    let keys = effective::current().keys(Act::HotCue);
+    keys.iter().position(|k| k.matches(key)).and_then(|i| u8::try_from(i).ok())
+}
+
+/// `act`'s letter in an actions menu as it came: its row among the menu's letters.
+fn default_letter(act: Act) -> String {
+    let row = KEYMAP.iter().find(|b| b.scope == Scope::Actions && b.act == act && !b.keys.is_empty());
+    row.map_or(String::new(), |b| b.keys[0].name())
+}
+
+/// The letters an actions menu offering `menu` (each act with the letter it came with) writes
+/// beside them: an act's own key where it's been changed to a character, else the letter it came
+/// with. A changed key claims its letter first, so another act that came with it shows none.
+pub fn letters(menu: &[(Act, String)]) -> Vec<String> {
+    let e = effective::current();
+    let own = |act: Act| match e.keys(act).first() {
+        Some(K::Ch(c)) if e.changed(act) && *c != ' ' => Some(c.to_string()),
+        _ => None,
+    };
+    let claimed: Vec<String> = menu.iter().filter_map(|(act, _)| own(*act)).collect();
+    let letter = |(act, came): &(Act, String)| match own(*act) {
+        Some(l) => l,
+        None if claimed.contains(came) => String::new(),
+        None => came.clone(),
+    };
+    menu.iter().map(letter).collect()
+}
+
+/// The letters of an actions menu offering `acts` (see [`letters`]).
+pub fn menu_letters(acts: &[Act]) -> Vec<String> {
+    letters(&acts.iter().map(|a| (*a, default_letter(*a))).collect::<Vec<_>>())
+}
+
+/// Which of `offered` an actions menu's letter `key` runs: the act [`menu_letters`] gives it, so
+/// two views' menus may give one letter to their own acts (`w` saves the profile in localnetwork
+/// and the report in Recordings).
+pub fn menu_act(offered: &[Act], key: &KeyEvent) -> Option<Act> {
+    let Some(K::Ch(c)) = K::of(key) else { return None };
+    let typed = c.to_string();
+    offered.iter().zip(menu_letters(offered)).find(|(_, l)| *l == typed).map(|(a, _)| *a)
+}
+
+/// A row that only hints at a key bound in a wider scope.
+fn is_tip(b: &Binding) -> bool {
+    b.keys.is_empty() && b.name.is_empty() && b.help.is_empty()
+}
+
+/// What `act` is called in a hint: the first label a row of its own gives it.
+pub fn label(act: Act) -> &'static str {
+    KEYMAP.iter().find(|b| b.act == act && !b.label.is_empty() && !is_tip(b)).map_or("", |b| b.label)
+}
+
+/// A hint: the keys as written, what it's called and what it does (a click does that).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub keys: String,
+    pub label: &'static str,
+    pub act: Act,
+    prio: u8,
+}
+
+/// Row `i`'s hint where `scopes` apply: its own key, its pair as written, or the key that does its
+/// act there (with its pair's, or the first and last hot cue's, once one of them has changed).
+fn hint_of(e: &Effective, i: usize, scopes: &[Scope]) -> Option<Hint> {
+    let row = &e.rows()[i];
+    let b = row.b?;
+    let prio = b.hint?;
+    let keys = match (row.keys.first(), b.shown) {
+        (Some(k), _) => k.name(),
+        (None, shown) if !shown.is_empty() && !e.pair_changed(scopes, row.act) => {
+            shown.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+        (None, shown) if !shown.is_empty() => e.pair_written(scopes, row.act, " ")?,
+        (None, _) => e.rows()[e.key_row(scopes, row.act)?].keys[0].name(),
+    };
+    let label = if b.label.is_empty() { label(row.act) } else { b.label };
+    Some(Hint { keys, label, act: row.act, prio })
+}
+
+/// The hints of the rows in `scopes` (most specific first), each key and act once.
+fn hints_in(scopes: &[Scope]) -> Vec<Hint> {
+    let e = effective::current();
+    let mut out: Vec<Hint> = Vec::new();
+    for s in scopes {
+        for h in e.in_scope(*s).filter_map(|i| hint_of(&e, i, scopes)) {
+            if !out.iter().any(|o| o.keys == h.keys || o.act == h.act) {
+                out.push(h);
             }
         }
-    };
-    let shift = matches!(code, C::Char(c) if c.is_uppercase());
-    Some(KeyEvent::new(code, if shift { KeyModifiers::SHIFT } else { KeyModifiers::NONE }))
+    }
+    out
+}
+
+/// `act`'s hint where `scopes` apply, called `label`: what a line of the screen says beside its key.
+pub fn hint_for(scopes: &[Scope], act: Act, label: &'static str) -> Option<Hint> {
+    Some(Hint { keys: key_for(scopes, act)?.name(), label, act, prio: 0 })
+}
+
+/// Where a hint goes in the footer: what enter does first, then the actions, then the rest as the
+/// table has them.
+fn place_of(act: Act) -> u8 {
+    match act {
+        Act::Activate => 0,
+        Act::Actions | Act::PaneActions | Act::DriveActions => 1,
+        _ => 2,
+    }
 }
 
 /// The most hints the compact footer holds.
 const COMPACT: usize = 5;
 
-/// The footer's hints now: the view's own first, then those for everywhere, as many as the setting
-/// and `width` columns allow (the least important go first).
-pub fn hints(app: &App, width: usize) -> Vec<(String, &'static str)> {
+/// What the footer always ends with, whatever the width.
+const PINNED: [Act; 2] = [Act::Palette, Act::Help];
+
+/// The footer's hints now: the view's own first, as many as the setting and `width` columns allow
+/// (the least important go first), then the commands and the help, always.
+pub fn hints(app: &App, width: usize) -> Vec<Hint> {
     if app.hints == Hints::Off {
         return Vec::new();
     }
     let most = if app.hints == Hints::Compact { COMPACT } else { usize::MAX };
-    let scopes = if app.deck_showing() { vec![Scope::Deck] } else { scopes(app) };
-    let mut out: Vec<(String, &'static str, u8)> = Vec::new();
-    let pick = |b: &Binding, out: &mut Vec<(String, &'static str, u8)>| {
-        let Some((label, prio)) = b.hint else { return };
-        let keys = b.shown.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !out.iter().any(|(k, ..)| *k == keys) {
-            out.push((keys, label, prio));
-        }
-    };
-    for s in &scopes {
-        for b in KEYMAP.iter().filter(|b| b.scope == *s) {
-            pick(b, &mut out);
-        }
+    // Player mode hints its own keys, the pads' among them: the hot cues' hint is written from the
+    // keys that play them there.
+    let scopes = if app.deck_showing() { vec![Scope::Deck, Scope::Pads, Scope::Global] } else { scopes(app) };
+    let (pinned, mut out): (Vec<Hint>, Vec<Hint>) =
+        hints_in(&scopes).into_iter().partition(|h| PINNED.contains(&h.act));
+    // Player mode keeps its own order: the hot cues lead.
+    if !app.deck_showing() {
+        out.sort_by_key(|h| place_of(h.act));
     }
     // Each hint takes its keys, a space, its label and two spaces; the footer starts with one.
-    let cost = |(k, l, _): &(String, &str, u8)| k.width() + l.width() + 3;
-    while out.len() > most || (!out.is_empty() && 1 + out.iter().map(cost).sum::<usize>() > width) {
-        let lowest = out.iter().map(|h| h.2).min().unwrap_or(0);
-        let i = out.iter().rposition(|h| h.2 == lowest).unwrap_or(0);
+    let cost = |h: &Hint| h.keys.width() + h.label.width() + 3;
+    let fixed = 1 + pinned.iter().map(cost).sum::<usize>();
+    let over = |out: &[Hint]| out.len() + pinned.len() > most || fixed + out.iter().map(cost).sum::<usize>() > width;
+    while !out.is_empty() && over(&out) {
+        let lowest = out.iter().map(|h| h.prio).min().unwrap_or(0);
+        let i = out.iter().rposition(|h| h.prio == lowest).unwrap_or(0);
         out.remove(i);
     }
-    out.into_iter().map(|(k, l, _)| (k, l)).collect()
+    out.extend(pinned.into_iter().filter(|_| fixed <= width));
+    out
+}
+
+/// A dialog's hints in `scopes` (see [`dialog_scopes`]), the most important first, esc last.
+pub fn dialog_hints(scopes: &[Scope]) -> Vec<Hint> {
+    let mut out = hints_in(scopes);
+    out.sort_by_key(|h| std::cmp::Reverse(h.prio));
+    out
 }
 
 /// One section of the key tables: its title and its lines (keys, what they do).
@@ -838,13 +1318,34 @@ pub type HelpSection = (&'static str, Vec<(&'static str, &'static str)>);
 fn sections(rows: impl Iterator<Item = &'static Binding>) -> Vec<HelpSection> {
     let mut out: Vec<HelpSection> = Vec::new();
     for b in rows.filter(|b| !b.help.is_empty()) {
-        let title = b.group.title();
+        let title = help_title(by_name(b), b.group);
         match out.iter_mut().find(|(t, _)| *t == title) {
-            Some((_, lines)) => lines.push((b.shown, b.help)),
-            None => out.push((title, vec![(b.shown, b.help)])),
+            Some((_, lines)) => lines.push((written(b), b.help)),
+            None => out.push((title, vec![(written(b), b.help)])),
         }
     }
     out
+}
+
+/// What has no key of its own: found by name in the palette (`:`).
+fn by_name(b: &Binding) -> bool {
+    b.keys.is_empty() && b.shown.is_empty() && b.act != Act::None
+}
+
+/// How the help writes what's found by name, in place of its keys.
+const BY_NAME: &str = ":";
+
+/// The heading a row of the help is under: what it's for, or, with no key, that it's found by name.
+fn help_title(by_name: bool, group: Group) -> &'static str {
+    if by_name { BY_NAME_TITLE } else { group.title() }
+}
+
+/// The heading of what's found by name.
+const BY_NAME_TITLE: &str = "By name, in :";
+
+/// How the help writes a row's keys as they came: `:` for what's found by name in the palette.
+pub fn written(b: &Binding) -> &'static str {
+    if by_name(b) { BY_NAME } else { b.shown }
 }
 
 /// A row of the help.
@@ -852,11 +1353,13 @@ pub struct HelpRow {
     /// The section it's under.
     pub title: &'static str,
     pub binding: &'static Binding,
+    /// Its keys as they are now (see [`Effective::written`]).
+    pub keys: String,
 }
 
-/// The rows of the help, as it opens: those of the pane with focus first, then the rest of the
-/// view's, then those for everywhere. Typing narrows them to rows holding each word typed, a row
-/// for the very keys typed first.
+/// The rows of the help, as it opens: the keys, those of the pane with focus first, then the rest
+/// of the view's, then those for everywhere; then what has no key, found by name in `:`. Typing
+/// narrows them to rows holding each word typed, a row for the very keys typed first.
 pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
     let focused = scopes(app);
     let own: &[Scope] = view_scopes(app.view);
@@ -866,24 +1369,34 @@ pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
             0
         } else if own.contains(&s) {
             1
-        } else {
+        } else if !s.dialog() {
             2
+        } else {
+            3
         }
     };
-    let wanted =
-        |s: Scope| focused.contains(&s) || own.contains(&s) || matches!(s, Scope::Pads | Scope::Goto | Scope::Queue);
-    let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| in_help(b) && wanted(b.scope)).collect();
-    // The crate's own keys under its heading, after marking and adding to it.
-    rows.sort_by_key(|b| (rank(b.scope), b.group as u8, b.scope == Scope::Crate));
+    let wanted = |s: Scope| focused.contains(&s) || own.contains(&s) || s.dialog() || s == Scope::Pads;
+    let e = effective::current();
+    let mut rows: Vec<HelpRow> = (e.rows().iter().enumerate())
+        .filter_map(|(i, r)| r.b.filter(|b| in_help(b) && wanted(r.scope)).map(|b| (i, b)))
+        .map(|(i, binding)| HelpRow { title: help_title(e.by_name(i), binding.group), binding, keys: e.written(i) })
+        .collect();
+    // The keys first, those found by name after; the crate's own under its heading, after marking
+    // and adding to it.
+    let order = |r: &HelpRow| {
+        (r.title == BY_NAME_TITLE, rank(r.binding.scope), r.binding.group as u8, r.binding.scope == Scope::Crate)
+    };
+    rows.sort_by_key(order);
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     if !words.is_empty() {
-        rows.retain(|b| {
-            let text = format!("{} {} {}", b.shown, b.help, b.name).to_lowercase();
+        rows.retain(|r| {
+            let b = r.binding;
+            let text = format!("{} {} {} {}", r.keys, b.help, b.name, b.words).to_lowercase();
             words.iter().all(|w| text.contains(w.as_str()))
         });
-        rows.sort_by_key(|b| b.shown.split_whitespace().all(|k| k != query.trim()));
+        rows.sort_by_key(|r| r.keys.split_whitespace().all(|k| k != query.trim()));
     }
-    rows.into_iter().map(|binding| HelpRow { title: binding.group.title(), binding }).collect()
+    rows
 }
 
 /// Whether a row is in the help, which lists keys: a command with none is the palette's alone.
@@ -891,25 +1404,30 @@ fn in_help(b: &Binding) -> bool {
     !b.help.is_empty() && b.group != Group::Commands
 }
 
-/// Whether enter can run a help row: what needs the key itself, or moves what the help covers,
-/// has to be pressed.
-pub fn runs(act: Act) -> bool {
-    !matches!(
-        act,
-        Act::None
-            | Act::Help
-            | Act::Goto
-            | Act::QueueChord
-            | Act::PaneKey
-            | Act::HotCue
-            | Act::Move(_)
-            | Act::Page(_)
-            | Act::End(_)
-            | Act::Focus(_)
-            | Act::Escape
-            | Act::Activate
-            | Act::Remove
-    )
+/// Whether a hint runs what it does when clicked: what needs the key pressed (a digit) can't.
+pub fn clicks(act: Act) -> bool {
+    // A pair (`shift ↑↓`, `n p`) would only do its first half.
+    !matches!(act, Act::None | Act::HotCue | Act::CrateMove(_) | Act::MixTrack(_))
+}
+
+/// Whether enter can run a help row: what needs the key itself, moves what the help covers, or is
+/// a dialog's (which isn't open), has to be pressed.
+pub fn runs(b: &Binding) -> bool {
+    !b.scope.dialog()
+        && !matches!(
+            b.act,
+            Act::None
+                | Act::Help
+                | Act::HotCue
+                | Act::Move(_)
+                | Act::Page(_)
+                | Act::End(_)
+                | Act::Focus(_)
+                | Act::Escape
+                | Act::Activate
+                | Act::Remove
+                | Act::MixForget
+        )
 }
 
 fn view_scopes(view: View) -> &'static [Scope] {
@@ -926,17 +1444,22 @@ fn view_scopes(view: View) -> &'static [Scope] {
 #[cfg(test)]
 pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     let own = view_scopes(view);
-    // The crate's own keys under its heading, after marking and adding to it.
+    // The keys first, those found by name after; the crate's own under its heading, after marking
+    // and adding to it.
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope) && in_help(b)).collect();
-    rows.sort_by_key(|b| (b.group as u8, b.scope == Scope::Crate));
+    rows.sort_by_key(|b| (by_name(b), b.group as u8, b.scope == Scope::Crate));
     let everywhere =
-        |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto | Scope::Queue) && in_help(b);
+        |b: &&Binding| (b.scope.dialog() || matches!(b.scope, Scope::Global | Scope::Pads | Scope::Deck)) && in_help(b);
     let global = KEYMAP.iter().filter(everywhere);
     let mut global: Vec<&'static Binding> = global.collect();
-    global.sort_by_key(|b| b.group as u8);
+    global.sort_by_key(|b| (by_name(b), b.group as u8));
     (sections(rows.into_iter()), sections(global.into_iter()))
 }
 
-pub mod bound;
+pub mod conflict;
+pub mod effective;
+pub mod ids;
 #[cfg(test)]
 mod tests;
+
+use effective::Effective;

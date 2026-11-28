@@ -62,6 +62,7 @@ impl App {
         self.deck.art = s.art.unwrap_or(true);
         self.deck.art_halfblocks = s.art_halfblocks;
         self.hints = s.hints.as_deref().and_then(Hints::parse).unwrap_or_default();
+        self.help_hint = s.help_hint.unwrap_or(true);
         self.recent_commands = s.recent_commands.clone();
         self.intro_seen = s.intro_seen.clone();
         if let Some(v) = s.volume {
@@ -109,6 +110,7 @@ impl App {
             art: Some(self.deck.art),
             art_halfblocks: self.deck.art_halfblocks,
             hints: (self.hints != Hints::default()).then(|| self.hints.name().to_string()),
+            help_hint: (!self.help_hint).then_some(false),
             recent_commands: self.recent_commands.clone(),
             intro_seen: self.intro_seen.clone(),
             mixes: self.mix.recent.clone(),
@@ -168,6 +170,8 @@ impl App {
     /// Save what to remember when it has changed (checked every couple of seconds), so a crash
     /// or a killed terminal loses little.
     pub(super) fn autosave(&mut self) {
+        #[cfg(feature = "account")]
+        self.publish_keys();
         if self.state_unreadable || self.last_save_check.elapsed() < Duration::from_secs(2) {
             return;
         }

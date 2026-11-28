@@ -1,6 +1,6 @@
 //! What other code writes to stderr while the player draws on the terminal would draw over the
 //! screen: alsa-lib, for one, prints its complaints there from any thread when there's no sound
-//! card. It goes to the messages (`!`) instead, as plugins' logs do, until the screen is put back.
+//! card. It goes to the messages (in `:`) instead, as plugins' logs do, until the screen is put back.
 //! Only on Unix; stderr redirected elsewhere (`2>file`) is captured all the same.
 
 /// Send what's written to stderr from here on to `log`, a line at a time (once).

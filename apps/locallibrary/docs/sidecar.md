@@ -438,12 +438,13 @@ operation (`where`: `track`, `playlist`, `drive`), each panel's title, each them
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
-default; `key` `services.<name>` turns a service on or off, `keys.<name>` sets the player's key
-for a command or operation) answer `{plugin, settings: {key: value},
+default; `key` `services.<name>` turns a service on or off) answer `{plugin, settings: {key: value},
 secrets: {key: set}}`: a secret setting is set
 like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
 not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
-why.
+why. A command's or operation's key in the player isn't a plugin setting: it's in the player's
+`keybinds.json` as `plugin.<id>.<name>` (see [Your own keys](player.md#your-own-keys)), and the
+player moves the `keys.<name>` settings earlier versions kept there the first time it starts.
 
 The applies below also take the request, planning and applying in one go. Plugins' plans are kept
 apart from the rest, so planning with plugins never pushes out a plan of locallibrary's own. A

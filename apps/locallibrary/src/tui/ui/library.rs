@@ -17,6 +17,7 @@ use crate::output::{bytes, clock};
 use crate::tui::app::{App, COLLECTION_NAME, Focus};
 use crate::tui::browse::{NodeId, sort_label, stars};
 use crate::tui::icons;
+use crate::tui::keymap::{self, Act};
 use crate::tui::keys::{Camelot, Notation, Relation};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
@@ -143,7 +144,7 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
         })
     }));
     if area.height <= 1 {
-        return title_row(f, pane_title(1, title, focused), focused, area);
+        return title_row(f, pane_title(title, focused), focused, area);
     }
     let list = drive_list(items, title, focused, app.scanning() && !collection);
     let rows = app.source_rows();
@@ -207,7 +208,7 @@ pub(super) fn drive_list(items: Vec<ListItem<'static>>, title: &str, focused: bo
     } else {
         List::new(items)
     };
-    list.block(block(pane_title(1, title, focused), focused))
+    list.block(block(pane_title(title, focused), focused))
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)))
 }
@@ -256,14 +257,14 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             Span::raw(" "),
         ]),
         Some(l) if l.stale => {
-            let mut spans = pane_start(2, focused);
+            let mut spans = pane_start(focused);
             spans.extend([
                 Span::styled("Playlists", bold(theme::current().dim)),
                 Span::styled(" unplugged ", bold(theme::current().critical)),
             ]);
             Line::from(spans)
         }
-        _ => pane_title(2, "Playlists", focused),
+        _ => pane_title("Playlists", focused),
     };
     if area.height <= 1 {
         return title_row(f, heading, focused, area);
@@ -548,7 +549,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         None => ("Tracks".to_string(), 0),
     };
     let left_out = app.loaded.as_ref().map_or(0, |l| l.left_out());
-    let mut left = pane_start(3, focused);
+    let mut left = pane_start(focused);
     left.extend([
         Span::styled(heading, if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {count} "), faint()),
@@ -791,9 +792,9 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Details;
     if area.height <= 1 {
-        return title_row(f, pane_title(5, "Track", focused), focused, area);
+        return title_row(f, pane_title("Track", focused), focused, area);
     }
-    let b = block(pane_title(5, "Track", focused), focused);
+    let b = block(pane_title("Track", focused), focused);
     let inner = b.inner(area).inner(Margin { vertical: 0, horizontal: 1 });
     f.render_widget(b, area);
     let (Some(l), Some(i)) = (&app.loaded, app.selected_track()) else {
@@ -917,7 +918,7 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Crate;
     let list = &app.crate_list;
     let up = list.up_next().count();
-    let mut heading = pane_start(4, focused);
+    let mut heading = pane_start(focused);
     heading.extend([
         Span::styled("Queue", if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {up} up next "), faint()),
@@ -955,14 +956,21 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(lines.into_iter().take(tail as usize).collect::<Vec<_>>()), from_area);
     }
     if list.is_empty() {
-        let p = Paragraph::new(vec![Line::from(vec![
-            Span::styled("Nothing picked. ", dim()),
-            Span::styled("q n", theme::key()),
-            Span::styled(" plays the selected track next, ", dim()),
-            Span::styled("q a", theme::key()),
-            Span::styled(" adds it to the end.", dim()),
-        ])])
-        .wrap(Wrap { trim: true });
+        let scopes = keymap::scopes(app);
+        let ways = [
+            key_says(&scopes, Act::QueueNext, " plays the selected track next", dim()),
+            key_says(&scopes, Act::CrateAdd, " adds it to the end", dim()),
+        ];
+        let ways: Vec<Vec<Span>> = ways.into_iter().filter(|w| !w.is_empty()).collect();
+        let mut said = vec![Span::styled("Nothing picked.", dim())];
+        for (i, way) in ways.into_iter().enumerate() {
+            said.push(Span::styled(if i == 0 { " " } else { ", " }, dim()));
+            said.extend(way);
+        }
+        if said.len() > 1 {
+            said.push(Span::styled(".", dim()));
+        }
+        let p = Paragraph::new(vec![Line::from(said)]).wrap(Wrap { trim: true });
         f.render_widget(p, rows);
         return;
     }

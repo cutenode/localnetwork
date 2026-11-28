@@ -4666,6 +4666,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hegeltest",
  "indexmap",
+ "libc",
  "loclib-model",
  "loclib-plugin",
  "loclib-sqlcipher",
@@ -4680,6 +4681,8 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
+ "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

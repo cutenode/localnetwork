@@ -5569,11 +5569,13 @@ export type SettingsExport = {
    * provider's candidate is picked, and whether each check runs.
    */
   plugin_host: { [key: string]: unknown };
-  /**
-   * Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`
-   * among them).
-   */
+  /** Each plugin's settings by its id, as it keeps them (`services.<name>` among them). */
   plugins: { [key: string]: unknown };
+  /**
+   * The keys set in the player ([`Keybinds`], `keybinds.json`), without when they last changed
+   * here.
+   */
+  keybinds: { [key: string]: unknown };
 };
 
 /**
@@ -5589,7 +5591,7 @@ export type ImportSettingsFilePlan = {
 
 /** One of the file's values that isn't as it is here. */
 export type SettingsFileChange = {
-  /** The section, then each key down to the value: `["plugins", "sound", "keys.analyze"]`. */
+  /** The section, then each key down to the value: `["plugins", "sound", "services.watch"]`. */
   path: string[];
   action: SettingsFileAction;
   /** The value here (`None`: not set). */

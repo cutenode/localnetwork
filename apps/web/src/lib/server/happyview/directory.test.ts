@@ -703,19 +703,22 @@ describe('reading through to the PDS', () => {
 	});
 });
 
-describe('DJ profile, rekordbox settings, and press kit record scripts', () => {
+describe('DJ profile, rekordbox settings, player keys, and press kit record scripts', () => {
 	const SETTINGS = 'computer.localnetwork.locallibrary.settings';
+	const KEYBINDS = 'computer.localnetwork.locallibrary.keybinds';
 
-	it("keeps every account's DJ stats and rekordbox settings as written, at the key self only", async () => {
+	it("keeps every account's DJ stats, rekordbox settings and player keys as written, at the key self only", async () => {
 		const hv = new FakeHappyView(ROOT);
 		const profile = { generatedAt: '2026-10-01T00:00:00.000Z', tempo: { low: 120, high: 132, median: 126 } };
 		const settings = { updatedAt: '2026-10-01T00:00:00.000Z', player: { quantize: 'on' } };
+		const keybinds = { updatedAt: '2026-10-01T00:00:00.000Z', bindings: [{ action: 'playback.next', keys: [']'] }] };
 		const kept = [];
 		const uris = [];
 
 		for (const [collection, record] of [
 			[COLLECTION.djProfile, profile],
-			[SETTINGS, settings]
+			[SETTINGS, settings],
+			[KEYBINDS, keybinds]
 		] as const) {
 			kept.push({
 				...(await ingest(hv, 'did:plc:anyone', collection, 'self', record)),
@@ -726,7 +729,8 @@ describe('DJ profile, rekordbox settings, and press kit record scripts', () => {
 
 		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual(kept);
 
-		await hv.ingest({ did: 'did:plc:anyone', collection: SETTINGS, rkey: 'self', cid: '', record: null });
+		for (const collection of [SETTINGS, KEYBINDS])
+			await hv.ingest({ did: 'did:plc:anyone', collection, rkey: 'self', cid: '', record: null });
 		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual(kept.slice(0, 1));
 	});
 

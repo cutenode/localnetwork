@@ -2,7 +2,7 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "settings-export.schema.json",
 	"title": "locallibrary settings",
-	"description": "What `locallibrary settings export` writes and `settings import FILE` reads: everything set in a store, and the player's preferences. Each section is as the store keeps it, with empty maps and lists left out. Plugins' secrets are never in it.",
+	"description": "What `locallibrary settings export` writes and `settings import FILE` reads: everything set in a store, and the player's preferences and keys. Each section is as the store keeps it, with empty maps and lists left out. Plugins' secrets are never in it.",
 	"type": "object",
 	"required": ["version"],
 	"properties": {
@@ -139,6 +139,7 @@
 				"art": { "description": "Cover art.", "type": "boolean" },
 				"art_halfblocks": { "description": "Cover art in half blocks, whatever graphics the terminal seems to have.", "type": "boolean" },
 				"hints": { "description": "How much the footer says.", "enum": ["full", "compact", "off"] },
+				"help_hint": { "description": "With no hints, the footer still says ? help, unless this is false.", "type": "boolean" },
 				"recent_commands": { "description": "The palette's commands run lately, newest first, by name.", "$ref": "#/$defs/names" }
 			}
 		},
@@ -170,10 +171,26 @@
 			"type": "object"
 		},
 		"plugins": {
-			"description": "Each plugin's settings by its id, as it keeps them, with `services.<name>` (a service kept running) and `keys.<name>` (a command's key in the player) among them. A plugin that isn't installed keeps its settings for when it is.",
+			"description": "Each plugin's settings by its id, as it keeps them, with `services.<name>` (a service kept running) among them. A plugin that isn't installed keeps its settings for when it is.",
 			"type": "object",
 			"propertyNames": { "pattern": "^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$" },
 			"additionalProperties": { "type": "object" }
+		},
+		"keybinds": {
+			"description": "The keys set in the player, as keybinds.json keeps them (see keybinds.schema.json), without when they last changed. Importing goes action by action: an action's keys are one value.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"keys": {
+					"description": "The actions whose keys differ from the player's defaults, by id: each one's keys in order, or none for no key.",
+					"type": "object",
+					"additionalProperties": { "$ref": "#/$defs/names" }
+				},
+				"from": {
+					"description": "The account some of these keys were imported from (a DID).",
+					"type": "string"
+				}
+			}
 		}
 	},
 	"$defs": {

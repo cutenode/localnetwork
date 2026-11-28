@@ -268,7 +268,7 @@ fn the_sources_pane_draws_the_collection_above_the_drives_and_a_double_click_ope
 
     // My Tags are an edit too: none on the collection.
     app.focus = Focus::Playlists;
-    press(&mut app, "T");
+    app.perform(crate::tui::keymap::Act::Tag, None);
     assert_eq!(last_message(&app), COLLECTION_READ_ONLY);
     assert!(app.modal.is_none() && app.job.is_none());
 }

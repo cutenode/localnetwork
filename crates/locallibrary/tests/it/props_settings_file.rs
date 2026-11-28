@@ -1,7 +1,8 @@
 //! Everything set in a store to and from one file (`settings export`, `settings import FILE`):
 //! an export fits the checked-in schema, importing it into an empty store gives the same file back,
 //! importing adds without touching what's set (unless replacing), plugins that aren't here keep
-//! their settings, and of what the player remembers only its preferences ever go out.
+//! their settings, of what the player remembers only its preferences ever go out, and the player's
+//! keys go action by action. `keybinds.schema.json` is the file's schema, made from [`Keybinds`].
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::api::{self, ImportSettingsFile};
 use locallibrary::equipment::Remembered;
+use locallibrary::keybinds::{self, Keybinds};
 use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::profile::{Precision, ProfilePrefs, Section};
 use locallibrary::query::{SortField, SortKey};
@@ -33,6 +35,7 @@ struct Contents {
     store: Option<StorePrefs>,
     host: Map<String, Value>,
     plugins: Map<String, Value>,
+    keybinds: Option<Keybinds>,
 }
 
 impl Contents {
@@ -59,6 +62,9 @@ impl Contents {
         for (id, settings) in &self.plugins {
             fs::create_dir_all(plugins.join(id)).unwrap();
             fs::write(plugins.join(id).join("settings.json"), serde_json::to_vec(settings).unwrap()).unwrap();
+        }
+        if let Some(binds) = &self.keybinds {
+            keybinds::save(store.root(), binds).unwrap();
         }
     }
 }
@@ -153,6 +159,7 @@ fn contents(tc: &TestCase) -> Contents {
             art: maybe(tc),
             art_halfblocks: maybe(tc),
             hints: tc.draw(gs::optional(gs::sampled_from(vec!["full", "off"]))).map(String::from),
+            help_hint: maybe(tc),
             recent_commands: tc
                 .draw(gs::optional(gs::vecs(gs::sampled_from(vec!["quit", "sync"])).max_size(2)))
                 .map(|c| c.into_iter().map(String::from).collect()),
@@ -177,10 +184,23 @@ fn contents(tc: &TestCase) -> Contents {
     }
     for id in tc.draw(gs::vecs(gs::sampled_from(vec!["sound", "coverart", "not-installed"])).max_size(3)) {
         let mut settings = Map::new();
-        for key in tc.draw(gs::vecs(gs::sampled_from(vec!["greeting", "keys.analyze", "services.watch"])).max_size(3)) {
+        for key in tc.draw(gs::vecs(gs::sampled_from(vec!["greeting", "language", "services.watch"])).max_size(3)) {
             settings.insert(key.into(), scalar(tc));
         }
         c.plugins.insert(id.into(), settings.into());
+    }
+    if tc.draw(gs::booleans()) {
+        let mut binds = Keybinds {
+            from: tc.draw(gs::optional(gs::sampled_from(vec!["did:plc:abc", "did:plc:xyz"]))).map(String::from),
+            updated_at: tc.draw(gs::optional(gs::sampled_from(vec!["2026-11-20T18:00:00.000Z"]))).map(String::from),
+            ..Default::default()
+        };
+        let ids = vec!["playback.next", "player.jobs", "plugin.sound.analyze", "visuals.sparkles"];
+        for id in tc.draw(gs::vecs(gs::sampled_from(ids)).max_size(3)) {
+            let keys = tc.draw(gs::vecs(gs::sampled_from(vec!["]", "n", "f6", "ctrl-k", "not a key"])).max_size(2));
+            binds.keys.insert(id.into(), keys.into_iter().map(String::from).collect());
+        }
+        c.keybinds = Some(binds);
     }
     c
 }
@@ -307,8 +327,8 @@ fn prop_importing_adds_and_replacing_overwrites(tc: TestCase) {
     replaced(&theirs, &after, Some(&ours), "");
 }
 
-/// A plugin that isn't here keeps its settings (its key bindings among them) for when it is; a
-/// value that differs is kept and listed, and `replace` takes the file's.
+/// A plugin that isn't here keeps its settings for when it is; a value that differs is kept and
+/// listed, and `replace` takes the file's.
 #[test]
 fn plugins_not_here_keep_their_settings_and_a_difference_is_listed() {
     let dir = tempfile::tempdir().unwrap();
@@ -323,7 +343,7 @@ fn plugins_not_here_keep_their_settings_and_a_difference_is_listed() {
     let doc = json!({
         "version": 1,
         "my_settings": { "base": { "quantize": "off", "jog_mode": "cdj" } },
-        "plugins": { "not-installed": { "keys.analyze": "a", "services.watch": true } }
+        "plugins": { "not-installed": { "language": "a", "services.watch": true } }
     });
     fs::write(&file, doc.to_string()).unwrap();
     let req = ImportSettingsFile { file: file.clone(), replace: false };
@@ -338,9 +358,9 @@ fn plugins_not_here_keep_their_settings_and_a_difference_is_listed() {
 
     let after = api::settings_import_file(&store, &req).unwrap();
     assert_eq!(after.my_settings["base"], json!({ "jog_mode": "cdj", "quantize": "on" }));
-    assert_eq!(after.plugins["not-installed"], json!({ "keys.analyze": "a", "services.watch": true }));
+    assert_eq!(after.plugins["not-installed"], json!({ "language": "a", "services.watch": true }));
     let kept_file = store.root().join("plugins/not-installed/settings.json");
-    assert_eq!(serde_json::from_slice::<Value>(&fs::read(kept_file).unwrap()).unwrap()["keys.analyze"], "a");
+    assert_eq!(serde_json::from_slice::<Value>(&fs::read(kept_file).unwrap()).unwrap()["language"], "a");
 
     let again = api::settings_import_file_plan(&store, &req).unwrap();
     assert!(again.noop, "{:?}", again.plan.changes);
@@ -490,7 +510,7 @@ fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
     let drive = Uuid::from_u128(1).to_string();
     let drive = drive.as_str();
     let replace = tc.draw(gs::booleans());
-    for case in 0..11u8 {
+    for case in 0..12u8 {
         let (doc, says) = match case {
             0 => (json!({ "version": 0 }), "not one locallibrary wrote".to_string()),
             1 => {
@@ -510,6 +530,7 @@ fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
             7 => (json!({ "version": 1, "player": { "theme": 5 } }), "player".into()),
             8 => (json!({ "version": 1, "mix": { "index_limit_mib": "lots" } }), "mix".into()),
             9 => (json!({ "version": 1, "store": { "copy_on_write": "yes" } }), "store".into()),
+            10 => (json!({ "version": 1, "keybinds": { "keys": { "playback.next": "]" } } }), "keybinds".into()),
             _ => {
                 let id = tc.draw(gs::sampled_from(vec!["../up", "a b", ""]));
                 (json!({ "version": 1, "plugins": { id: {} } }), "plugins".into())
@@ -542,6 +563,7 @@ fn prop_a_store_file_that_cant_be_read_stops_export_and_import(tc: TestCase) {
         locallibrary::mix::prefs::PREFS_FILE,
         locallibrary::store::prefs::PREFS_FILE,
         "plugins/sound/settings.json",
+        "keybinds.json",
     ]));
     let path = store.root().join(damaged);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -565,6 +587,7 @@ fn prop_an_import_that_cant_be_written_fails(tc: TestCase) {
         (json!({ "my_settings": { "base": { "quantize": "off" } } }), "settings.json"),
         (json!({ "players": { "default": ["CDJ-3000"] } }), "players.json"),
         (json!({ "mix": { "index_limit_mib": 64 } }), locallibrary::mix::prefs::PREFS_FILE),
+        (json!({ "keybinds": { "keys": { "playback.next": ["]"] } } }), "keybinds.json"),
     ]));
     let mut doc = section;
     doc["version"] = json!(1);
@@ -575,4 +598,108 @@ fn prop_an_import_that_cant_be_written_fails(tc: TestCase) {
     fs::create_dir_all(store.root().join(kept_in).join("in the way")).unwrap();
     assert!(merged.write(&store).is_err());
     assert!(store.root().join(kept_in).is_dir());
+}
+
+/// The player's keys go out as `keybinds.json` keeps them, but for when they last changed here.
+/// Importing them goes action by action: an action's keys are one value, its list never merged
+/// with the one here, and an empty one (no key) is kept, not left out. What's imported is a change
+/// made now.
+#[test]
+fn settings_export_carries_the_keybinds() {
+    let dir = tempfile::tempdir().unwrap();
+    let (from, into) = (store_in(dir.path(), "from"), store_in(dir.path(), "into"));
+    let binds = |pairs: &[(&str, &[&str])], from: Option<&str>| {
+        let mut out = Keybinds { from: from.map(String::from), ..Default::default() };
+        out.updated_at = Some("2026-11-01T00:00:00.000Z".into());
+        for (id, keys) in pairs {
+            out.keys.insert(id.to_string(), keys.iter().map(|k| k.to_string()).collect());
+        }
+        out
+    };
+    let theirs =
+        binds(&[("player.jobs", &[]), ("playback.next", &["]"]), ("visuals.sparkles", &["f6"])], Some("did:plc:abc"));
+    keybinds::save(from.root(), &theirs).unwrap();
+    keybinds::save(into.root(), &binds(&[("playback.next", &["n", "m"])], None)).unwrap();
+    let file = exported(&from, dir.path());
+    let export: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(
+        export["keybinds"],
+        json!({ "keys": { "playback.next": ["]"], "player.jobs": [], "visuals.sparkles": ["f6"] }, "from": "did:plc:abc" })
+    );
+
+    let plan =
+        api::settings_import_file_plan(&into, &ImportSettingsFile { file: file.clone(), replace: false }).unwrap();
+    let changes: Vec<(String, Action)> = plan.plan.changes.iter().map(|c| (c.path.join("."), c.action)).collect();
+    assert_eq!(
+        changes,
+        [
+            ("keybinds.keys.playback.next".to_string(), Action::Keep),
+            ("keybinds.keys.player.jobs".into(), Action::Add),
+            ("keybinds.keys.visuals.sparkles".into(), Action::Add),
+            ("keybinds.from".into(), Action::Add),
+        ]
+    );
+    let before = chrono::Utc::now();
+    import(&into, &file, false);
+    let kept = keybinds::load(into.root()).unwrap();
+    assert_eq!(kept.keys["playback.next"], ["n", "m"], "the one here stays whole");
+    assert_eq!(kept.keys["player.jobs"], Vec::<String>::new());
+    assert_eq!(kept.from.as_deref(), Some("did:plc:abc"));
+    let stamped = chrono::DateTime::parse_from_rfc3339(kept.updated_at.as_deref().unwrap()).unwrap();
+    assert!(stamped >= before - chrono::Duration::seconds(1), "{stamped}");
+    import(&into, &file, true);
+    assert_eq!(keybinds::load(into.root()).unwrap().keys["playback.next"], ["]"]);
+}
+
+/// `keybinds.schema.json` beside the player's docs is what `Keybinds` makes. When the file
+/// changes, regenerate it: run this test with `LOCALLIBRARY_BLESS=1`. Files the player writes fit
+/// it, and one with a key list that isn't one doesn't.
+#[test]
+fn the_keybinds_schema_is_the_file() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/locallibrary/docs/keybinds.schema.json");
+    let mut schema = schemars::generate::SchemaSettings::draft2020_12()
+        .for_deserialize()
+        .into_generator()
+        .into_root_schema_for::<Keybinds>();
+    schema.insert("$id".into(), "keybinds.schema.json".into());
+    schema.insert("title".into(), "locallibrary keybinds".into());
+    schema.insert(
+        "description".into(),
+        "keybinds.json: the keys set in locallibrary's player, beside tui.json. Only the actions whose keys \
+         differ from the player's defaults, by id. An id the player doesn't know is kept and ignored, and a \
+         key it can't read is skipped when the file is applied."
+            .into(),
+    );
+    let mut made = serde_json::to_string_pretty(&schema).unwrap();
+    made.push('\n');
+    let kept = fs::read_to_string(&path).unwrap_or_default();
+    if made != kept && std::env::var_os("LOCALLIBRARY_BLESS").is_some_and(|v| v == "1") {
+        fs::write(&path, &made).unwrap();
+    } else {
+        assert!(
+            made == kept,
+            "apps/locallibrary/docs/keybinds.schema.json is out of date: Keybinds changed. Regenerate it with \
+             `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-core -E 'test(the_keybinds_schema_is_the_file)'`"
+        );
+    }
+    let validator = jsonschema::validator_for(&serde_json::from_str(&made).unwrap()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut binds = Keybinds { from: Some("did:plc:abc".into()), ..Default::default() };
+    binds.keys.insert("deck.hot-cue".into(), vec!["&".into(), "é".into()]);
+    binds.keys.insert("player.jobs".into(), vec![]);
+    let store = store_in(dir.path(), "store");
+    keybinds::save(store.root(), &binds).unwrap();
+    let written: Value = serde_json::from_slice(&fs::read(store.root().join("keybinds.json")).unwrap()).unwrap();
+    assert!(validator.is_valid(&written), "{written}");
+    assert!(!validator.is_valid(&json!({ "keys": { "player.jobs": "j" } })));
+}
+
+/// With no store, `settings export` (and the sidecar's) prints [`SettingsExport::default`]: the
+/// file an empty store exports, no keys set in it.
+#[test]
+fn the_empty_export_is_an_empty_stores() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = json_of(&SettingsExport::default());
+    assert_eq!(empty["keybinds"], json!({}), "{empty}");
+    assert_eq!(empty, json_of(&api::settings_export(&store_in(dir.path(), "store")).unwrap()));
 }

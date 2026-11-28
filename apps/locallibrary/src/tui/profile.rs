@@ -1,7 +1,7 @@
 //! The localnetwork view: the sections of the DJ profile that can be published (what the
 //! collection and the sets say), and which of them the document holds. Choices (sections, hidden
 //! artists, rounding) are saved to the store as they're made, and the document follows at once;
-//! only a rebuild (`R`) reads the drives again.
+//! only a refresh (`f5`) reads the drives again.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,10 +21,13 @@ use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, T
 use super::account::Account;
 use super::app::{App, Level, Msg};
 use super::icons;
-use super::keymap::Act;
+use super::keymap::{self, Act, Scope};
 use super::theme::{self, bold, dim, faint, fg, text};
 use super::ui::{Scrolled, block, pane_title, title};
 use crate::output::{BLOCKS, bar, opt_pct, pct, plural};
+
+/// The scopes the localnetwork view looks its keys up in.
+pub(super) const PROFILE: [Scope; 2] = [Scope::Profile, Scope::Global];
 
 /// The sections the view lists: the ones that can be published ([`Section::publishable`]).
 /// What only describes plays (tempo, keys, mixing…) stays out of this view.
@@ -307,17 +310,6 @@ pub fn switch_pane(app: &mut App) {
     t.clamp_rows();
 }
 
-/// A digit: the pane with that number, when there's something in it.
-pub fn jump_to_pane(app: &mut App, n: u32) {
-    let t = &mut app.profile;
-    match n {
-        1 if !t.document => t.pane = Pane::Sections,
-        2 if !t.document && t.detail_len() > 0 => t.pane = Pane::Detail,
-        _ => return,
-    }
-    t.clamp_rows();
-}
-
 /// Esc: close the document, or go back to the sections. Returns whether there was either.
 pub fn escape(app: &mut App) -> bool {
     let t = &mut app.profile;
@@ -385,7 +377,8 @@ fn hide_artist(app: &mut App) {
         _ => None,
     };
     let Some(a) = artist else {
-        app.toast("select an artist under Artists (tab) to hide them", Level::Info);
+        let tab = keymap::key_name(&PROFILE, Act::Focus(false)).map(|k| format!(" ({k})")).unwrap_or_default();
+        app.toast(format!("select an artist under Artists{tab} to hide them"), Level::Info);
         return;
     };
     let (update, msg) = artist_toggle(&v.prefs, &a.name);
@@ -601,7 +594,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         })
         .collect();
     let list = List::new(items)
-        .block(block(pane_title(1, "Sections", focused), focused))
+        .block(block(pane_title("Sections", focused), focused))
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     t.sections.fit(side.height.saturating_sub(2) as usize, SECTIONS.len());
@@ -619,7 +612,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         Span::styled(" only on this computer ", faint())
     };
     let detail_focused = t.pane == Pane::Detail;
-    let b = block(pane_title(2, section.title_in(r.basis), detail_focused), detail_focused)
+    let b = block(pane_title(section.title_in(r.basis), detail_focused), detail_focused)
         .title(Line::from(state).right_aligned());
     let inner = b.inner(detail);
     f.render_widget(b, detail);
@@ -629,12 +622,17 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         (true, true) => "Published, this shows ",
         (true, false) => "Published, this would show ",
     };
-    let spans = vec![
-        Span::styled(format!(" {reveal_text}"), faint()),
-        Span::styled(section.reveals().to_string(), dim()),
-        Span::styled("   i ", theme::key()),
-        Span::styled(if on { "leave out" } else { "include" }, faint()),
-    ];
+    let mut spans =
+        vec![Span::styled(format!(" {reveal_text}"), faint()), Span::styled(section.reveals().to_string(), dim())];
+    let verb = if on { "leave out" } else { "include" };
+    // In the view's actions menu; with no key for it, found by name.
+    spans.extend(match keymap::key_name(&PROFILE, Act::PaneActions) {
+        Some(k) => vec![Span::styled(format!("   {verb} in "), faint()), Span::styled(k, theme::key())],
+        None => vec![Span::styled(
+            format!("   {verb}: {} in :", keymap::typed_name(Act::ProfileInclude).unwrap_or_default()),
+            faint(),
+        )],
+    });
     f.render_widget(Paragraph::new(Line::from(spans)).wrap(Wrap { trim: true }), reveal);
     let body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
     let w = body.width as usize;

@@ -1,5 +1,6 @@
 //! The Prepare view: the jobs that get a drive ready for a set, each what the palette runs. Those
-//! with no key elsewhere live here, and a row that can't run now says why.
+//! with no key elsewhere live here (the actions menu, `e`, has each by its letter), and a row that
+//! can't run now says why.
 
 use std::sync::LazyLock;
 
@@ -12,7 +13,6 @@ use unicode_width::UnicodeWidthStr;
 use super::app::App;
 use super::icons;
 use super::keymap::{self, Act, Scope};
-use super::palette::key_name;
 use super::theme::{self, dim, faint, fg, text};
 use super::ui::{Scrolled, block, clip, pane_title};
 
@@ -37,12 +37,11 @@ const GAP: usize = 3;
 /// Room for a job's key.
 const KEY: usize = 3;
 
-/// A job's row as far as the keymap says it: its name padded to the widest, its key padded to
-/// `KEY`, and what it does.
+/// A job's row as far as the keymap's names say it: its name padded to the widest, and what it
+/// does. Its key is looked up as it's drawn, since the keys can change while the player runs.
 struct Row {
     act: Act,
     name: String,
-    key: String,
     about: &'static str,
 }
 
@@ -52,15 +51,7 @@ static ROWS: LazyLock<(usize, Vec<Row>)> = LazyLock::new(|| {
     let name_w = JOBS.iter().map(|a| keymap::name(*a).width()).max().unwrap_or(0);
     let rows = JOBS
         .iter()
-        .map(|&act| {
-            let key = keymap::key_in(Scope::Prepare, act).map_or(String::new(), key_name);
-            Row {
-                act,
-                name: format!("{:<name_w$}", keymap::name(act)),
-                key: format!("{key:<KEY$}"),
-                about: keymap::about(act),
-            }
-        })
+        .map(|&act| Row { act, name: format!("{:<name_w$}", keymap::name(act)), about: keymap::about(act) })
         .collect();
     (name_w, rows)
 });
@@ -68,6 +59,11 @@ static ROWS: LazyLock<(usize, Vec<Row>)> = LazyLock::new(|| {
 /// Whether this view is where `act` lives.
 pub fn holds(act: Act) -> bool {
     JOBS.contains(&act)
+}
+
+/// The jobs, in the view's order.
+pub fn jobs() -> &'static [Act] {
+    &JOBS
 }
 
 pub fn len() -> usize {
@@ -94,6 +90,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = rows
         .iter()
         .map(|row| {
+            let key = keymap::key_name(&[Scope::Prepare, Scope::Global], row.act).unwrap_or_default();
             let (name, about) = match app.unavailable(row.act) {
                 Some(why) => {
                     let said = format!("{why} · {}", row.about);
@@ -104,13 +101,13 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
             ListItem::new(Line::from(vec![
                 name,
                 Span::raw(" ".repeat(GAP)),
-                Span::styled(row.key.as_str(), theme::key()),
+                Span::styled(format!("{key:<KEY$}"), theme::key()),
                 about,
             ]))
         })
         .collect();
     let list = List::new(items)
-        .block(block(pane_title(1, "Prepare", true), true).title_top(Line::from(on).right_aligned()))
+        .block(block(pane_title("Prepare", true), true).title_top(Line::from(on).right_aligned()))
         .highlight_style(theme::selected())
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     app.prepare.fit(area.height.saturating_sub(2) as usize, JOBS.len());

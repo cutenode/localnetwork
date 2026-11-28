@@ -6,18 +6,19 @@
 use std::time::Duration;
 
 use locallibrary::anlz::{Beat, Cue, TrackAnalysis};
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::KeyEvent;
 use ratatui::widgets::ListState;
 
-use super::app::{App, Level, Msg, View};
+use super::app::{App, Level, Msg, View, step_list};
 use super::audio::{Audio, Listed};
+use super::keymap::{self, Act, dialogs};
 use super::keys::{KeyPalette, Notation};
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
 pub const PADS: u8 = 8;
 
-/// The outputs listed to pick from (`d`).
+/// The outputs listed to pick from ("the output to play through" in `:`).
 #[derive(Debug, Default)]
 pub struct Outputs {
     /// The devices' names; the list shows "the system's default" before them.
@@ -50,7 +51,7 @@ impl Loop {
 /// How the deck is set.
 #[derive(Debug)]
 pub struct Deck {
-    /// The digit row plays hot cues instead of jumping to panes (full screen always does).
+    /// The digit row plays hot cues instead of going to the views (player mode always does).
     pub pads: bool,
     /// Jumps keep to the beat grid (see [`Snap`]); on, as on a CDJ, until turned off.
     pub quantize: bool,
@@ -136,9 +137,10 @@ impl BandMode {
 }
 
 impl App {
-    /// Whether the digit row plays hot cues: with the pads on, or in player mode.
+    /// Whether the digit row plays hot cues: with the pads on, or in player mode (Browse over it
+    /// too, so a cue can go while a track's found).
     pub fn pads_on(&self) -> bool {
-        self.deck.pads || self.deck_showing()
+        self.deck.pads || (self.view == View::Library && self.deck_layout)
     }
 
     /// Whether the deck has the screen: player mode, with Browse closed.
@@ -171,20 +173,24 @@ impl App {
     }
 }
 
-/// `'`: the digit row plays hot cues, or jumps to panes again.
+/// Pads on or off (in `:`): the digit row plays hot cues, or goes to the views again.
 pub fn toggle_pads(app: &mut App) {
     app.deck.pads = !app.deck.pads;
-    let msg = if app.deck.pads { "pads on: 1-8 play hot cues A-H" } else { "pads off: digits jump to panes" };
+    let msg = match (app.deck.pads, app.pads_on()) {
+        (true, _) => "pads on: 1-8 play hot cues A-H",
+        (false, true) => "pads off: in player mode (browsing too) 1-8 still play hot cues",
+        (false, false) => "pads off: digits go to the views",
+    };
     app.toast(msg, Level::Info);
 }
 
-/// `Q`: jumps keep to the beat grid, or don't.
+/// Quantize (in `:`): jumps keep to the beat grid, or don't.
 pub fn toggle_quantize(app: &mut App) {
     app.deck.quantize = !app.deck.quantize;
     app.toast(if app.deck.quantize { "quantize on" } else { "quantize off" }, Level::Info);
 }
 
-/// `S`: stop after each track, or play on.
+/// Single play (in `:`): stop after each track, or play on.
 pub fn toggle_single(app: &mut App) {
     app.drop_upcoming();
     app.deck.single = !app.deck.single;
@@ -192,7 +198,7 @@ pub fn toggle_single(app: &mut App) {
     app.toast(msg, Level::Info);
 }
 
-/// `A`: start tracks at their first memory cue or beat, or at the beginning.
+/// Auto cue (in `:`): start tracks at their first memory cue or beat, or at the beginning.
 pub fn toggle_auto_cue(app: &mut App) {
     app.drop_upcoming();
     app.deck.auto_cue = !app.deck.auto_cue;
@@ -245,7 +251,7 @@ pub fn beat_jump(app: &mut App, by: f64) {
     app.jump(to.max(0.0), None);
 }
 
-/// `N` `P`: the next or previous phrase of rekordbox's phrase analysis, landing as a cue jump does.
+/// The next or previous phrase (in `:`) of rekordbox's phrase analysis, landing as a cue jump does.
 pub fn phrase_jump(app: &mut App, forward: bool) {
     let Some(now) = &app.now else { return };
     if now.phrases.is_empty() {
@@ -340,7 +346,7 @@ pub fn toggle_loop(app: &mut App) {
     }
 }
 
-/// `(` `)`: halve or double the loop, in beats along the grid (by time without one). Shorter
+/// Halve or double the loop (in `:`), in beats along the grid (by time without one). Shorter
 /// with the playhead past its new end, playback goes back round as far as it was.
 pub fn resize_loop(app: &mut App, factor: f64) {
     let Some(l) = app.deck.looped.filter(|_| app.now.is_some()) else {
@@ -439,7 +445,7 @@ impl App {
 // The output
 // ---------------------------------------------------------------------------------------------
 
-/// `d`: list the outputs. The list opens at once with the system's default, and the devices are
+/// List the outputs (in `:`). The list opens at once with the system's default, and the devices are
 /// listed in the background: that can take a while, and keys pressed meanwhile mustn't go astray.
 pub fn list_outputs(app: &mut App) {
     let (id, list) = (app.next_id(), app.outputs.list);
@@ -464,20 +470,19 @@ pub fn listed_outputs(app: &mut App, id: u64, listed: Result<Listed, String>) {
     }
 }
 
-/// Keys while the outputs are listed: move, pick one, or close the list.
+/// Keys while the outputs are listed: move, pick one, or close the list (esc).
 pub fn on_outputs_key(app: &mut App, key: KeyEvent) {
     let Some(o) = &mut app.deck.outputs else { return };
-    let last = o.names.len();
-    let sel = o.state.selected().unwrap_or(0);
-    match key.code {
-        KeyCode::Up | KeyCode::Char('k') => o.state.select(Some(sel.saturating_sub(1))),
-        KeyCode::Down | KeyCode::Char('j') => o.state.select(Some((sel + 1).min(last))),
-        KeyCode::Enter => {
-            let name = sel.checked_sub(1).and_then(|i| o.names.get(i).cloned());
+    match keymap::dialog_act(&dialogs::OUTPUTS, &key) {
+        Some(Act::Activate) => {
+            let name = o.state.selected().unwrap_or(0).checked_sub(1).and_then(|i| o.names.get(i).cloned());
             app.deck.outputs = None;
             use_output(app, name);
         }
-        _ => app.deck.outputs = None,
+        Some(Act::Escape) => app.deck.outputs = None,
+        // The system's default, then each output.
+        Some(act) => step_list(&mut o.state, o.names.len() + 1, act),
+        None => {}
     }
 }
 

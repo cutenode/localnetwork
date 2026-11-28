@@ -2,6 +2,8 @@ use ratatui::crossterm::event::KeyCode;
 
 use super::super::app::View;
 use super::super::app::testing::*;
+#[cfg(feature = "account")]
+use super::super::edits::Modal;
 use super::super::ui::screen;
 use super::*;
 
@@ -115,7 +117,7 @@ fn keys_change_the_view_and_save_choices() {
     key(&mut app, KeyCode::Up);
     assert_eq!(app.profile.section(), Section::Sets);
     assert!(published(&app).contains(&Section::Sets));
-    press(&mut app, "i");
+    app.perform(Act::ProfileInclude, None);
     assert!(!published(&app).contains(&Section::Sets));
     let saved = locallibrary::profile::ProfilePrefs::load(&Store::open(store.path()).unwrap()).unwrap();
     assert!(!saved.published().contains(&Section::Sets), "choices are saved as they're made");
@@ -125,38 +127,37 @@ fn keys_change_the_view_and_save_choices() {
     app.profile.select_section(artists);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.profile.pane, Pane::Detail);
-    press(&mut app, "h");
+    press(&mut app, "eh");
     let Some(Ok(v)) = &app.profile.view else { panic!() };
     assert_eq!(v.prefs.hidden_artists, ["[a]pendics.shuffle"]);
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.profile.pane, Pane::Sections);
 
-    press(&mut app, "#");
+    press(&mut app, "e#");
     let Some(Ok(v)) = &app.profile.view else { panic!() };
     assert_eq!(v.document.precision, Precision::Exact);
-    press(&mut app, "d");
-    assert!(!app.profile.document, "d picks the output, as everywhere");
-    app.deck.outputs = None;
-    press(&mut app, "D");
+    app.perform(Act::ProfileDocument, None);
     assert!(app.profile.document);
     key(&mut app, KeyCode::Esc);
     assert!(!app.profile.document);
 
     // Keys the view doesn't use still work.
-    press(&mut app, "gl");
+    press(&mut app, "1");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gn");
+    press(&mut app, "5");
     assert_eq!(app.view, View::Profile);
-    press(&mut app, "Q");
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Esc);
+    }
     assert!(app.quit);
 }
 
-/// Signed out, the account bar names the key that signs in: `L` (`l` loops the track).
+/// Signed out, the account bar names the key whose menu signs in: `e`.
 #[cfg(feature = "account")]
 #[test]
 fn the_account_bar_says_which_key_signs_in() {
     let line: String = Account::default().line(200).spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(line.contains("  L sign in with your Atmosphere account"), "{line}");
+    assert!(line.contains("  e sign in with your Atmosphere account"), "{line}");
 }
 
 /// A long, wide top genre (the user's own text) is cut to fit the Sections column, and the
@@ -186,7 +187,7 @@ fn fit_counts_columns() {
 
 #[cfg(feature = "account")]
 #[test]
-fn signing_in_takes_a_handle_and_signing_out_two_presses() {
+fn signing_in_takes_a_handle_and_signing_out_asks_first() {
     use super::super::app::View;
 
     let store = tempfile::tempdir().unwrap();
@@ -195,7 +196,7 @@ fn signing_in_takes_a_handle_and_signing_out_two_presses() {
     app.view = View::Profile;
     assert!(render(&mut app.profile, 120, 30).contains("Not signed in"));
 
-    press(&mut app, "L");
+    app.perform(Act::ProfileAccount, None);
     press(&mut app, "dj.example.comq");
     assert!(!app.quit, "typing a handle doesn't run commands");
     key(&mut app, KeyCode::Backspace);
@@ -226,10 +227,10 @@ fn signing_in_takes_a_handle_and_signing_out_two_presses() {
     app.profile.account.info.as_mut().unwrap().sign_in_again_by = soon;
     let screen = render(&mut app.profile, 140, 30);
     assert!(screen.contains("sign in again by") && screen.contains("(1 days)"), "{screen}");
-    press(&mut app, "L");
-    assert!(app.toast.as_ref().is_some_and(|t| t.0.contains("signed in as @dj.example.com: press L again")));
-    press(&mut app, "L");
-    assert!(app.profile.account.busy(), "the second press signs out");
+    app.perform(Act::ProfileAccount, None);
+    assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if q == "Sign out of @dj.example.com?"));
+    press(&mut app, "y");
+    assert!(app.profile.account.busy(), "yes signs out");
 
     // The sign-out thread's answer: nobody was signed in in this store folder.
     let done = super::super::account::AccountEvent::Done { message: "not signed in".into(), error: false };
@@ -366,36 +367,31 @@ fn profile_app(t: ProfileTab) -> (App, tempfile::TempDir) {
     (app, dir)
 }
 
-/// `h` (or `H`) hides the selected artist under Artists, pressed again names them again.
+/// `h` in the actions menu hides the selected artist under Artists, chosen again names them again.
 /// Outside that list, it says where to go.
 #[test]
 fn artists_are_hidden_and_named_again() {
     let (mut app, _store) = profile_app(fixture_tab());
-    press(&mut app, "h");
+    press(&mut app, "eh");
     assert_eq!(last_message(&app), "select an artist under Artists (tab) to hide them");
 
     app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Artists).unwrap());
     press(&mut app, "\t");
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
     let artist = v.report.artists.top[0].name.clone();
-    for (key, said) in [
-        ('h', format!("{artist} won't be named")),
-        ('h', format!("{artist} can be named again")),
-        ('H', format!("{artist} won't be named")),
-        ('H', format!("{artist} can be named again")),
-    ] {
-        press(&mut app, &key.to_string());
+    for said in [format!("{artist} won't be named"), format!("{artist} can be named again")] {
+        press(&mut app, "eh");
         assert_eq!(last_message(&app), said);
     }
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
     assert!(v.prefs.hidden_artists.is_empty());
 }
 
-/// `w` writes the document into the store folder, made there if there's none.
+/// Saving the document (from `:` or the actions menu) writes it into the store folder, made there if there's none.
 #[test]
 fn w_writes_the_document_to_the_store() {
     let (mut app, _dir) = profile_app(fixture_tab());
-    press(&mut app, "w");
+    app.perform(Act::ProfileWrite, None);
     let path = app.store_root.join("profile-document.json");
     assert_eq!(last_message(&app), format!("wrote {}", path.display()));
     let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -403,7 +399,7 @@ fn w_writes_the_document_to_the_store() {
 
     let (tx, _rx) = std::sync::mpsc::channel();
     app.profile = ProfileTab::new(tx);
-    press(&mut app, "w");
+    app.perform(Act::ProfileWrite, None);
     assert_eq!(last_message(&app), "nothing to export yet");
 }
 
@@ -421,15 +417,15 @@ fn a_choice_that_cant_be_saved_says_why() {
         _ => panic!("no profile"),
     };
     app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Genres).unwrap());
-    press(&mut app, "i");
+    app.perform(Act::ProfileInclude, None);
     assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
-    press(&mut app, "w");
+    app.perform(Act::ProfileWrite, None);
     assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
     assert_eq!(v.published, before);
 }
 
-/// `R` builds the profile in the background, and the header says how far it's got.
+/// Refreshing (f5) builds the profile in the background, and the header says how far it's got.
 #[test]
 fn r_builds_the_profile_in_the_background() {
     let dir = tempfile::tempdir().unwrap();
@@ -441,7 +437,7 @@ fn r_builds_the_profile_in_the_background() {
     let mut app = App::with_library(dir.path(), library());
     app.view = View::Profile;
     app.profile.only_drive = Some(dir.path().to_path_buf());
-    press(&mut app, "R");
+    key(&mut app, KeyCode::F(5));
     assert!(app.profile.loading);
     // The header says so while it builds. Counters of the test's own: the build's thread keeps
     // the ones it was given, and counting there can't overwrite these.
@@ -450,7 +446,7 @@ fn r_builds_the_profile_in_the_background() {
     assert!(s.contains("Building profile… 3/12 tracks"), "{s}");
     // A build started before this one is stopped, and what it sends back ignored.
     let old = app.profile.generation;
-    press(&mut app, "R");
+    key(&mut app, KeyCode::F(5));
     app.profile.loaded(old, Err("stale".into()));
     assert!(app.profile.loading && app.profile.view.is_none());
 
@@ -458,6 +454,20 @@ fn r_builds_the_profile_in_the_background() {
     assert!(matches!(&app.profile.view, Some(Ok(v)) if v.report.collection.tracks == 12), "{:?}", app.toast);
     let s = screen(&mut app, 140, 30);
     assert!(s.contains("12 tracks ·"), "{s}");
+}
+
+/// A test's player builds no profile from what the machine running it has: no drive mounted there,
+/// nor rekordbox's collection.
+#[test]
+fn a_profile_in_a_test_reads_nothing_of_the_machines() {
+    let (mut app, _dir) = blank(View::Library);
+    app.set_view(View::Profile);
+    wait(&mut app, |a| !a.profile.loading);
+    let Some(Err(why)) = &app.profile.view else { panic!("a profile of something") };
+    assert!(why.contains("no rekordbox drive is mounted"), "{why}");
+    // Said here too, for a machine with no collection of its own.
+    let collection = std::env::var_os("LOCALLIBRARY_MASTERDB").expect("a collection of the tests' own");
+    assert!(!std::path::Path::new(&collection).exists(), "{collection:?}");
 }
 
 /// The pointer picks a section, a click picks the row of its list under it, and the wheel
@@ -484,7 +494,7 @@ fn the_mouse_picks_sections_and_rows() {
     assert_eq!((app.profile.pane, app.profile.section()), (Pane::Sections, SECTIONS[0]));
     let detail = app.profile.detail_area;
     // The document scrolls with the wheel.
-    press(&mut app, "D");
+    app.perform(Act::ProfileDocument, None);
     mouse(&mut app, MouseEventKind::ScrollDown, (detail.x + 4, detail.y + 6));
     assert_eq!(app.profile.scroll, 3);
     // Outside the view, the pointer does what it does anywhere.
@@ -738,7 +748,7 @@ fn prop_the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
 
 /// The Profile view answers to its keys and the mouse: the document opens and esc closes it,
 /// then goes back from a section's list to the sections; the arrows move through the list shown
-/// (never past its ends); a click picks a section, or a row of its list; w writes the document (once
+/// (never past its ends); a click picks a section, or a row of its list; saving writes the document (once
 /// there's one to write); a build replaced since changes nothing; a choice that can't be saved
 /// says why.
 #[hegel::test(test_cases = 20)]
@@ -758,7 +768,7 @@ fn prop_the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) 
                 (app.profile.pane, app.profile.document) = (Pane::Sections, false);
                 press(&mut app, "\t");
                 assert_eq!(app.profile.pane, Pane::Detail);
-                press(&mut app, "D");
+                app.perform(Act::ProfileDocument, None);
                 assert!(app.profile.document);
                 assert!(super::escape(&mut app) && !app.profile.document, "esc closes the document");
                 assert!(super::escape(&mut app) && app.profile.pane == Pane::Sections, "then the list");
@@ -798,7 +808,7 @@ fn prop_the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) 
                 if none {
                     app.profile.view = None;
                 }
-                press(&mut app, "w");
+                app.perform(Act::ProfileWrite, None);
                 if none {
                     assert_eq!(last_message(&app), "nothing to export yet");
                 } else {
@@ -824,9 +834,9 @@ fn prop_the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) 
                 let store = std::mem::replace(&mut app.store_root, dir.path().join("a file"));
                 std::fs::write(&app.store_root, "not a folder").unwrap();
                 app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Genres).unwrap());
-                press(&mut app, "i");
+                app.perform(Act::ProfileInclude, None);
                 assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
-                press(&mut app, "w");
+                app.perform(Act::ProfileWrite, None);
                 assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
                 std::fs::remove_file(&app.store_root).unwrap();
                 app.store_root = store;
@@ -857,4 +867,24 @@ fn a_save_in_rekordbox_makes_the_profile_stale() {
     app.profile.only_drive = None;
     app.profile.loading = true;
     assert!(!collection_changed(&app), "a build under way reads it already");
+}
+
+/// With no key for the view's actions, the include line (and signed out, the account bar) names
+/// them as `:` finds them, and `e` isn't drawn.
+#[test]
+fn with_no_actions_key_the_view_names_them_for_the_palette() {
+    use super::super::keymap::ids;
+    use locallibrary::keybinds::Keybinds;
+    let store = tempfile::tempdir().unwrap();
+    let mut app = App::blank(store.path().to_path_buf(), None);
+    let mut binds = Keybinds::default();
+    binds.keys.insert(ids::id(Act::PaneActions).unwrap().into_owned(), Vec::new());
+    app.set_keybinds(binds);
+    app.profile = fixture_tab();
+    let screen = render(&mut app.profile, 160, 48);
+    assert!(screen.contains("leave out: in document in :") && !screen.contains("leave out in e"), "{screen}");
+    #[cfg(feature = "account")]
+    assert!(screen.contains("  sign in with your Atmosphere account (") && !screen.contains("e sign in"), "{screen}");
+    #[cfg(feature = "account")]
+    assert!(screen.contains("alpha) in :"), "{screen}");
 }

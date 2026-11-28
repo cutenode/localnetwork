@@ -1,7 +1,7 @@
 ### Added
 
 - With no drive open, the library says what to do: plug one in, or open a folder, browse snapshots or
-  sign in. `O` opens a folder holding an export from the library.
+  sign in. Opening a folder holding an export is in `:` too.
 - The first library each version opens names `enter`, `e`, `:` and `?` in the footer until a key.
 - The palette ranks the commands run lately first, kept between runs and in `settings export`. It
   shows each command's key, or `Prepare` where it has none here, and keeps what can't run now in the
@@ -10,8 +10,9 @@
 - A job list (`&`) with a cancel for each job that can still stop, and a note once one can't.
 - A hint setting in the palette: full, compact or off. It's saved, and goes through `settings export`
   and import. Errors and job progress show whatever it's set to.
-- Keys in Prepare and Drives for jobs that only the palette had: `V` check, `W` save a snapshot, `Y`
-  sync, `K` pack and `E` eject. Prepare now lists all twelve of those jobs.
+- Prepare and the Drives view's actions menu (`e`) have the jobs only the palette had: check (`c`),
+  save a snapshot (`s`), sync (`g`), pack (`p`) and eject (`d`). Prepare now lists all twelve of
+  those jobs.
 
 ### Changed
 

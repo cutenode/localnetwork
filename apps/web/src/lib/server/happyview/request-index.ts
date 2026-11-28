@@ -8,7 +8,8 @@ const LOCALLIBRARY_COLLECTIONS = [
 	COLLECTION.djSet,
 	COLLECTION.djRecording,
 	COLLECTION.djProfile,
-	COLLECTION.locallibrarySettings
+	COLLECTION.locallibrarySettings,
+	COLLECTION.locallibraryKeybinds
 ];
 
 type RequestIndexOptions = {

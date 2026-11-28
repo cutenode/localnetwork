@@ -147,13 +147,13 @@ impl App {
 
     /// The form asking whether a plugin may use more of an account it has access to (`q`), its
     /// answer going back on `reply`. Closed, it's never answered: the plugin is told how to give
-    /// it instead.
+    /// it instead. A plugin asks whenever it likes, so the form waits its turn behind another dialog.
     pub(in crate::tui) fn ask_access(&mut self, q: &AccessQuestion, reply: Sender<bool>) {
         let allow = if q.sign_in { SIGN_IN } else { ALLOW };
         let answer = json!({ "type": "string", "enum": [allow, DECLINE], "description": wants(q) });
         let schema = json!({ "type": "object", "properties": { ANSWER: answer }, "required": [ANSWER] });
         let form = Form::with(format!("Access for {}", q.plugin), Some(schema), &Map::new(), For::AskAccess(reply));
-        self.modal = Some(Modal::Form(form));
+        self.show(Modal::Form(form));
     }
 
     /// Where plugins ask whether they may use more of an account while the player runs: the
