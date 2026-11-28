@@ -58,12 +58,34 @@ pub const STORE_FORMAT: u32 = 1;
 /// What the player remembers between runs, in the store once there is one.
 pub const PLAYER_FILE: &str = "tui.json";
 
+/// The keys set in the player, beside [`PLAYER_FILE`] (see [`crate::keybinds`]).
+pub const KEYBINDS_FILE: &str = "keybinds.json";
+
 /// Where the player keeps [`PLAYER_FILE`] while there's no store at `store_root`: a folder beside
 /// it (`locallibrary-player` next to `locallibrary`), since the store refuses to be set up in a
 /// folder that holds anything else.
 pub fn player_fallback(store_root: &Path) -> Option<PathBuf> {
     let name = store_root.file_name()?.to_string_lossy();
     Some(store_root.with_file_name(format!("{name}-player")))
+}
+
+/// Where the player writes its files ([`PLAYER_FILE`], [`KEYBINDS_FILE`]): the store once there is
+/// one, else [`player_fallback`]. The player mustn't be the first to make the store's folder.
+pub fn player_dir(store_root: &Path) -> Option<PathBuf> {
+    match store_root.join("store.json").is_file() {
+        true => Some(store_root.to_path_buf()),
+        false => player_fallback(store_root),
+    }
+}
+
+/// Where the player reads its file `name` from: the store's when the store has it, else the one
+/// beside the store, written before there was a store (the player's next write moves it in).
+pub fn player_file(store_root: &Path, name: &str) -> Option<PathBuf> {
+    let file = store_root.join(name);
+    match store_root.join("store.json").is_file() && file.is_file() {
+        true => Some(file),
+        false => player_fallback(store_root).map(|d| d.join(name)),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -367,11 +389,12 @@ impl Store {
     /// lock, while another process may be making it), also whatever making the store writes, as
     /// far as it got.
     fn holds_only_ours(root: &Path, making: bool) -> Result<()> {
-        const OURS: [&str; 5] = [
+        const OURS: [&str; 6] = [
             crate::audio_cache::CACHE_DIR,
             crate::mix::report::REPORTS_DIR,
             "profile-document.json",
             PLAYER_FILE,
+            KEYBINDS_FILE,
             "lock",
         ];
         const MAKING: [&str; 3] = ["objects", "snapshots", "store.json"];

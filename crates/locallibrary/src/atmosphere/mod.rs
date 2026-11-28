@@ -22,8 +22,8 @@
 //! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]), and
 //!   deleting a set's and its recording's, with the session, which needs the [`PUBLISH_SCOPES`]
 //!   ([`PUBLISH_SET`] grants them), and uploading a set's recording, which needs
-//!   [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes through Local Network's
-//!   directory ([`directory`]).
+//!   [`UPLOAD_SCOPE`]. The player's sign-in asks only to publish its keys ([`player_scopes`]).
+//!   Reading anyone's needs no session, and goes through Local Network's directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
 //! * Asking Local Network's website about feature flags ([`flags`]), which targeting them at an
@@ -119,13 +119,25 @@ pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
 /// audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
 /// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
 /// (`account login --publish`, or a publish command that signs in again).
-pub const PUBLISH_SCOPES: [&str; 5] = [
+pub const PUBLISH_SCOPES: [&str; 6] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
     "repo:computer.localnetwork.dj.set",
     "repo:computer.localnetwork.dj.recording",
+    KEYBINDS_SCOPE,
     "rpc:computer.localnetwork.directory.requestIndex",
 ];
+
+/// What publishing the player's keys ([`lexicon::KEYBINDS`]) needs besides `atproto`: to create and
+/// replace that one record type. [`PUBLISH_SET`] grants it too; the player asks for it alone
+/// ([`player_scopes`]), since keys are all it publishes.
+pub const KEYBINDS_SCOPE: &str = "repo:computer.localnetwork.locallibrary.keybinds?action=create&action=update";
+
+/// What the player's sign-in asks for: [`DEFAULT_SCOPES`] and [`KEYBINDS_SCOPE`], so the keys set
+/// in it follow the account, and nothing else it could change.
+pub fn player_scopes() -> Vec<String> {
+    DEFAULT_SCOPES.iter().chain([&KEYBINDS_SCOPE]).map(|s| s.to_string()).collect()
+}
 
 /// What uploading a set's recording needs besides [`PUBLISH_SCOPES`]: to upload audio files to the
 /// account, and no other kind of file. A permission set can't grant uploads, so publishing asks for
@@ -177,12 +189,18 @@ pub fn may_delete(info: &AccountInfo, collection: &str) -> bool {
 }
 
 /// What signing `info`'s account in again asks for, so the session keeps what it may do now:
-/// [`DEFAULT_SCOPES`], publishing ([`PUBLISH_SET`]) when it may publish (any of the record types: a
-/// session from before the set granted one more still publishes the rest), and [`REPORT_SCOPE`]
-/// when it may file bug reports. Add what the new sign-in is for.
+/// [`DEFAULT_SCOPES`], publishing ([`PUBLISH_SET`]) when it may publish (any of the record types
+/// but the player's keys: a session from before the set granted one more still publishes the
+/// rest), else [`KEYBINDS_SCOPE`] when it may publish keys (the player's sign-in), and
+/// [`REPORT_SCOPE`] when it may file bug reports. Add what the new sign-in is for.
 pub fn kept_scopes(info: &AccountInfo) -> Vec<String> {
-    let publishes = lexicon::COLLECTIONS.iter().any(|c| missing_scope(info, c).is_none());
-    let mut kept = if publishes { publish_scopes() } else { DEFAULT_SCOPES.map(String::from).to_vec() };
+    let mut records = lexicon::COLLECTIONS.iter().filter(|c| **c != lexicon::KEYBINDS);
+    let publishes = records.any(|c| missing_scope(info, c).is_none());
+    let mut kept = match (publishes, missing_scope(info, lexicon::KEYBINDS)) {
+        (true, _) => publish_scopes(),
+        (false, None) => player_scopes(),
+        (false, Some(_)) => DEFAULT_SCOPES.map(String::from).to_vec(),
+    };
     if may_create(info, lexicon::DISCUSSION) {
         kept.push(REPORT_SCOPE.to_string());
     }
@@ -797,15 +815,15 @@ async fn revoke(session: &Session) -> bool {
 /// The client metadata document to host at `client_id` (an HTTPS URL, conventionally ending in
 /// `/oauth-client-metadata.json`) for [`Client::Hosted`]. Servers then show its host as the app's
 /// name and remember approvals. Its `scope` is the most any sign-in may ask for:
-/// [`DEFAULT_SCOPES`], [`PUBLISH_SET`], [`REPORT_SCOPE`], and `extra`.
+/// [`DEFAULT_SCOPES`], [`PUBLISH_SET`], [`KEYBINDS_SCOPE`], [`REPORT_SCOPE`], and `extra`.
 pub fn client_metadata(client_id: &str, extra: &[String]) -> Result<serde_json::Value> {
     let url = uri(client_id)?;
     if url.scheme().as_str() != "https" {
         return Err(Error::invalid(format!("a hosted client ID is an https:// URL, not {client_id:?}")));
     }
     let host = url.authority().map(|a| a.host().to_string()).unwrap_or_default();
-    let scope =
-        self::scopes(&[publish_scopes(), vec![REPORT_SCOPE.into()], extra.to_vec()].concat())?.to_normalized_string();
+    let all = [publish_scopes(), player_scopes(), vec![REPORT_SCOPE.into()], extra.to_vec()].concat();
+    let scope = self::scopes(&all)?.to_normalized_string();
     Ok(serde_json::json!({
         "client_id": client_id,
         "client_name": "locallibrary",

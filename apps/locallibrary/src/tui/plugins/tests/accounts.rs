@@ -2,14 +2,17 @@
 //! form) and out of one the store keeps, and giving a plugin access to one, from the palette, in
 //! the background.
 
+use std::time::{Duration, Instant};
+
 use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::plugin::{Access, AccessQuestion, AccountId, AccountSignIn};
 use ratatui::crossterm::event::KeyCode;
 
-use super::super::super::app::testing::{blank, key, keys_accounts, last_message, plugins_once, press, wait};
+use super::super::super::app::testing::{Plan, blank, key, keys_accounts, last_message, plugins_once, press, wait};
 use super::super::super::app::{App, View as Screen};
+use super::super::super::edits::{Confirm, Modal};
 use super::super::super::ui::screen;
 use super::{entry, picker};
 
@@ -241,6 +244,46 @@ fn prop_a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
 
     app.plugin_asker().sign_in("http://127.0.0.1:9/authorize?state=x");
     wait(&mut app, |app| last_message(app).contains("open this in your browser to sign in"));
+}
+
+/// A plugin asking while a plan waits for a yes, or the help is open, waits its turn instead of
+/// taking that one's place: the plan or the help stays, and closing it shows the question, which is
+/// answered as ever.
+#[hegel::test(test_cases = 4)]
+fn prop_a_plugins_question_waits_for_the_dialog_open(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    let confirm = tc.draw(gs::booleans());
+    if confirm {
+        let plan = Plan { operation: "edit", summary: vec!["a line".into()], ..Default::default() };
+        let (root, drive, plan) = ("/Volumes/TEST".into(), "TEST".into(), Box::new(plan));
+        app.modal = Some(Modal::Confirm(Confirm { root, drive, plan, scroll: 0, shown: Instant::now(), after: None }));
+    } else {
+        press(&mut app, "?");
+    }
+    let ask = app.plugin_asker();
+    let asking = std::thread::spawn(move || ask.allow(&wanting(false)));
+    wait(&mut app, |app| !app.waiting.is_empty());
+    match confirm {
+        true => assert!(matches!(app.modal, Some(Modal::Confirm(_))), "the plan stays, unanswered"),
+        false => assert!(app.help && app.modal.is_none(), "the help stays open"),
+    }
+    if confirm {
+        settle_now(&mut app);
+        press(&mut app, "n");
+    } else {
+        press(&mut app, "\u{1b}");
+    }
+    wait(&mut app, |app| matches!(app.modal, Some(Modal::Form(_))));
+    assert!(screen(&mut app, 120, 30).contains("Access for Echo"));
+    press(&mut app, "\n");
+    assert_eq!(asking.join().unwrap(), Some(true));
+}
+
+/// Lets the confirmation up take keys at once (it ignores them right as it appears).
+fn settle_now(app: &mut App) {
+    if let Some(Modal::Confirm(c)) = &mut app.modal {
+        c.shown = Instant::now() - Duration::from_secs(1);
+    }
 }
 
 /// The keys a test enters.

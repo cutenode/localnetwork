@@ -1,20 +1,25 @@
-//! The Atmosphere account in the Profile view: the bar at its top says who's signed in, and `L`
-//! signs in (typing the handle) or, pressed twice, out. Signing in and out run on threads, which
-//! report back as [`AccountEvent`]s.
+//! The Atmosphere account in the Profile view: the bar at its top says who's signed in, and
+//! signing in (by name in `:` or the view's `e` menu) asks for the handle; signed in, the same
+//! asks whether to sign out. Signing in and out run on threads, which report back as
+//! [`AccountEvent`]s. Signing in asks to publish the player's keys too, and loads the account's.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, AccountInfo, Client};
+use locallibrary::atmosphere;
 use locallibrary::error::Reason;
 use locallibrary::local_time;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::KeyEvent;
 use ratatui::text::{Line, Span};
 
-use super::app::{App, Level, Msg, typed_tail};
+use super::app::{App, Level, Msg, edit_line, typed_tail};
+use super::edits::Modal;
 use super::icons;
+use super::keymap::{self, Act, Scope, dialogs};
+use super::profile::PROFILE;
 use super::theme::{self, bold, dim, fg};
+use super::ui::key_says;
 
 /// News about the Atmosphere account, from the threads that sign in and out.
 pub enum AccountEvent {
@@ -49,8 +54,6 @@ pub struct Account {
     pub info: Option<AccountInfo>,
     last_handle: Option<String>,
     sign_in: Option<SignIn>,
-    /// When `L` was pressed once: a second press within a few seconds signs out.
-    logout_armed: Option<Instant>,
 }
 
 impl Account {
@@ -58,6 +61,11 @@ impl Account {
     pub fn load(&mut self, store_root: &Path) {
         let status = api::account_status(store_root).ok();
         (self.info, self.last_handle) = status.map(|s| (s.account, s.last_handle)).unwrap_or_default();
+    }
+
+    /// Whether an account is signed in.
+    pub fn signed_in(&self) -> bool {
+        self.info.is_some()
     }
 
     /// Who's signed in, as their server reports them.
@@ -82,6 +90,14 @@ impl Account {
         }
     }
 
+    /// What signing in or out is called now: what the actions menu offers.
+    pub fn action(&self) -> String {
+        match &self.info {
+            Some(a) => format!("sign out of {}", a.name()),
+            None => "sign in…".into(),
+        }
+    }
+
     /// Whether a handle is being typed.
     pub fn typing(&self) -> bool {
         matches!(self.sign_in, Some(SignIn::Typing(_)))
@@ -96,28 +112,44 @@ impl Account {
 
     /// The bar at the top of the view.
     pub fn line(&self, width: u16) -> Line<'static> {
-        let key = |k: &str| Span::styled(format!("  {k} "), theme::key());
+        // Each key set off by two spaces, then what it does there.
+        let key =
+            |scopes: &[Scope], act, says: &str| [vec![Span::raw("  ")], key_says(scopes, act, says, dim())].concat();
+        // Signing in or out is in the view's actions menu, or on a key of its own.
+        let account =
+            keymap::key_name(&PROFILE, Act::ProfileAccount).or_else(|| keymap::key_name(&PROFILE, Act::PaneActions));
+        let account_key = |says: &str| match &account {
+            Some(k) => {
+                vec![Span::raw("  "), Span::styled(k.clone(), theme::key()), Span::styled(format!(" {says}"), dim())]
+            }
+            None => vec![Span::styled(format!("  {says} in :"), dim())],
+        };
         match (&self.sign_in, &self.info) {
-            (Some(SignIn::Typing(text)), _) => Line::from(vec![
-                Span::styled(" Atmosphere handle or server: ", bold(theme::current().info)),
-                Span::styled(
-                    typed_tail(text, (width as usize).saturating_sub(31)).to_string(),
-                    bold(theme::current().text),
-                ),
-                Span::styled(icons::CURSOR.get(), fg(theme::current().accent)),
-                key("enter"),
-                Span::styled("sign in", dim()),
-                key("esc"),
-                Span::styled("cancel", dim()),
-            ]),
-            (Some(SignIn::Starting(_)), _) => Line::from(vec![
-                Span::styled(
-                    format!(" {} Finding your account's server…", icons::BUSY.get()),
-                    fg(theme::current().info),
-                ),
-                key("esc"),
-                Span::styled("stop", dim()),
-            ]),
+            (Some(SignIn::Typing(text)), _) => Line::from(
+                [
+                    vec![
+                        Span::styled(" Atmosphere handle or server: ", bold(theme::current().info)),
+                        Span::styled(
+                            typed_tail(text, (width as usize).saturating_sub(31)).to_string(),
+                            bold(theme::current().text),
+                        ),
+                        Span::styled(icons::CURSOR.get(), fg(theme::current().accent)),
+                    ],
+                    key(&dialogs::PROMPT, Act::Activate, " sign in"),
+                    key(&dialogs::PROMPT, Act::Escape, " cancel"),
+                ]
+                .concat(),
+            ),
+            (Some(SignIn::Starting(_)), _) => Line::from(
+                [
+                    vec![Span::styled(
+                        format!(" {} Finding your account's server…", icons::BUSY.get()),
+                        fg(theme::current().info),
+                    )],
+                    key(&PROFILE, Act::Escape, " stop"),
+                ]
+                .concat(),
+            ),
             (Some(SignIn::Waiting { server, url, opened, local_app, .. }), _) => {
                 let mut spans = vec![Span::styled(
                     format!(" {} Approve in your browser at {server}", icons::BUSY.get()),
@@ -132,7 +164,7 @@ impl Account {
                 if !opened {
                     spans.push(Span::styled(format!(" (the browser didn't open: {url})"), dim()));
                 }
-                spans.extend([key("esc"), Span::styled("stop", dim())]);
+                spans.extend(key(&PROFILE, Act::Escape, " stop"));
                 Line::from(spans)
             }
             (Some(SignIn::SigningOut), _) => {
@@ -141,7 +173,8 @@ impl Account {
             (None, Some(a)) => {
                 // When to sign in again, only once it's close.
                 let again = if a.expired() {
-                    Some(" · the session has likely ended; L signs in again".to_string())
+                    let again = account.as_ref().map_or_else(|| " in :".to_string(), |k| format!(" from {k}"));
+                    Some(format!(" · the session has likely ended; sign in again{again}"))
                 } else if a.due_soon() {
                     let by = local_time(a.sign_in_again_by, "%Y-%m-%d");
                     Some(format!(" · sign in again by {by} ({} days)", a.days_left()))
@@ -159,17 +192,18 @@ impl Account {
                 if let Some(again) = again {
                     spans.push(Span::styled(again, fg(theme::current().warning)));
                 }
-                spans.extend([key("L"), Span::styled("sign out", dim())]);
+                spans.extend(account_key("sign out"));
                 Line::from(spans)
             }
-            (None, None) => Line::from(vec![
-                Span::styled(format!(" {} Not signed in", icons::RING.get()), dim()),
-                key("L"),
-                Span::styled(
-                    "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha)",
-                    dim(),
-                ),
-            ]),
+            (None, None) => Line::from(
+                [
+                    vec![Span::styled(format!(" {} Not signed in", icons::RING.get()), dim())],
+                    account_key(
+                        "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha)",
+                    ),
+                ]
+                .concat(),
+            ),
         }
     }
 }
@@ -179,9 +213,9 @@ impl Account {
 pub fn on_input(app: &mut App, key: KeyEvent) -> bool {
     let t = &mut app.profile.account;
     if let Some(SignIn::Typing(text)) = &mut t.sign_in {
-        match key.code {
-            KeyCode::Esc => t.sign_in = None,
-            KeyCode::Enter => {
+        match keymap::dialog_act(&dialogs::PROMPT, &key) {
+            Some(Act::Escape) => t.sign_in = None,
+            Some(Act::Activate) => {
                 let input = text.trim().to_string();
                 if input.is_empty() {
                     app.toast("type your handle (alice.bsky.social) or your server (https://…)", Level::Info);
@@ -189,39 +223,34 @@ pub fn on_input(app: &mut App, key: KeyEvent) -> bool {
                     start_sign_in(app, input);
                 }
             }
-            KeyCode::Backspace => {
-                text.pop();
+            _ => {
+                edit_line(text, key);
             }
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => text.clear(),
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => text.push(c),
-            _ => {}
         }
         return true;
     }
-    match (key.code, &t.sign_in) {
-        (KeyCode::Esc, Some(SignIn::Starting(cancel) | SignIn::Waiting { cancel, .. })) => {
+    match (keymap::dialog_act(&dialogs::PROMPT, &key), &t.sign_in) {
+        (Some(Act::Escape), Some(SignIn::Starting(cancel) | SignIn::Waiting { cancel, .. })) => {
             cancel.cancel();
             true
         }
-        // Signing in or out already.
-        (KeyCode::Char('L'), Some(_)) => true,
         _ => false,
     }
 }
 
-/// `L`: sign in (type the handle); signed in, press twice to sign out.
+/// Sign in/out: sign in (type the handle); signed in, asks whether to sign out.
 pub fn press(app: &mut App) {
     let t = &mut app.profile.account;
+    // Signing in or out already.
+    if t.sign_in.is_some() {
+        return;
+    }
     let Some(a) = t.info.clone() else {
         t.sign_in = Some(SignIn::Typing(t.last_handle.clone().unwrap_or_default()));
         return;
     };
-    if t.logout_armed.take().is_some_and(|at| at.elapsed() < Duration::from_secs(4)) {
-        start_sign_out(app);
-    } else {
-        t.logout_armed = Some(Instant::now());
-        app.toast(format!("signed in as {}: press L again to sign out", a.name()), Level::Info);
-    }
+    let question = format!("Sign out of {}?", a.name());
+    app.modal = Some(Modal::Ask(question, Box::new(start_sign_out)));
 }
 
 fn start_sign_in(app: &mut App, input: String) {
@@ -229,8 +258,10 @@ fn start_sign_in(app: &mut App, input: String) {
     let cancel = CancelToken::new();
     app.profile.account.sign_in = Some(SignIn::Starting(cancel.clone()));
     let started = app.profile.tx.clone();
+    // Typing a handle only starts signed out (`press`), so there's no session whose scopes to keep.
+    let scopes = atmosphere::player_scopes();
     let job = move || {
-        let req = api::AccountLoginRequest { handle: Some(input), ..Default::default() };
+        let req = api::AccountLoginRequest { handle: Some(input), scopes, ..Default::default() };
         let start = match api::account_login_begin(&root, &req) {
             Ok(s) => s,
             // The player takes no `--session-file`: the setting does it.
@@ -308,9 +339,13 @@ pub fn on_event(app: &mut App, e: AccountEvent) {
             }
         }
         AccountEvent::Done { message, error } => {
+            let signing_in = matches!(t.sign_in, Some(SignIn::Waiting { .. } | SignIn::Starting(_)));
             t.sign_in = None;
             t.load(&app.store_root);
             app.toast(message, if error { Level::Error } else { Level::Info });
+            if signing_in && !error && app.profile.account.info.is_some() {
+                app.keys_after_sign_in();
+            }
         }
     }
 }

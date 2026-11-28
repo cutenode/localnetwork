@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hegel::generators as gs;
 use locallibrary::Playlist;
@@ -11,11 +11,11 @@ use ratatui::crossterm::event::KeyCode;
 use ratatui::style::{Color, Modifier};
 
 use crate::tui::app::testing::*;
-use crate::tui::app::{App, CHORD_HINT, DrivePane, Focus, Level, ReplayOffer, View};
+use crate::tui::app::{App, DrivePane, Focus, Level, ReplayOffer, View};
 use crate::tui::deck::Outputs;
 use crate::tui::drives::{Report, Tone};
 use crate::tui::edits::{Modal, Sub};
-use crate::tui::keymap;
+use crate::tui::keymap::{self, Act};
 use crate::tui::theme::{self, Mode, Tier};
 use crate::tui::ui::{draw, screen};
 
@@ -36,6 +36,17 @@ fn rows(s: &str) -> Vec<&str> {
 fn text_of(buf: &Buffer, area: Rect) -> Vec<String> {
     let row = |y| (area.x..area.right()).map(|x| buf[(x, y)].symbol()).collect();
     (area.y..area.bottom()).map(row).collect()
+}
+
+/// Tab to the library's `pane`, as a person moves between panes.
+fn tab_to(app: &mut App, pane: Focus) {
+    for _ in 0..5 {
+        if app.focus == pane {
+            return;
+        }
+        press(app, "\t");
+    }
+    assert_eq!(app.focus, pane, "tab reaches it");
 }
 
 fn any_view(tc: &hegel::TestCase) -> View {
@@ -98,7 +109,7 @@ fn prop_every_size_has_the_deck(tc: hegel::TestCase) {
     }
     assert!(w >= 60 && h >= 20, "more than the deck at {w}x{h}");
     assert_eq!(app.areas.overview.y, shell.strip.y + 1, "{w}x{h}");
-    assert!(lines[0].contains("l Library") && lines[0].contains("n localnetwork"), "the tabs at {w}x{h}:\n{s}");
+    assert!(lines[0].contains("Library") && lines[0].contains("localnetwork"), "the tabs at {w}x{h}:\n{s}");
     // Each tab is clicked where it's drawn, and localnetwork's ends the row.
     let header: Vec<char> = lines[0].chars().collect();
     for (v, r) in &app.areas.tabs {
@@ -107,8 +118,7 @@ fn prop_every_size_has_the_deck(tc: hegel::TestCase) {
     }
     assert_eq!(app.areas.tabs.len(), View::ALL.len(), "{w}x{h}");
     assert!(app.areas.tabs.iter().any(|(v, r)| *v == View::Profile && r.right() == w), "{w}x{h}:\n{s}");
-    assert!(lines[shell.status.y as usize].contains("BROWSE"), "the status line at {w}x{h}:\n{s}");
-    assert!(!lines[h as usize - 1].trim().is_empty(), "the keys at {w}x{h}:\n{s}");
+    assert!(lines[h as usize - 1].trim_end().ends_with("? help"), "the keys at {w}x{h}:\n{s}");
 }
 
 /// What's said under the deck fits a narrow screen too.
@@ -138,7 +148,7 @@ fn prop_nothing_covers_the_deck(tc: hegel::TestCase) {
             app.modal = Some(Modal::Report(Report { title: "Long".into(), lines, scroll: 0 }));
         }
         6 => app.deck.outputs = Some(Outputs { names: vec!["Phones".into(); 40], ..Default::default() }),
-        _ => app.chord = Some(Instant::now() - CHORD_HINT),
+        _ => press(&mut app, "t"),
     }
     let over = drawn(&mut app, w, h);
     let strip = Shell::of(Rect::new(0, 0, w, h)).strip;
@@ -153,7 +163,6 @@ fn layers(app: &App) -> Vec<&'static str> {
             open.push(what);
         }
     };
-    add(app.chord.is_some(), "the chord");
     add(app.help, "help");
     add(app.show_log, "messages");
     add(app.deck.outputs.is_some(), "outputs");
@@ -179,7 +188,7 @@ fn prop_esc_closes_one_layer(tc: hegel::TestCase) {
     let on = || tc.draw(gs::booleans());
     if on() {
         app.view = View::Mixes;
-        press(&mut app, "O");
+        app.perform(Act::MixOpen, None);
     } else if on() {
         app.deck_layout = true;
     }
@@ -209,7 +218,6 @@ fn prop_esc_closes_one_layer(tc: hegel::TestCase) {
     }
     app.show_log = on();
     app.help = on();
-    app.chord = on().then(Instant::now);
     while let [top, rest @ ..] = &layers(&app)[..] {
         let (top, rest) = (*top, rest.to_vec());
         screen(&mut app, w, h);
@@ -218,44 +226,22 @@ fn prop_esc_closes_one_layer(tc: hegel::TestCase) {
     }
 }
 
-/// `g` and a letter goes to each view; the view's tab shows that letter.
+/// A digit goes to each view, and the view's tab shows it.
 #[test]
-fn g_and_a_letter_goes_to_a_view() {
-    for (letter, view) in
-        [("l", View::Library), ("p", View::Prepare), ("d", View::Drives), ("r", View::Mixes), ("n", View::Profile)]
+fn a_digit_goes_to_a_view() {
+    for (digit, view) in
+        [("1", View::Library), ("2", View::Prepare), ("3", View::Drives), ("4", View::Mixes), ("5", View::Profile)]
     {
         let (mut app, _dir) = blank(View::Library);
-        press(&mut app, &format!("g{letter}"));
+        press(&mut app, digit);
         assert_eq!(app.view, view);
-        assert!(app.chord.is_none());
         let s = screen(&mut app, 120, 40);
-        assert!(rows(&s)[0].contains(&format!(" {letter} {} ", view.title())), "{s}");
-        assert_eq!(keymap::view_letter(view), letter);
+        assert!(rows(&s)[0].contains(&format!("{digit} {}", view.title())), "{s}");
+        assert_eq!(keymap::view_key(view), digit);
     }
 }
 
-/// After `g`, any other key does nothing but end it; `g g` is the first row.
-#[test]
-fn another_key_ends_the_chord() {
-    let (mut app, _dir) = app_with(library());
-    app.track_state.select(Some(2));
-    press(&mut app, "gq");
-    assert!(app.chord.is_none() && !app.quit, "q there doesn't quit");
-    press(&mut app, "g");
-    key(&mut app, KeyCode::Left);
-    assert_eq!((app.chord, app.view), (None, View::Library));
-    press(&mut app, "gg");
-    assert_eq!(app.track_state.selected(), Some(0));
-    // Ctrl-c still quits from the middle of one.
-    press(&mut app, "g");
-    app.on_key(ratatui::crossterm::event::KeyEvent::new(
-        KeyCode::Char('c'),
-        ratatui::crossterm::event::KeyModifiers::CONTROL,
-    ));
-    assert!(app.quit);
-}
-
-/// Picking a playlist stays in the library: of what follows `g`, only `g` works.
+/// Picking a playlist stays in the library: a digit doesn't leave it.
 #[test]
 fn picking_stays_in_the_library() {
     let (mut app, _dir) = app_with(library());
@@ -263,87 +249,9 @@ fn picking_stays_in_the_library() {
     let target = app.target().unwrap();
     app.picking = Some(crate::tui::edits::Pick { target, focus: Focus::Tracks });
     app.focus = Focus::Playlists;
-    app.playlist_state.select(Some(1));
-    press(&mut app, "gd");
+    press(&mut app, "3");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gg");
-    assert_eq!(app.playlist_state.selected(), Some(0));
     assert!(app.picking.is_some());
-}
-
-/// The hint waits out a pause, asking for frames till it's due and none after.
-#[test]
-fn the_chords_hint_shows_after_a_pause() {
-    let (mut app, _dir) = app_with(library());
-    press(&mut app, "g");
-    assert!(app.animating(), "a frame to show it on");
-    let s = screen(&mut app, 120, 40);
-    assert!(!s.contains("Go to"), "{s}");
-    assert!(rows(&s).iter().any(|l| l.contains(" GO TO ")), "{s}");
-    app.chord = Some(Instant::now() - CHORD_HINT);
-    assert!(!app.animating());
-    let s = screen(&mut app, 120, 40);
-    for said in [
-        "Go to",
-        "g l",
-        "Library",
-        "g p",
-        "Prepare",
-        "g d",
-        "Drives",
-        "g r",
-        "Recordings",
-        "g n",
-        "localnetwork",
-        "g g",
-    ] {
-        assert!(s.contains(said), "{said}: {s}");
-    }
-    press(&mut app, "d");
-    let s = screen(&mut app, 120, 40);
-    assert!(!s.contains("Go to"), "{s}");
-}
-
-/// Digits jump to the panes in the titles: the library's side panels once they're shown, and any
-/// other digit does nothing, whatever the view.
-#[test]
-fn digits_jump_to_the_panes_numbered() {
-    let (mut app, _dir) = app_with(library());
-    for (digit, pane) in [("1", Focus::Drives), ("2", Focus::Playlists), ("3", Focus::Tracks)] {
-        press(&mut app, digit);
-        assert_eq!(app.focus, pane);
-    }
-    press(&mut app, "45");
-    assert_eq!(app.focus, Focus::Tracks, "no pane has those");
-    let s = screen(&mut app, 160, 45);
-    for title in ["1 Drives", "2 Playlists", "3 "] {
-        assert!(s.contains(title), "{title}: {s}");
-    }
-    assert!(s.contains("▸ 3 "), "{s}");
-    press(&mut app, "ti");
-    let s = screen(&mut app, 160, 45);
-    assert!(s.contains("4 Queue") && s.contains("5 Track"), "{s}");
-    press(&mut app, "4");
-    assert_eq!(app.focus, Focus::Crate);
-    press(&mut app, "5");
-    assert_eq!(app.focus, Focus::Details);
-    press(&mut app, "9");
-    assert_eq!(app.focus, Focus::Details);
-
-    press(&mut app, "gd");
-    assert_eq!(app.drive_pane, DrivePane::List);
-    for (digit, pane) in
-        [("2", DrivePane::Info), ("3", DrivePane::Snapshots), ("4", DrivePane::History), ("1", DrivePane::List)]
-    {
-        press(&mut app, digit);
-        assert_eq!(app.drive_pane, pane);
-    }
-    assert_eq!(app.drive_tab, DrivePane::History, "the list keeps what's beside it");
-    press(&mut app, "5");
-    assert_eq!(app.drive_pane, DrivePane::List);
-
-    press(&mut app, "gp123");
-    assert_eq!(app.view, View::Prepare);
 }
 
 /// Digits are hot cues while the pads are on, in any view, and the deck says they are.
@@ -357,7 +265,7 @@ fn prop_digits_are_hot_cues_with_the_pads_on(tc: hegel::TestCase) {
     assert_eq!(app.pending_seek, Some(Duration::from_secs(1)));
     assert_eq!(app.focus, Focus::Tracks);
     let s = screen(&mut app, 120, 40);
-    assert!(s.contains("' pads on") && s.contains("1 A") && s.contains(" PADS "), "{s}");
+    assert!(s.contains(" pads on ") && s.contains("1 A") && s.contains(" PADS "), "{s}");
 }
 
 /// The focused pane says so without colour, with a marker in one title only, and a selection in a
@@ -367,11 +275,12 @@ fn focus_reads_without_colour() {
     theme::set_test_mode(Some(Mode::Plain));
     let (mut app, _dir) = app_with(library());
     app.track_state.select(Some(0));
-    for (digit, title) in [("1", "▸ 1 Drives"), ("2", "▸ 2 Playlists"), ("3", "▸ 3 ")] {
-        press(&mut app, digit);
+    let titles = [(Focus::Drives, "▸ Drives"), (Focus::Playlists, "▸ Playlists"), (Focus::Tracks, "▸ All tracks")];
+    for (pane, title) in titles {
+        tab_to(&mut app, pane);
         let s = screen(&mut app, 160, 45);
         assert!(s.contains(title), "{title}: {s}");
-        assert_eq!((1..=5).filter(|n| s.contains(&format!("▸ {n} "))).count(), 1, "{s}");
+        assert_eq!(titles.iter().filter(|(_, t)| s.contains(t)).count(), 1, "{s}");
     }
     let buf = drawn(&mut app, 160, 45);
     let row = (2..45).find(|&y| text_of(&buf, Rect::new(0, y, 30, 1))[0].contains("All tracks")).unwrap();
@@ -398,14 +307,13 @@ fn a_selection_without_focus_is_dimmed_by_the_theme() {
     assert_eq!(bg, idle);
 }
 
-/// The context line says where things stand, on a row of its own with room for it, in the header
-/// without. Before a drive is open it says nothing at all.
+/// The header says where things stand: nothing before a drive is open, then the drive, the list,
+/// the search and the marks, at any height, the panes right under it.
 #[test]
-fn the_context_line_says_where_things_stand() {
+fn the_header_says_where_things_stand() {
     let (mut app, _dir) = blank(View::Library);
     let s = screen(&mut app, 120, 40);
-    assert_eq!(rows(&s)[1].trim(), "", "{s}");
-    assert!(!rows(&s)[0].contains("drive"), "{s}");
+    assert!(!rows(&s)[0].contains('›'), "{s}");
 
     let (mut app, _dir) = app_with(library());
     app.query = "daft".into();
@@ -416,20 +324,19 @@ fn the_context_line_says_where_things_stand() {
         let root = app.loaded.as_ref().unwrap().root().to_path_buf();
         app.drive_label(&root)
     };
-    let s = screen(&mut app, 160, 45);
-    let line = rows(&s)[1];
-    for said in [drive.as_str(), "› All tracks", "/ daft whole drive", "marked"] {
-        assert!(line.contains(said), "{said}: {line}");
+    for h in [45, 29] {
+        let s = screen(&mut app, 160, h);
+        for said in [drive.as_str(), "› All tracks", "/ daft whole drive", "marked"] {
+            assert!(rows(&s)[0].contains(said), "{said} at 160x{h}: {s}");
+        }
+        assert!(rows(&s)[1].contains(" Drives ─"), "the panes start under the header: {s}");
     }
-    let s = screen(&mut app, 160, 29);
-    assert!(rows(&s)[0].contains("All tracks"), "{s}");
-    assert!(rows(&s)[1].contains("1 Drives"), "the panes start under the header: {s}");
 }
 
-/// The status line: what keys do, what's going on, where the selection is, the drive's space and
-/// who's signed in, the last two only as room allows.
+/// The status row: what's going on, where the selection is and the drive's space; the keys row's
+/// chip, only when keys mean something else.
 #[test]
-fn the_status_line_says_what_and_where() {
+fn the_status_row_says_what_and_where() {
     let (mut app, _dir) = app_with(library());
     app.track_state.select(Some(1));
     let n = app.visible.len();
@@ -437,46 +344,46 @@ fn the_status_line_says_what_and_where() {
     let mut info = locallibrary::Device::open(&root).unwrap().info();
     info.free_space = Some(12_000_000_000);
     app.drives = vec![info];
-    let status = |app: &mut App, w: u16| {
-        let s = screen(app, w, 40);
-        rows(&s)[38].to_string()
+    let row = |app: &mut App, y: usize| {
+        let s = screen(app, 160, 40);
+        rows(&s)[y].to_string()
     };
-    let line = status(&mut app, 160);
-    assert!(line.contains(" BROWSE ") && line.contains(&format!("2/{n}")), "{line}");
+    let line = row(&mut app, 38);
+    assert!(!line.contains("BROWSE") && line.contains(&format!("2/{n}")), "{line}");
     assert!(line.contains("12.0 GB free") || line.contains("11.2 GB free"), "{line}");
 
     app.searching = true;
-    assert!(status(&mut app, 160).contains(" SEARCH "));
+    assert!(row(&mut app, 39).contains(" SEARCH "));
     app.searching = false;
     app.picking = Some(crate::tui::edits::Pick { target: app.target().unwrap(), focus: Focus::Tracks });
-    assert!(status(&mut app, 160).contains(" PICK "));
+    assert!(row(&mut app, 39).contains(" PICK "));
     app.picking = None;
     app.deck_layout = true;
-    assert!(status(&mut app, 160).contains(" PLAYER "));
+    assert!(!row(&mut app, 39).contains("PLAYER"), "player mode is plain to see");
     app.deck_layout = false;
     app.deck.pads = true;
-    assert!(status(&mut app, 160).contains(" PADS "));
+    assert!(row(&mut app, 39).contains(" PADS "));
     app.deck.pads = false;
     app.view = View::Mixes;
-    press(&mut app, "O");
-    assert!(status(&mut app, 160).contains(" TYPING "));
+    app.perform(Act::MixOpen, None);
+    assert!(row(&mut app, 39).contains(" TYPING "));
     press(&mut app, "\u{1b}");
     app.view = View::Library;
 
     app.job = Some(job(false, false));
     app.job.as_mut().unwrap().detail = "half way".into();
-    let line = status(&mut app, 160);
+    let line = row(&mut app, 38);
     assert!(line.contains("half way") && line.contains("esc cancel"), "{line}");
     app.job = None;
     app.loading = Some("Reading TEST".into());
-    assert!(status(&mut app, 160).contains("Reading TEST"));
+    assert!(row(&mut app, 38).contains("Reading TEST"));
     app.loading = None;
 }
 
-/// Who's signed in shows while there's room for it, and the line gives it up first.
+/// Who's signed in is localnetwork's to say, in the header; the status row never says it.
 #[cfg(feature = "account")]
 #[test]
-fn the_status_line_names_who_is_signed_in() {
+fn the_header_names_who_is_signed_in() {
     let (mut app, _dir) = app_with(library());
     app.track_state.select(Some(0));
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
@@ -496,11 +403,13 @@ fn the_status_line_names_who_is_signed_in() {
         "storage": "file"
     });
     app.profile.account.info = Some(serde_json::from_value(account).unwrap());
-    let s = screen(&mut app, 160, 40);
-    assert!(rows(&s)[38].contains("@a.rather.long.handle.example.com"), "{s}");
     let s = screen(&mut app, 60, 20);
     let line = rows(&s)[18];
     assert!(!line.contains('@') && line.contains("free") && line.contains("1/"), "{line}");
+    app.view = View::Profile;
+    let s = screen(&mut app, 160, 40);
+    assert!(rows(&s)[0].contains("@a.rather.long.handle.example.com"), "{s}");
+    assert!(!rows(&s)[38].contains('@'), "{s}");
 }
 
 /// The latest message goes on the status line. One too long, or more than one, goes over the
@@ -511,7 +420,7 @@ fn messages_stay_off_the_deck() {
     let shell = Shell::of(Rect::new(0, 0, 80, 24));
     app.toast("saved", Level::Info);
     let buf = drawn(&mut app, 80, 24);
-    assert!(text_of(&buf, shell.status)[0].contains("saved"));
+    assert!(text_of(&buf, shell.status())[0].contains("saved"));
 
     app.toast("word ".repeat(30), Level::Info);
     let buf = drawn(&mut app, 80, 24);
@@ -521,7 +430,7 @@ fn messages_stay_off_the_deck() {
 
     app.modal = Some(Modal::Ask("Sure?".into(), Box::new(|_: &mut App| {})));
     let buf = drawn(&mut app, 80, 24);
-    let line = text_of(&buf, shell.status)[0].clone();
+    let line = text_of(&buf, shell.status())[0].clone();
     assert!(line.contains("word") && !text_of(&buf, shell.strip).join("").contains("word"), "{line}");
 }
 
@@ -540,39 +449,39 @@ fn panes_give_way_in_order() {
     assert_eq!(app.areas.drives.height, 1, "{s}");
     assert_eq!(app.areas.crate_panel.height, 1, "{s}");
     assert!(app.areas.playlists.height > 1 && app.areas.details.height > 1, "{s}");
-    assert!(s.contains("1 Drives") && s.contains("4 Queue"), "{s}");
-    press(&mut app, "1");
+    assert!(s.contains(" Drives ─") && s.contains(" Queue "), "{s}");
+    tab_to(&mut app, Focus::Drives);
     screen(&mut app, 100, 28);
     assert!(app.areas.drives.height > 1 && app.areas.playlists.height == 1);
-    press(&mut app, "4");
+    tab_to(&mut app, Focus::Crate);
     screen(&mut app, 100, 28);
     assert!(app.areas.crate_panel.height > 1 && app.areas.details.height == 1);
 
     // A click on a collapsed title opens it.
-    press(&mut app, "3");
+    tab_to(&mut app, Focus::Tracks);
     screen(&mut app, 100, 28);
     let r = app.areas.drives;
     mouse(&mut app, LEFT, (r.x + 2, r.y));
     assert_eq!(app.focus, Focus::Drives);
 
-    press(&mut app, "3");
+    tab_to(&mut app, Focus::Tracks);
     let s = screen(&mut app, 80, 24);
-    assert!(app.areas.details.is_empty() && !s.contains("5 Track"), "{s}");
+    assert!(app.areas.details.is_empty() && !s.contains(" Track ─"), "{s}");
     press(&mut app, "i");
     assert_eq!(app.focus, Focus::Details, "i brings it back");
     let s = screen(&mut app, 80, 24);
-    assert!(s.contains("▸ 5 Track"), "{s}");
+    assert!(s.contains("▸ Track ─"), "{s}");
     press(&mut app, "i");
     assert!(!app.show_details && app.focus == Focus::Tracks, "and closes it");
     press(&mut app, "i");
     assert!(app.show_details && app.focus == Focus::Details, "and opens it");
-    press(&mut app, "3");
+    tab_to(&mut app, Focus::Tracks);
 
     let s = screen(&mut app, 60, 20);
     assert_eq!((app.areas.drives.height, app.areas.playlists.height, app.areas.crate_panel.height), (1, 1, 1), "{s}");
     assert!(app.areas.tracks.height > 1 && app.areas.tracks.width == 60, "{s}");
     assert!(app.areas.details.is_empty(), "{s}");
-    press(&mut app, "2");
+    tab_to(&mut app, Focus::Playlists);
     screen(&mut app, 60, 20);
     assert!(app.areas.playlists.height > 1 && app.areas.tracks.height == 1);
 }
@@ -581,22 +490,22 @@ fn panes_give_way_in_order() {
 #[test]
 fn the_drives_panes_stack_at_the_smallest() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "gd");
+    press(&mut app, "3");
     let s = screen(&mut app, 60, 20);
     assert!(app.areas.drive_list.height > 1 && app.areas.drive_side.height == 1, "{s}");
-    assert!(s.contains("2 Drive") && s.contains("3 Snapshots") && s.contains("4 History"), "{s}");
-    press(&mut app, "2");
+    assert!(s.contains(" Drive  Snapshots  History "), "{s}");
+    press(&mut app, "\t");
     let s = screen(&mut app, 60, 20);
     assert!(app.areas.drive_list.height == 1 && app.areas.drive_side.height > 1, "{s}");
-    assert!(s.contains("1 Drives"), "{s}");
+    assert!(s.contains(" Drives ─"), "{s}");
 }
 
-/// Snapshots and history sit beside the list as tabs, reached by tab, a digit or a click, with the
+/// Snapshots and history sit beside the list as tabs, reached by tab or a click, with the
 /// drive's details scrolled when they have focus.
 #[test]
 fn the_drives_view_folds_in_snapshots_and_history() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "gd");
+    press(&mut app, "3");
     assert_eq!(app.drive_tab, DrivePane::Info);
     press(&mut app, "\t");
     assert_eq!(app.drive_pane, DrivePane::Info);
@@ -618,7 +527,7 @@ fn the_drives_view_folds_in_snapshots_and_history() {
         mouse(&mut app, LEFT, (r.x + 2, r.y));
         assert_eq!(app.drive_pane, pane);
     }
-    assert!(screen(&mut app, 120, 40).contains("▸ 4 History"));
+    assert!(screen(&mut app, 120, 40).contains("▸ History"));
     let r = app.areas.drive_list;
     mouse(&mut app, LEFT, (r.x + 2, r.y));
     assert_eq!(app.drive_pane, DrivePane::List);
@@ -635,7 +544,7 @@ fn the_history_pane_opens_a_list() {
     let mut lib = library();
     lib.history.clear();
     let (mut app, _dir) = app_with(lib);
-    press(&mut app, "gd4");
+    press(&mut app, "3\t\t\t");
     assert!(screen(&mut app, 120, 40).contains("Nothing recorded on this drive yet."));
     let played = |id, name: &str, track_ids| Playlist {
         id,
@@ -652,7 +561,7 @@ fn the_history_pane_opens_a_list() {
         played(3, "HISTORY 002", Vec::new()),
     ];
     let (mut app, _dir) = app_with(lib);
-    press(&mut app, "gd4");
+    press(&mut app, "3\t\t\t");
     let s = screen(&mut app, 120, 40);
     assert!(
         s.contains("HISTORY 001") && s.contains("1 track") && s.contains("HISTORY 002") && !s.contains("2026"),
@@ -674,7 +583,7 @@ fn the_drives_details_scroll() {
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     app.drives = vec![locallibrary::Device::open(&root).unwrap().info()];
     app.drive_state.select(Some(0));
-    press(&mut app, "gd2");
+    press(&mut app, "3\t");
     let first = screen(&mut app, 120, 28);
     press(&mut app, "jj");
     assert_eq!(app.drive_scroll, 2);
@@ -682,10 +591,12 @@ fn the_drives_details_scroll() {
     press(&mut app, "kkk");
     assert_eq!(app.drive_scroll, 0);
     // Another drive's details start from their top.
-    press(&mut app, "jj1j");
+    press(&mut app, "jj");
+    key(&mut app, KeyCode::BackTab);
+    press(&mut app, "j");
     assert_eq!(app.drive_scroll, 0);
-    press(&mut app, "2");
-    press(&mut app, "G");
+    press(&mut app, "\t");
+    key(&mut app, KeyCode::End);
     screen(&mut app, 120, 28);
     assert!(app.drive_scroll < 100, "{}", app.drive_scroll);
 }

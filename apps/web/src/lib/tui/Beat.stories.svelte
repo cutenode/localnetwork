@@ -4,7 +4,7 @@
 	import TuiStory from './TuiStory.svelte';
 
 	/** Where the playing deck is in the bar (its place in the beat grid), in four squares. */
-	const { Story } = defineMeta({ title: 'Terminal/Beat', component: TuiStory });
+	const { Story } = defineMeta({ title: 'Terminal/Beat', component: TuiStory, tags: ['tui'] });
 </script>
 
 <Story name="Beat 1" args={{ id: 'beat/one' }} play={drawn('■□□□')} />

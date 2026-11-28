@@ -139,10 +139,10 @@ fn nothing_playing_says_what_would_carry_on() {
     assert!(screen(&mut app, 120, 40).contains("No audio output: no device"));
     app.audio_error = None;
     app.deck.pads = true;
-    assert!(screen(&mut app, 120, 40).contains("' pads on"));
+    assert!(screen(&mut app, 120, 40).contains(" pads on "));
     // Short of room, it still says so, and the deck's states give way.
     (app.shuffle, app.deck.single, app.deck.auto_cue) = (true, true, true);
-    let s = screen(&mut app, 55, 5);
+    let s = screen(&mut app, 50, 5);
     assert!(s.contains("Nothing playing") && !s.contains("auto cue"), "{s}");
     assert!(screen(&mut app, 120, 40).contains("auto cue"));
 }

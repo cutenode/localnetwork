@@ -4,7 +4,7 @@
 	import TuiStory from './TuiStory.svelte';
 
 	/** The visualiser's bars, coloured by height, with peak caps. */
-	const { Story } = defineMeta({ title: 'Terminal/Spectrum', component: TuiStory });
+	const { Story } = defineMeta({ title: 'Terminal/Spectrum', component: TuiStory, tags: ['tui'] });
 </script>
 
 <Story name="Bars" args={{ id: 'spectrum/bars' }} play={drawn()} />

@@ -1,0 +1,11 @@
+{
+  "$type": "computer.localnetwork.locallibrary.keybinds",
+  "bindings": [
+    { "action": "playback.next", "keys": ["alt-n", "Ctrl+N", " PageDown ", "esc", "?", "é"] },
+    { "action": "playback.next", "keys": ["n"] },
+    { "action": "future.action", "keys": ["f13", "ctrl-c", 7, null] },
+    { "keys": ["x"] },
+    "not a binding"
+  ],
+  "updatedAt": "not a date"
+}

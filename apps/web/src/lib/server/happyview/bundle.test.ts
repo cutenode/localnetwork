@@ -29,6 +29,7 @@ describe('happyViewBundle', () => {
 			COLLECTION.listingProfile,
 			COLLECTION.listing,
 			`${NS}.locallibrary.settings`,
+			`${NS}.locallibrary.keybinds`,
 			CALENDAR_EVENT,
 			CALENDAR_RSVP,
 			VERIFICATION,

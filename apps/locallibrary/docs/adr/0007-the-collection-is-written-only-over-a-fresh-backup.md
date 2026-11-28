@@ -14,9 +14,10 @@ than only on a drive exported from it. These rules hold for every write:
   the collection is synced: what a synced write has to move so it reaches the cloud and isn't
   overwritten by the cloud's copy hasn't been measured. Sync counts as on if any row has a `usn`,
   any row has `rb_local_synced` set, `cloudAgentRegistry` has rows, `agentRegistry` has a
-  `lastUpdateCount` row, or the agent's options or log don't say it runs standalone. When it
-  can't tell, it takes sync as on. This holds until a synced write has been measured on a test
-  account's library, not a person's own.
+  `lastUpdateCount` row or a `lastSyncTime` holding a time, or the agent's log doesn't say its
+  last run is standalone (or was last written well before `master.db`). When it can't tell, it
+  takes sync as on. This holds until a synced write has been measured on a test account's
+  library, not a person's own.
 - **Only over a fresh backup.** No edit is written until a backup of `master.db` and its WAL has
   been made of the database exactly as it is at that moment, and read back: decrypted, opened and
   checked whole. A backup made before rekordbox last changed the database isn't fresh, however

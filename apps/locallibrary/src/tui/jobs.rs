@@ -6,16 +6,17 @@
 use std::time::Instant;
 
 use ratatui::Frame;
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 
-use super::app::{App, Level};
+use super::app::{App, Level, step_list};
 use super::edits::Modal;
 use super::icons;
+use super::keymap::{self, Act, dialogs};
 use super::theme::{self, dim, faint, fg, text};
-use super::ui::{Scrolled, block, clip, popup, spread, title};
+use super::ui::{Scrolled, block, clip, hint_bar, popup, spread, title};
 
 /// What can be done about a job now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,18 +97,14 @@ impl App {
         self.modal = Some(Modal::Jobs(ListState::default().with_selected(Some(0))));
     }
 
-    /// Keys while the job list is open: the arrows move, enter (or `x`) cancels, anything else
-    /// that isn't typed for it closes it.
+    /// Keys while the job list is open: the list's keys move, enter, `x` or delete cancels the one
+    /// selected, esc or `&` closes it, and any other key does nothing.
     pub(super) fn on_jobs_key(&mut self, mut list: ListState, key: KeyEvent) {
-        let n = rows(self).len();
-        match key.code {
-            KeyCode::Up | KeyCode::Char('k') => list.select_previous(),
-            KeyCode::Down | KeyCode::Char('j') => {
-                list.select(Some(list.selected().map_or(0, |s| s + 1).min(n.max(1) - 1)))
-            }
-            KeyCode::Enter | KeyCode::Delete | KeyCode::Char('x') => self.cancel_row(list.selected().unwrap_or(0)),
-            KeyCode::Esc | KeyCode::Char('q' | '&') => return,
-            _ => {}
+        match keymap::dialog_act(&dialogs::JOBS, &key) {
+            Some(Act::Activate | Act::CancelJob) => self.cancel_row(list.selected().unwrap_or(0)),
+            Some(Act::Escape) => return,
+            Some(act) => step_list(&mut list, rows(self).len(), act),
+            None => {}
         }
         self.modal = Some(Modal::Jobs(list));
     }
@@ -158,8 +155,8 @@ pub(super) fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let r = popup(area, w, items.len() as u16 + 2, None);
     list.fit(r.height.saturating_sub(2) as usize, items.len());
-    let keys = if rows.is_empty() { " esc close " } else { " ↑↓ select · enter cancel · esc close " };
-    let b = block(title("Jobs", true), true).title_bottom(Line::styled(keys, faint()).right_aligned());
+    let hints = keymap::dialog_hints(&dialogs::JOBS).into_iter().filter(|h| !rows.is_empty() || h.act == Act::Escape);
+    let b = block(title("Jobs", true), true).title_bottom(hint_bar(&hints.collect::<Vec<_>>(), &[]).right_aligned());
     let widget = List::new(items)
         .block(b)
         .highlight_style(theme::selected())

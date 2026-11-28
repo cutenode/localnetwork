@@ -14,6 +14,9 @@
 # Playwright
 test-results
 
+# Vitest's copies of a TUI story's screenshot when it doesn't match the saved one
+/.vitest
+
 # Local Network
 /data
 /coverage

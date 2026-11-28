@@ -112,11 +112,11 @@ export const locallibrary: Tool = {
 			title: 'Signing in',
 			markdown: `locallibrary signs in with your Atmosphere account, the one you use for Bluesky and other AT Protocol apps. You sign in on your account's own server, in your browser, so locallibrary never sees your password.
 
-Signing in only asks who you are. Sign out with \`locallibrary account logout\`, or remove locallibrary in your account's settings, at any time. Servers read its details from [its client document](https://locallibrary.localnetwork.computer/oauth-client-metadata.json).`
+Signing in asks who you are. Signing in from the player also asks to publish the keys you set in it, so they follow you to your other computers. Sign out with \`locallibrary account logout\`, or remove locallibrary in your account's settings, at any time. Servers read its details from [its client document](https://locallibrary.localnetwork.computer/oauth-client-metadata.json).`
 		},
 		{
 			title: 'Publishing',
-			markdown: `The first time you publish, locallibrary asks for one more permission: to create and replace four kinds of record in your account, to delete sets and their recordings, and to upload a set's recording. It can't touch anything else.
+			markdown: `The first time you publish, locallibrary asks for one more permission: to create and replace five kinds of record in your account, to delete sets and their recordings, and to upload a set's recording. It can't touch anything else.
 
 - \`locallibrary sets publish\` writes a set: the day, venue, event and tracks in order. With \`--upload\` it uploads the set's recording too.
 - \`locallibrary sets delete\` takes a set and its recording off your account.

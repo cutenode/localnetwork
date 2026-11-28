@@ -684,10 +684,7 @@ fn prop_plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
                 json!({ "key": format!("services.{name}"), "title": format!("{title}: keep it running"), "default": false })
             })
             .collect();
-        // Then each command's and operation's key in the player, unset.
-        let keys = player_keys(m);
-        let shown: Vec<&Value> =
-            m["contributes"]["settings"].as_array().unwrap().iter().chain(&switches).chain(&keys).collect();
+        let shown: Vec<&Value> = m["contributes"]["settings"].as_array().unwrap().iter().chain(&switches).collect();
         assert_eq!(env.ok(&["plugin", "settings", id]), settings_text(id, &shown, &described["settings"]));
     }
     let r = env.run(&["plugin", "info", "plug-z"]);
@@ -725,17 +722,6 @@ fn prop_each_capability_is_said_in_words_of_its_own(tc: TestCase) {
     let r = env.run(&["plugin", "serve", id]);
     assert_eq!((r.code, r.out.as_str()), (1, ""), "{}", r.err);
     assert!(r.err.contains(&format!("not found: plugin {id:?}")), "{}", r.err);
-}
-
-/// The settings for the player's key of each of manifest `m`'s commands and operations, as
-/// `plugin settings` lists them after its own: text, with no default.
-fn player_keys(m: &Value) -> Vec<Value> {
-    let hooks = ["commands", "operations"].map(|f| m["contributes"][f].as_array().cloned().unwrap_or_default());
-    let key = |x: &Value| {
-        let (name, title) = (x["name"].as_str().unwrap(), x["title"].as_str().unwrap());
-        json!({ "key": format!("keys.{name}"), "title": format!("{title}: its key in the player") })
-    };
-    hooks.concat().iter().map(key).collect()
 }
 
 /// A setting's value as typed on the command line and what it reads back as, drawn for its kind.
@@ -817,7 +803,6 @@ fn prop_settings_read_back_as_last_set(tc: TestCase) {
     m["contributes"]["services"] = json!([]);
     // A command that answers what it's given, settings included.
     m["contributes"]["commands"] = json!([{ "name": "ask", "title": "Ask", "mode": "headless" }]);
-    let keys = player_keys(&m);
     let env = env_with(&[m]);
     let mut set: Map<String, Value> = Map::new();
     let now = |set: &Map<String, Value>| -> Value {
@@ -891,11 +876,7 @@ fn prop_settings_read_back_as_last_set(tc: TestCase) {
                 if one {
                     args.push(key);
                 }
-                let mut shown: Vec<&Value> = settings.iter().filter(|s| !one || s["key"] == key).collect();
-                // After them, each command's and operation's key in the player, never set here.
-                if !one {
-                    shown.extend(&keys);
-                }
+                let shown: Vec<&Value> = settings.iter().filter(|s| !one || s["key"] == key).collect();
                 let json = unschema(env.json(&args));
                 let mut expected = now(&set);
                 if one {
