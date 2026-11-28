@@ -387,6 +387,11 @@ pub enum PromptFor {
         tracks: Vec<String>,
         target: PathBuf,
     },
+    /// The crate's tracks from rekordbox's collection (their ids), packed onto the prompt's drive
+    /// as the playlist typed.
+    QueueForPack {
+        tracks: Vec<u32>,
+    },
     /// The playlist or folder to bring back (the snapshot is asked next).
     RestorePlaylist,
     /// The playlist or folder to bring back from this snapshot.
@@ -632,7 +637,19 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
     }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
-    // Building a drive from a plugin's library source: the only collection export the player plans.
+    // rekordbox's collection packed onto a drive: what's chosen of it, exported.
+    if let Some(b) = plan.as_any().downcast_ref::<Planned<CollectionExportPlan, CollectionExportOptions>>()
+        && b.plan.source.is_none()
+    {
+        let set = match b.plan.playlists.as_slice() {
+            [] => b.plan.what(),
+            p => p.join(", "),
+        };
+        let ask = format!("Pack {set} onto {drive}?");
+        let what = "pack a set from rekordbox's collection onto it".into();
+        return Wording { ask, yes: "pack", who, what, doing: format!("Packing onto {drive}") };
+    }
+    // Building a drive from a plugin's library source.
     if let Some(b) = plan.as_any().downcast_ref::<Planned<CollectionExportPlan, CollectionExportOptions>>() {
         let ask = match b.plan.replaces_library {
             true => format!("Replace the library on {drive} with {}?", b.plan.what()),
@@ -640,6 +657,12 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
         };
         let what = "build it from a library source".into();
         return Wording { ask, yes: "build", who, what, doing: format!("Building {drive}") };
+    }
+    // The queue from rekordbox's collection added to a drive, as rekordbox's Export playlist does.
+    if plan.operation() == "collection queue" {
+        let what = "add the queue as a playlist, copying only the tracks it lacks".into();
+        let ask = format!("Add the queue to {drive}?");
+        return Wording { ask, yes: "add", who, what, doing: format!("Adding the queue to {drive}") };
     }
     let w =
         |ask: String, yes, what: &str, doing: String| Wording { ask, yes, who: who.clone(), what: what.into(), doing };
@@ -1050,6 +1073,13 @@ impl App {
                         let req = EditRequest { drive, edits, options: EditOptions::default() };
                         Ok(Box::new(api::edit_plan(&req, ctx)?))
                     });
+                    return;
+                }
+                None => None,
+            },
+            PromptFor::QueueForPack { tracks } => match clean_path(&p.text) {
+                Some(path) => {
+                    self.plan_queue_pack(p.root.clone(), path, tracks.clone());
                     return;
                 }
                 None => None,
@@ -1531,7 +1561,18 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
             }
-            Ok(Applied { operation, report }) if operation == "pack" => {
+            Ok(Applied { operation, report }) if operation == "collection queue" => {
+                let added = report["tracks_added"].as_u64().unwrap_or(0) as usize;
+                let had = report["tracks_matched"].as_u64().unwrap_or(0) as usize;
+                let mut msg =
+                    format!("added the queue to {drive}: {} copied, {had} already there", plural(added, "track"));
+                if report["backup"].is_string() {
+                    msg.push_str(UNDO_HINT);
+                }
+                self.toast(msg, Level::Info);
+                self.refresh_status();
+            }
+            Ok(Applied { operation, report }) if operation == "pack" || operation == "collection export" => {
                 let copied = report["copied"].as_u64().unwrap_or(0);
                 let bytes = report["copied_bytes"].as_u64().unwrap_or(0);
                 let mut msg = format!(

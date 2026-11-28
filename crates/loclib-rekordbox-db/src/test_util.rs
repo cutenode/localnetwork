@@ -284,8 +284,8 @@ pub fn plain(path: &Path) -> Vec<u8> {
 
 /// The `registry_id`s of the database at `path`'s `agentRegistry`, in order.
 pub fn registry(path: &Path) -> Vec<String> {
-    let dir = tempfile::tempdir().unwrap();
-    let (db, _) = crate::masterdb::open_copy(path, DEFAULT_KEY, dir.path(), false).unwrap();
+    let folder = crate::scratch::folder().unwrap();
+    let (db, _) = crate::masterdb::open_copy(path, DEFAULT_KEY, &folder, false).unwrap();
     let mut stmt = db.conn.prepare("SELECT registry_id FROM agentRegistry ORDER BY rowid").unwrap();
     stmt.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
 }

@@ -147,8 +147,9 @@ pub struct Target {
     /// rekordbox's agent's log (`log.log`), which says whether Cloud Library Sync is on. `None`, or
     /// one that says nothing, counts as it being on.
     pub agent_log: Option<PathBuf>,
-    /// Where decrypted working copies go, in a folder of their own removed afterwards: the system's
-    /// temporary folder when `None`.
+    /// Where decrypted working copies go, each in a private [`crate::scratch::Folder`] of its own,
+    /// removed afterwards: the temporary folder when `None`, where a sweep takes a killed write's
+    /// folder at the next start.
     pub work: Option<PathBuf>,
     /// Whether rekordbox and its agent are running ([`running_now`], unless a test says
     /// otherwise); `None` when that can't be told.
@@ -205,13 +206,13 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     let _lock = lock(master, &target.backups)?;
     let before = Fingerprint::of(master)?;
     let work = match &target.work {
-        Some(dir) => tempfile::tempdir_in(dir).at(dir)?,
-        None => tempfile::tempdir().at(std::env::temp_dir())?,
+        Some(dir) => crate::scratch::folder_in(dir)?,
+        None => crate::scratch::folder()?,
     };
     let backup = Removed(backup(master, &target.backups, &before)?);
 
     // The backup read back is the working copy: what's edited is what was backed up.
-    let (db, salt) = open_copy(&backup.0, &target.key, work.path(), true)?;
+    let (db, salt) = open_copy(&backup.0, &target.key, &work, true)?;
     let conn = &db.conn;
     let at = |e: rusqlite::Error| Error::parse(&backup.0, e);
     integrity(conn).map_err(at)?.map_or(Ok(()), |why| Err(Error::parse(&backup.0, why)))?;
@@ -576,8 +577,8 @@ fn set_journal_mode(path: &Path, header: [u8; 2]) -> Result<()> {
 /// checks it whole, that its `localUpdateCount` is `count`, and that it holds what the edited copy
 /// at `plain` does, page for page (`encrypted`: each page's last bytes are its IV and tag).
 fn read_back(path: &Path, key: &str, work: &Path, count: i64, plain: &Path, encrypted: bool) -> Result<()> {
-    let dir = tempfile::tempdir_in(work).at(work)?;
-    let (db, _) = open_copy(path, key, dir.path(), false)?;
+    let dir = crate::scratch::folder_in(work)?;
+    let (db, _) = open_copy(path, key, &dir, false)?;
     let odd = |why: String| Error::Refused(Refusal::Odd(format!("the file written {why}")));
     let at = |e: rusqlite::Error| odd(e.to_string());
     if let Some(why) = integrity(&db.conn).map_err(at)? {

@@ -10,6 +10,7 @@ const tool: Tool = {
 	name: 'localthing',
 	kind: '',
 	tagline: '',
+	pitch: '',
 	summary: '',
 	cues,
 	install: { steps: [] },

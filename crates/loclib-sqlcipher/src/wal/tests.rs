@@ -50,3 +50,16 @@ fn applies_only_committed_frames_with_a_valid_chain() {
     assert!(committed(&[], 512).unwrap().is_none());
     assert!(committed(&wal, 4096).is_err());
 }
+
+/// A WAL of a format version other than SQLite's one (3007000) is refused, as SQLite refuses to
+/// open it.
+#[test]
+fn a_wal_of_another_format_version_is_refused() {
+    let mut wal = build(512, (1, 2), &[(2, 2, vec![1; 512])]);
+    wal[4..8].copy_from_slice(&3_007_001u32.to_be_bytes());
+    let sum = checksum(false, &wal[..24], (0, 0));
+    wal[24..28].copy_from_slice(&sum.0.to_be_bytes());
+    wal[28..32].copy_from_slice(&sum.1.to_be_bytes());
+    let err = committed(&wal, 512).unwrap_err().to_string();
+    assert!(err.contains("format version is 3007001"), "{err}");
+}

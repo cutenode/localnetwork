@@ -16,6 +16,7 @@ export const localtoolbox: Tool = {
 	name: 'localtoolbox',
 	kind: 'Chrome extension',
 	tagline: 'Track lists, download links, artists and a queue, right on SoundCloud.',
+	pitch: 'A Chrome extension for digging on SoundCloud: track lists, download links and artists.',
 	summary:
 		'Open it from the toolbar while you browse SoundCloud and pick a tool. Tracks you pick gather in a session queue, so a whole batch can be marked, downloaded or handed on at once.',
 	cues: [
