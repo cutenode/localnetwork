@@ -11,9 +11,9 @@
 
 <Story name="As they came, 160 wide" args={{ id: 'keys/defaults-wide' }} play={drawn('Change keys', 'enter change', 'Kept on this computer')} />
 
-<Story name="Filtered, 80 wide" args={{ id: 'keys/filter-narrow' }} play={drawn('12 actions', 'next track')} />
+<Story name="Filtered, 80 wide" args={{ id: 'keys/filter-narrow' }} play={drawn('13 actions', 'next track')} />
 
-<Story name="Filtered, 160 wide" args={{ id: 'keys/filter-wide' }} play={drawn('12 actions', 'next track')} />
+<Story name="Filtered, 160 wide" args={{ id: 'keys/filter-wide' }} play={drawn('13 actions', 'next track')} />
 
 <Story name="Nothing matches, 80 wide" args={{ id: 'keys/no-match-narrow' }} play={drawn('No action has those words.', '0 actions')} />
 

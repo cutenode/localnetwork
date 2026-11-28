@@ -119,7 +119,9 @@ impl Widget for &Footer {
 /// What keys mean now, when it's not what they mean in the view.
 fn mode(app: &App) -> Option<&'static str> {
     let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
-    if app.searching {
+    if app.deck.deleting {
+        Some("DELETE CUE")
+    } else if app.searching {
         Some("SEARCH")
     } else if typing {
         Some("TYPING")

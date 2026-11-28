@@ -833,6 +833,11 @@ impl App {
     }
 
     /// Jump to `ms` into the playing track, flashing the visualiser in a cue's colour.
+    /// Flash the deck in a cue's colour, as crossing it does.
+    pub(in crate::tui) fn flash_cue(&mut self, color: [u8; 3]) {
+        self.flash = Some((color, Instant::now()));
+    }
+
     pub(in crate::tui) fn jump(&mut self, ms: f64, color: Option<[u8; 3]>) {
         let keep_time = self.snap() == crate::tui::deck::Snap::Phase;
         self.seek(Duration::from_micros((ms.max(0.0) * 1000.0).round() as u64), keep_time);

@@ -310,8 +310,13 @@ pub enum Act {
     GoTo,
     // The deck
     Pads,
-    /// The hot cue of the digit pressed.
+    /// The hot cue of the digit pressed: jump to it, or set it where it's empty (delete it after
+    /// [`Act::DeleteCues`]).
     HotCue,
+    /// `del` in player mode: the next pad pressed deletes its hot cue (pressed again, it doesn't).
+    DeleteCues,
+    /// Set a hot cue where the playhead is, on the first empty pad.
+    SetHotCue,
     /// So many beats back (negative) or forward.
     BeatJump(i8),
     Quantize,
@@ -786,7 +791,8 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "the waveform's next colours", "in player mode: the waveform's colours, BLUE, RGB, 3Band, as the drive says", G::Visuals),
     key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over player mode; loading a track or esc comes back", G::Visuals).label("browse").hint(6),
     tip(S::Deck, "", A::Escape, 5),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays)", G::Deck).label("hot cue"),
+    key(S::Deck, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::DeleteCues, "delete a hot cue", "in player mode: the next pad pressed deletes its hot cue (the hot cues turn red; del again or esc doesn't)", G::Deck).label("delete cue").hint(4).words("hot cue, remove, clear"),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays; an empty pad sets it where the playhead is)", G::Deck).label("hot cue"),
     tip(S::Pads, "1-8", A::HotCue, 9),
     // -----------------------------------------------------------------------------------------
     // Everywhere
@@ -855,6 +861,8 @@ pub static KEYMAP: &[Binding] = &[
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
     key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", PULL, G::Commands).label("snapshot"),
+    key(S::Global, &[], "", A::SetHotCue, "set a hot cue here", "a hot cue where the playhead is, on the first empty pad", G::Commands)
+        .words("hot cue, pad, mark"),
     key(S::Global, &[], "check", A::Check, "check the drive for problems", CHECK, G::Commands).label("check"),
     key(S::Global, &[], "set prep", A::SetPrep, "check all the library's drives", "check the drive and the other mounted drives of its library together, for a set", G::Commands),
     key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", SYNC, G::Commands).label("sync"),

@@ -43,7 +43,7 @@ fn rows_with<'a>(screen: &'a str, text: &str) -> Vec<&'a str> {
 fn the_row_selected_is_told_of_beside_the_list_or_under_it() {
     let (mut app, _dir) = opened();
     let wide = screen(&mut app, 160, 45);
-    for said in ["Change keys", "PLAYBACK", "164 actions", "enter change", "esc close", "Kept on this computer"] {
+    for said in ["Change keys", "PLAYBACK", "166 actions", "enter change", "esc close", "Kept on this computer"] {
         assert!(wide.contains(said), "{said}:\n{wide}");
     }
     let heading = rows_with(&wide, "PLAYBACK");
@@ -80,7 +80,7 @@ fn typing_narrows_the_list_and_says_when_nothing_is_left() {
     let (mut app, _dir) = opened();
     press(&mut app, "next");
     let some = screen(&mut app, 80, 24);
-    assert!(some.contains("› next") && some.contains("12 actions") && some.contains("next track"), "{some}");
+    assert!(some.contains("› next") && some.contains("13 actions") && some.contains("next track"), "{some}");
     press(&mut app, "zzqx");
     for size in [(80, 24), (160, 45)] {
         let none = screen(&mut app, size.0, size.1);

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, EditRequest};
 use locallibrary::collection_export::{CollectionExportOptions, CollectionExportPlan};
+use locallibrary::cue_edit::CuePlan;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::model::TrackColor;
 use locallibrary::model::TrackFields;
@@ -470,6 +471,14 @@ impl Confirm {
     /// drive, with nothing in the plan to read. Tracks, files or history lists going, a warning, a
     /// guard, other clones, and what a plugin plans are all still asked about.
     pub fn reversible(&self) -> bool {
+        if let Some(p) = self.plan.as_any().downcast_ref::<Planned<CuePlan>>() {
+            // A cue set or deleted from the pads: undone from its backup, as a CDJ asks nothing.
+            return p.plan.fits
+                && self.after.is_none()
+                && p.blocked.is_none()
+                && p.warnings.is_empty()
+                && p.clones.is_empty();
+        }
         let Some(p) = self.plan.as_any().downcast_ref::<Planned<EditPlan>>() else { return false };
         let plan = &p.plan;
         let loses = !plan.files.is_empty() || !plan.tracks_removed.is_empty() || plan.history_removed > 0;
@@ -849,7 +858,10 @@ impl App {
             }
             Modal::Confirm(mut c) => match keymap::dialog_act(&dialogs::CONFIRM, &key) {
                 Some(Act::Answer(true)) => self.apply(c),
-                Some(Act::Answer(false) | Act::Escape) => self.toast("nothing written", Level::Info),
+                Some(Act::Answer(false) | Act::Escape) => {
+                    self.toast("nothing written", Level::Info);
+                    self.cue_save_failed(true);
+                }
                 act => {
                     c.scroll = act.map_or(c.scroll, |act| scrolled(c.scroll, act));
                     self.modal = Some(Modal::Confirm(c));
@@ -1413,7 +1425,11 @@ impl App {
     /// said when there's nothing to do or it failed.
     pub(super) fn planned(&mut self, root: PathBuf, after: Option<After>, result: Result<Box<dyn AnyPlanned>, Error>) {
         let drive = self.drive_label(&root);
+        let saving_cue = self.cue_saving.is_some();
         match result {
+            Ok(plan) if plan.is_noop() && saving_cue => {
+                self.cue_saving = None;
+            }
             Ok(plan) if plan.is_noop() => {
                 let msg = match (plan.operation(), plan.warnings().first()) {
                     ("undo", _) => format!("nothing to undo on {drive}: it's as its last backup left it"),
@@ -1431,8 +1447,11 @@ impl App {
                     false => self.show(Modal::Confirm(c)),
                 }
             }
-            Err(Error::Cancelled) => {}
-            Err(e) => self.toast(describe(&e, &drive), Level::Error),
+            Err(Error::Cancelled) => self.cue_save_failed(false),
+            Err(e) => {
+                self.toast(describe(&e, &drive), Level::Error);
+                self.cue_save_failed(true);
+            }
         }
     }
 
@@ -1505,7 +1524,16 @@ impl App {
         {
             self.last_backup = Some(self.drive_at(root.clone()));
         }
+        let saving_cue = self.cue_saving.is_some();
         match result.map(|a| *a) {
+            Ok(_) if saving_cue => self.cue_saved(),
+            Err(e) if saving_cue => {
+                let cancelled = matches!(e, Error::Cancelled);
+                if !cancelled {
+                    self.toast(describe(&e, &drive), Level::Error);
+                }
+                self.cue_save_failed(!cancelled);
+            }
             Ok(Applied { operation, report }) if operation == "pull" => {
                 let lib = report["library"].as_str().unwrap_or("its library");
                 let snap = report["snapshot"]["short_id"].as_str().map(|s| &s[..8.min(s.len())]).unwrap_or("");

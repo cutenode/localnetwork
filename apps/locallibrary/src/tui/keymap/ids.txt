@@ -160,3 +160,5 @@ keys.open Keys
 keys.import KeysImport
 keys.reset-all KeysReset
 keys.azerty KeysPreset(Azerty)
+deck.delete-hot-cue DeleteCues
+deck.set-hot-cue SetHotCue

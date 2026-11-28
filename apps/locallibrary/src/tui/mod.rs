@@ -11,6 +11,7 @@ mod browse;
 mod choices;
 mod cli;
 mod crate_list;
+mod cue_saves;
 mod deck;
 mod docs;
 mod drives;

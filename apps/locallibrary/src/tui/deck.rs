@@ -6,11 +6,14 @@
 use std::time::Duration;
 
 use locallibrary::anlz::{Beat, Cue, TrackAnalysis};
+use locallibrary::api::CueOp;
+use locallibrary::cue_edit::{CuePosition, CueRef, HotCue, SetCue};
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::widgets::ListState;
 
 use super::app::{App, Level, Msg, View, step_list};
 use super::audio::{Audio, Listed};
+use super::cue_saves::{CueSave, Undo};
 use super::keymap::{self, Act, dialogs};
 use super::keys::{KeyPalette, Notation};
 use super::theme;
@@ -53,6 +56,9 @@ impl Loop {
 pub struct Deck {
     /// The digit row plays hot cues instead of going to the views (player mode always does).
     pub pads: bool,
+    /// The next pad pressed deletes its hot cue (`del` in player mode): the hot cues are red, and
+    /// the digit row is pads until then, in any view.
+    pub deleting: bool,
     /// Jumps keep to the beat grid (see [`Snap`]); on, as on a CDJ, until turned off.
     pub quantize: bool,
     /// The playing track's loop: the one playing, or the last one exited.
@@ -82,6 +88,7 @@ impl Default for Deck {
     fn default() -> Deck {
         Deck {
             pads: false,
+            deleting: false,
             quantize: true,
             looped: None,
             single: false,
@@ -140,7 +147,7 @@ impl App {
     /// Whether the digit row plays hot cues: with the pads on, or in player mode (Browse over it
     /// too, so a cue can go while a track's found).
     pub fn pads_on(&self) -> bool {
-        self.deck.pads || (self.view == View::Library && self.deck_layout)
+        self.deck.pads || self.deck.deleting || (self.view == View::Library && self.deck_layout)
     }
 
     /// Whether the deck has the screen: player mode, with Browse closed.
@@ -210,14 +217,16 @@ pub fn toggle_auto_cue(app: &mut App) {
 }
 
 /// Hot cue `slot` (0 is A), like a CDJ's pad: jump to it and play (a hot cue saved as a loop
-/// plays the loop). Paused, it plays from there too: a terminal doesn't say when a key is let
-/// go, so there's no previewing while it's held.
+/// plays the loop), or, where the pad is empty, set it where the playhead is. Paused, it plays
+/// from there too: a terminal doesn't say when a key is let go, so there's no previewing while
+/// it's held.
 pub fn hot_cue(app: &mut App, slot: u8) {
     let Some(now) = &app.now else { return };
-    let letter = (b'A' + slot) as char;
     let Some(cue) = now.analysis.cues.iter().find(|c| c.hot_cue == Some(slot)) else {
-        let msg = if now.loading { "reading the cues…".to_string() } else { format!("no hot cue {letter}") };
-        app.toast(msg, Level::Info);
+        match now.loading {
+            true => app.toast("reading the cues…", Level::Info),
+            false => set_hot_cue(app, slot),
+        }
         return;
     };
     let at = cue_jump(&now.analysis.beats, app.position_ms(), cue.start_ms as f64, app.snap());
@@ -233,6 +242,115 @@ pub fn hot_cue(app: &mut App, slot: u8) {
     {
         a.toggle_pause();
     }
+}
+
+/// `hot cue B`
+fn hot_cue_name(slot: u8) -> String {
+    format!("hot cue {}", (b'A' + slot) as char)
+}
+
+/// Whether the playing track's cues can be written: not rekordbox's collection, nor a drive
+/// unplugged since (each says so).
+fn cues_writable(app: &mut App) -> bool {
+    let Some(root) = app.now.as_ref().map(|n| n.root.clone()) else { return false };
+    !app.read_only(&root) && !app.unplugged(&root)
+}
+
+/// Set hot cue `slot` where the playhead is, on the nearest beat with quantize on: drawn at once,
+/// written to the drive in the background.
+pub fn set_hot_cue(app: &mut App, slot: u8) {
+    if !cues_writable(app) {
+        return;
+    }
+    // Where playback is, or will start while the track still opens.
+    let pos = app.pending_seek.map_or_else(|| app.position_ms(), |d| d.as_secs_f64() * 1000.0);
+    let quantize = app.deck.quantize;
+    let Some(now) = app.now.as_mut() else { return };
+    let beats = &now.analysis.beats;
+    let on_beat = beat_index(beats, pos).and_then(|i| beat_time(beats, i.round().max(0.0)));
+    let ms = if quantize { on_beat.unwrap_or(pos) } else { pos }.max(0.0).round() as u32;
+    let cue = Cue {
+        hot_cue: Some(slot),
+        start_ms: ms,
+        end_ms: None,
+        comment: String::new(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    };
+    let colour = theme::palette().cue_color(&cue);
+    // After the others, which keep their order: a pad plays the first hot cue it has.
+    now.analysis.cues.push(cue.clone());
+    let set = SetCue {
+        hot_cue: Some(HotCue(slot)),
+        at: CuePosition::Ms(ms),
+        snap: false,
+        loop_beats: None,
+        name: None,
+        color: None,
+    };
+    let save = CueSave {
+        root: now.root.clone(),
+        file: now.track.file_path.clone(),
+        op: CueOp::Set(set),
+        what: hot_cue_name(slot),
+        undo: Undo::Added(cue),
+    };
+    app.flash_cue(colour);
+    app.save_cue(save);
+}
+
+/// `cue` in the palette: a hot cue where the playhead is, on the first empty pad.
+pub fn set_next_hot_cue(app: &mut App) {
+    let Some(now) = &app.now else {
+        app.toast("nothing playing", Level::Info);
+        return;
+    };
+    match (0..PADS).find(|s| now.analysis.cues.iter().all(|c| c.hot_cue != Some(*s))) {
+        Some(slot) => set_hot_cue(app, slot),
+        None => app.toast("pads A-H are all set", Level::Info),
+    }
+}
+
+/// A pad pressed: with `del` waiting, delete its hot cue; else play it, or set it where it's empty.
+pub fn pad(app: &mut App, slot: u8) {
+    match std::mem::take(&mut app.deck.deleting) {
+        true => delete_hot_cue(app, slot),
+        false => hot_cue(app, slot),
+    }
+}
+
+/// `del` in player mode (or `delete a hot cue` in the palette): the pad pressed next deletes its
+/// hot cue. Pressed again (or esc), it doesn't.
+pub fn delete_cues(app: &mut App) {
+    if std::mem::take(&mut app.deck.deleting) {
+        return;
+    }
+    let has_hot = app.now.as_ref().is_some_and(|n| n.analysis.cues.iter().any(|c| c.hot_cue.is_some()));
+    if !has_hot {
+        app.toast(if app.now.is_some() { "no hot cues to delete" } else { "nothing playing" }, Level::Info);
+        return;
+    }
+    app.deck.deleting = cues_writable(app);
+}
+
+/// Delete hot cue `slot`: off the deck at once, off the drive in the background.
+pub fn delete_hot_cue(app: &mut App, slot: u8) {
+    let Some(now) = app.now.as_mut() else { return };
+    let Some(i) = now.analysis.cues.iter().position(|c| c.hot_cue == Some(slot)) else {
+        app.toast(format!("no {}", hot_cue_name(slot)), Level::Info);
+        return;
+    };
+    let cue = now.analysis.cues.remove(i);
+    let save = CueSave {
+        root: now.root.clone(),
+        file: now.track.file_path.clone(),
+        op: CueOp::Delete { cue: CueRef::Hot(HotCue(slot)) },
+        what: format!("{} deleted", hot_cue_name(slot)),
+        undo: Undo::Removed(cue),
+    };
+    app.save_cue(save);
 }
 
 /// Move `by` beats along the grid (back when negative). A track without a grid moves by its BPM.
@@ -413,11 +531,16 @@ impl App {
         Some((l, len))
     }
 
-    /// The playing track's cues as drawn: the saved ones, and the loop on the deck when it's
-    /// one made here (or a saved one resized).
+    /// The playing track's cues as drawn: the saved ones (hot cues red while `del` waits for a
+    /// pad), and the loop on the deck when it's one made here (or a saved one resized).
     pub fn drawn_cues(&self) -> Vec<Cue> {
         let Some(now) = &self.now else { return Vec::new() };
         let mut cues = now.analysis.cues.clone();
+        if self.deck.deleting {
+            for c in cues.iter_mut().filter(|c| c.hot_cue.is_some()) {
+                c.color = Some(theme::current().critical);
+            }
+        }
         if let Some(l) = self.deck.looped.filter(|l| l.on)
             && !cues.iter().any(|c| c.start_ms == l.start as u32 && c.end_ms == Some(l.end as u32))
         {

@@ -28,11 +28,11 @@ fn pads_play_hot_cues_in_full_screen_or_when_turned_on() {
     assert_eq!((app.view, target(&app)), (View::Library, Some(64_000)));
     press(&mut app, "1");
     assert_eq!(target(&app), Some(1_000));
-    // A pad with no hot cue says so and stays put.
-    app.toast = None;
+    // A pad with no hot cue sets one where the playhead is, and stays put.
     press(&mut app, "2");
     assert_eq!(target(&app), Some(1_000));
-    assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("no hot cue B"));
+    let b = app.now.as_ref().unwrap().analysis.cues.iter().find(|c| c.hot_cue == Some(1)).map(|c| c.start_ms);
+    assert_eq!(b, Some(1_000));
 
     // Out of full screen, pads on (in :) turns the pads on and off.
     press(&mut app, "f");

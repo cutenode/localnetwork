@@ -84,6 +84,8 @@ pub fn id(act: Act) -> Option<Cow<'static, str>> {
         Act::GoTo => s("playback.go-to-playing"),
         Act::Pads => s("deck.pads"),
         Act::HotCue => s("deck.hot-cue"),
+        Act::DeleteCues => s("deck.delete-hot-cue"),
+        Act::SetHotCue => s("deck.set-hot-cue"),
         Act::BeatJump(-1) => s("deck.beat-back"),
         Act::BeatJump(1) => s("deck.beat-forward"),
         Act::BeatJump(-4) => s("deck.bar-back"),

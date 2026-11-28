@@ -35,6 +35,8 @@ struct Drawn {
     phrases: usize,
     cues: usize,
     looped: Option<(u32, u32)>,
+    /// `del` waits for a pad: the hot cues are drawn red.
+    deleting: bool,
     theme: usize,
     tier: theme::Tier,
 }
@@ -82,6 +84,7 @@ pub(super) fn keep_waves(app: &mut App) {
         phrases: now.map_or(0, |n| n.phrases.len()),
         cues: now.map_or(0, |n| n.analysis.cues.len()),
         looped: app.deck.looped.filter(|l| l.on).map(|l| (l.start as u32, l.end as u32)),
+        deleting: app.deck.deleting,
         theme: ptr::from_ref(theme::current()) as usize,
         tier: theme::tier(),
     };

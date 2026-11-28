@@ -269,6 +269,13 @@ needs.
   a key is let go, so there's no previewing while it's held). "pads" in the palette turns them on
   in every view, until it's run again (the digits go to views only while they're off).
   Each hot cue shows its key while the pads are on.
+- **Setting hot cues**: an empty pad sets its hot cue where the playhead is, on the nearest beat
+  with quantize on, as a CDJ does. It's drawn at once and written to the drive's analysis files
+  and OneLibrary in the background (pads pressed in quick succession are written in turn); `u`
+  takes it back. In player mode `del` and then a pad deletes that hot cue: the hot cues turn
+  red until a pad is pressed (`del` again or esc deletes none). In `:`, "set a hot cue here"
+  sets one on the first empty pad and "delete a hot cue" waits for its pad in any view. rekordbox's collection on this computer is read only, so its tracks' cues can't
+  be set here.
 - **Beat jumps and quantize**: `,` and `.` jump a beat back or forward along the track's beat
   grid, and the palette jumps a bar or eight bars (a phrase); the arrows still seek by time.
   Quantize (in the palette, on until turned off, shown as `quantize` by the clock) keeps jumps on the
@@ -602,7 +609,8 @@ Deck:
 
 | Keys | |
 | --- | --- |
-| `1 … 8` | in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays) |
+| `del` | in player mode: the next pad pressed deletes its hot cue (the hot cues turn red; del again or esc doesn't) |
+| `1 … 8` | in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays; an empty pad sets it where the playhead is) |
 | `,  .` | beat jump: one beat back / forward |
 | `l` | loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |

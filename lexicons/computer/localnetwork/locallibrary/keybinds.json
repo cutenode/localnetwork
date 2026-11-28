@@ -193,7 +193,9 @@
 						"keys.open",
 						"keys.import",
 						"keys.reset-all",
-						"keys.azerty"
+						"keys.azerty",
+						"deck.delete-hot-cue",
+						"deck.set-hot-cue"
 					]
 				},
 				"keys": {

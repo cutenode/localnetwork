@@ -511,7 +511,9 @@ fn reached(act: Act) -> Reached {
         | Act::Keys
         | Act::KeysImport
         | Act::KeysReset
-        | Act::KeysPreset(_) => Named,
+        | Act::KeysPreset(_)
+        | Act::SetHotCue
+        | Act::DeleteCues => Named,
     }
 }
 

@@ -334,9 +334,11 @@ impl App {
             Act::Pads => deck::toggle_pads(self),
             Act::HotCue => {
                 if let Some(pad) = key.as_ref().and_then(keymap::pad_of) {
-                    deck::hot_cue(self, pad);
+                    deck::pad(self, pad);
                 }
             }
+            Act::DeleteCues => deck::delete_cues(self),
+            Act::SetHotCue => deck::set_next_hot_cue(self),
             Act::BeatJump(beats) => deck::beat_jump(self, beats as f64),
             Act::Quantize => deck::toggle_quantize(self),
             Act::Single => deck::toggle_single(self),
@@ -519,7 +521,10 @@ impl App {
         {
             return true;
         }
-        if self.quit_after_write {
+        if self.deck.deleting {
+            // A pad was to delete its hot cue: none does.
+            self.deck.deleting = false;
+        } else if self.quit_after_write {
             self.quit_after_write = false;
             self.toast("staying: not quitting after the write", Level::Info);
         } else if self.view == View::Library && self.deck_layout {

@@ -72,13 +72,16 @@ pub(super) fn pad_chips(app: &App, now: &NowPlaying, pos_ms: f64, quiet: bool) -
     let mut hot: Vec<_> = cues.iter().filter(|c| c.hot_cue.is_some()).collect();
     hot.sort_by_key(|c| c.hot_cue);
     let current = cues.iter().filter(|c| c.hot_cue.is_some() && c.start_ms as f64 <= pos_ms).max_by_key(|c| c.start_ms);
-    let pads = app.pads_on();
+    // After `del`, red until a pad says which.
+    let deleting = app.deck.deleting;
+    let pads = app.pads_on() || deleting;
     let mut spans = Vec::new();
     for c in hot {
         if pads && let Some(h) = c.hot_cue.filter(|h| *h < crate::tui::deck::PADS) {
             spans.push(Span::styled((h + 1).to_string(), theme::key()));
         }
-        let (letter, colour) = (cue_letter(c).unwrap_or('?'), theme::palette().cue_color(c));
+        let colour = if deleting { theme::current().critical } else { theme::palette().cue_color(c) };
+        let letter = cue_letter(c).unwrap_or('?');
         let mut s =
             if quiet { Span::styled(format!(" {letter} "), bold(colour)) } else { chip(letter.to_string(), colour) };
         if current.is_some_and(|cur| std::ptr::eq(cur, c)) {

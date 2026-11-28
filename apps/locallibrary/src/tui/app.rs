@@ -242,6 +242,9 @@ pub struct App {
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
+    /// Hot cues set or deleted from the pads, waiting to be written, and the one being written.
+    pub(super) cue_saves: VecDeque<super::cue_saves::CueSave>,
+    pub(super) cue_saving: Option<super::cue_saves::CueSave>,
     /// Every mounted drive's status, role, logbook and copies (the Drives view).
     pub status: Option<Result<Vec<api::FleetDrive>, String>>,
     pub status_loading: bool,
@@ -515,6 +518,8 @@ impl App {
             publishing: Default::default(),
             job: None,
             last_backup: None,
+            cue_saves: VecDeque::new(),
+            cue_saving: None,
             status: None,
             status_loading: false,
             fleet_libraries: Vec::new(),
