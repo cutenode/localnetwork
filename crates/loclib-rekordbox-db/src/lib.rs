@@ -5,6 +5,7 @@
 mod error;
 pub mod masterdb;
 pub mod onelibrary;
+pub mod scratch;
 /// Databases and drawn tracks for tests, in this crate and those built on it (the `test-util`
 /// feature). Not part of the stable API.
 #[cfg(any(test, feature = "test-util"))]

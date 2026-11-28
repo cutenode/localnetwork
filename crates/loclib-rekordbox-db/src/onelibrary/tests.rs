@@ -16,12 +16,10 @@ fn values_read_as_the_type_a_column_should_have() {
 
 /// With no temporary folder for its working copy (`TMPDIR` on a drive that's gone), no new
 /// database is made, and the error names that folder.
-#[cfg(unix)]
 #[test]
 fn without_a_temporary_folder_no_database_is_made() {
     let gone = std::env::temp_dir().join("locallibrary-unplugged");
-    // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
-    unsafe { std::env::set_var("TMPDIR", &gone) };
+    crate::scratch::test_root(&gone);
     let e = OneLibrary::create().map(drop).unwrap_err();
     assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
 }
@@ -68,6 +66,51 @@ fn a_damaged_b_tree_is_refused_before_anything_reads_it() {
     let bytes = with_broken_table(&one.conn, &codec, plain, "menuItem");
     let err = OneLibrary::from_encrypted(&bytes, None).unwrap_err().to_string();
     assert!(err.contains("SQLite finds it damaged"), "{err}");
+}
+
+/// A damaged database still hashes, the same each time, as that follows from its bytes; one
+/// SQLite can't take into memory is an error rather than a hash of another kind.
+#[test]
+fn a_hash_changes_with_the_bytes_alone() {
+    let one = OneLibrary::create().unwrap();
+    let bytes = one.to_encrypted().unwrap();
+    let (codec, plain) = decrypt(&bytes, None).unwrap();
+    let broken = with_broken_table(&one.conn, &codec, plain.clone(), "property");
+    assert_eq!(content_hashes(&broken, None).unwrap(), content_hashes(&broken, None).unwrap());
+    assert_ne!(content_hashes(&broken, None).unwrap(), content_hashes(&bytes, None).unwrap());
+    // A schema SQLite can't read at all: its table claims more cells than a page holds.
+    let mut unreadable = plain.clone();
+    unreadable[103..105].copy_from_slice(&u16::MAX.to_be_bytes());
+    let unreadable = codec.encrypt(&unreadable).unwrap();
+    assert_eq!(content_hashes(&unreadable, None).unwrap(), content_hashes(&unreadable, None).unwrap());
+    let err = hashes_within(&bytes, None, plain.len() - 1).unwrap_err().to_string();
+    assert!(err.contains(&format!("{} bytes decrypted", plain.len())), "{err}");
+    assert!(hashes_within(&bytes, None, plain.len()).is_ok());
+}
+
+/// Connections to a decrypted copy keep SQLite's temporary tables and sorts in memory (2), never
+/// in files of their own, and the one read for a hash reads the database as it is.
+#[test]
+fn decrypted_copies_keep_temporary_data_in_memory() {
+    let temp_store = |c: &Connection| c.query_row("PRAGMA temp_store", [], |r| r.get::<_, i64>(0)).unwrap();
+    let one = OneLibrary::create().unwrap();
+    assert_eq!(temp_store(one.connection()), 2);
+    let (_, plain) = decrypt(&one.to_encrypted().unwrap(), None).unwrap();
+    let conn = in_memory(&plain).unwrap();
+    assert_eq!(temp_store(&conn), 2);
+    let tables: i64 =
+        conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'property'", [], |r| r.get(0)).unwrap();
+    assert_eq!(tables, 1);
+}
+
+/// A working copy lives in a private scratch folder, whose lock this process holds.
+#[test]
+fn a_working_copy_lives_in_a_locked_private_folder() {
+    let one = OneLibrary::create().unwrap();
+    let dir = one.path.parent().unwrap();
+    assert!(dir.file_name().unwrap().to_string_lossy().starts_with(crate::scratch::PREFIX), "{dir:?}");
+    let lock = std::fs::File::open(dir.join(".lock")).unwrap();
+    assert!(lock.try_lock().is_err(), "nobody holds the folder's lock");
 }
 
 #[test]

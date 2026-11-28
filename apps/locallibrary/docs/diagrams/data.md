@@ -78,7 +78,7 @@ How `collection` reads `master.db` without touching it, `collection export` make
 ```mermaid
 flowchart TD
     find["LOCALLIBRARY_MASTERDB, else where rekordbox's<br/>settings say its library moved, else its own folder"] --> master
-    master[("master.db and its WAL")] --> copy["Copied to a temporary folder,<br/>decrypted, WAL replayed"]
+    master[("master.db and its WAL")] --> copy["Read into memory,<br/>decrypted, WAL replayed"]
     copy --> read["Opened read only"]
     read --> reads["collection info, tracks, playlists"]
     read --> diff["collection diff:<br/>what a drive lacks"]
