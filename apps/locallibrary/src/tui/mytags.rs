@@ -27,7 +27,7 @@ pub enum TagChoice {
 }
 
 impl App {
-    /// `T`: give the marked (or selected) tracks a My Tag, or take one off. The drive's tags are
+    /// My Tag (in `e`): give the marked (or selected) tracks a My Tag, or take one off. The drive's tags are
     /// read in the background, then listed to choose from.
     pub(super) fn tag_tracks(&mut self) {
         let Some(l) = self.loaded.as_ref() else {
@@ -170,7 +170,8 @@ impl App {
     pub(super) fn smart_from_search(&mut self) {
         let query = self.query.trim().to_string();
         if query.is_empty() {
-            self.toast("search first (/): the rule fills the playlist with what the search finds", Level::Info);
+            let first = super::palette::search_first();
+            self.toast(format!("{first}: the rule fills the playlist with what the search finds"), Level::Info);
             return;
         }
         if let Err(e) = Filter::parse(&query) {

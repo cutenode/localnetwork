@@ -37,7 +37,7 @@ Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/sr
 
 ## My Settings
 
-Where the settings profile comes from and where it goes.
+Where the settings profile comes from and where it goes. An export carries the player's keys too.
 
 ```mermaid
 flowchart TD
@@ -49,9 +49,11 @@ flowchart TD
     profile -->|"settings apply, refresh, provision"| patched["Patched into each drive's files,<br/>backed up first"]
     profile -->|"settings publish: base values"| record["The DJ account"]
     profile -->|"settings export"| out["One file, for another computer"]
+    keys[("keybinds.json<br/>the keys set in the player")] -->|"settings export"| out
+    file -->|"settings import FILE"| keys
 ```
 
-Source: [`crates/locallibrary/src/settings.rs`](../../../../crates/locallibrary/src/settings.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs), [`crates/locallibrary/src/api.rs`](../../../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/loclib-mysettings/src/lib.rs`](../../../../crates/loclib-mysettings/src/lib.rs)
+Source: [`crates/locallibrary/src/settings.rs`](../../../../crates/locallibrary/src/settings.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs), [`crates/locallibrary/src/api.rs`](../../../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/loclib-mysettings/src/lib.rs`](../../../../crates/loclib-mysettings/src/lib.rs), [`crates/locallibrary/src/keybinds.rs`](../../../../crates/locallibrary/src/keybinds.rs)
 
 ## Importing published settings
 
@@ -71,7 +73,7 @@ Source: [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibra
 
 ## rekordbox's collection
 
-How `collection` reads `master.db` without touching it, and `collection export` makes a library from it.
+How `collection` reads `master.db` without touching it, `collection export` makes a library from it, and the one write path (`masterdb::write`, nothing calls it yet) changes it over a fresh backup.
 
 ```mermaid
 flowchart TD
@@ -87,9 +89,15 @@ flowchart TD
     write --> target["A drive, or a folder laid out like one"]
     target -->|"pull"| store[("Store")]
     store -->|"library push"| drive["Any drive"]
+    master -.->|"rekordbox and its agent closed, no unsaved WAL"| backup["Backed up into a folder the caller gives,<br/>the backup read back whole"]
+    backup --> synced{"Cloud Library Sync<br/>on, or might be?"}
+    synced -->|"yes: refused, nothing written"| master
+    synced -->|no| edit["The decrypted backup edited in one transaction,<br/>stamped from localUpdateCount"]
+    edit --> swap["Checked, encrypted with its salt, read back,<br/>renamed over master.db if it hasn't changed"]
+    swap --> master
 ```
 
-Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
+Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/loclib-rekordbox-db/src/masterdb/write.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb/write.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
 
 ## Exporting a collection
 

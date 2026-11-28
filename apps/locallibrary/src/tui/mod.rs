@@ -20,6 +20,7 @@ mod form;
 mod frames;
 mod icons;
 mod jobs;
+mod keybinds;
 mod keymap;
 mod keys;
 mod looks;
@@ -69,12 +70,12 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     // rekordbox's collection on this computer, as a source beside the drives. Looked for here,
     // not in `App::new`: tests mustn't find the collection of the computer they run on.
     app.collection_db = loclib_rekordbox_db::masterdb::default_path().filter(|p| p.is_file());
-    // Plugins' logs would draw over the screen: they go to the messages (`!`) while it runs.
+    // Plugins' logs would draw over the screen: they go to the messages (in `:`) while it runs.
     crate::plugins::log_to(Some(app.plugin_log()));
     crate::plugins::events::notices_to(Some(app.plugin_notices()));
     crate::plugins::ask_to(Some(app.plugin_asker()));
     app.start_plugins();
-    app.bind_plugin_keys();
+    app.load_keybinds();
     app.warn_signing_out();
     let answers = asked.join().unwrap_or_default();
     theme::answered(&answers);
@@ -132,7 +133,7 @@ const IDLE: u8 = 0;
 const RUNNING: u8 = 1;
 const SIGNALLED: u8 = 2;
 
-/// A signal, from the CLI's handler: true when it's the player's, which then quits as with `Q`
+/// A signal, from the CLI's handler: true when it's the player's, which then quits as ctrl-c does
 /// (a drive write under way gets to finish and the state is saved) and puts the terminal back.
 /// The handler's own way (a message, then exiting on a second signal) would write over the
 /// screen and leave the terminal raw.

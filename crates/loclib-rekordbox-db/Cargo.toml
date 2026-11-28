@@ -37,6 +37,8 @@ serde_json.workspace = true
 sysinfo = { version = "0.38.4", default-features = false, features = ["system"], optional = true }
 tempfile.workspace = true
 thiserror.workspace = true
+# A warning for what a write of the collection that didn't finish left, as the next one removes it.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [features]
 # `JsonSchema` for what's read from master.db and what a cue edit did.
@@ -60,3 +62,11 @@ workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31.3", default-features = false, features = ["user"] }
 plist = { version = "1.10.1", optional = true }
+
+[target."cfg(unix)".dependencies]
+# Which filesystem master.db is on (macOS), before a write replaces it.
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+# Which filesystem master.db is on, before a write replaces it.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

@@ -8,6 +8,10 @@ import EditPageHarness from './EditPageHarness.svelte';
 import { mergeConflict, readFields, writeFields } from './fields.ts';
 import type { EditRefusal } from './types.ts';
 
+// The editor's code, loaded with this file. Edit mode loads it with `import()` once the editor opens, which in a test is
+// inside the test's time limit, and a busy run's first cold load of it outlasted that.
+await import('./editor.ts');
+
 type Enhance = NonNullable<ComponentProps<typeof EditPageHarness>['enhance']>;
 
 /**

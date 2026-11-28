@@ -21,6 +21,19 @@ fn it_opens_and_closes_with_nothing_running() {
     }
 }
 
+/// A key the job list doesn't use leaves it open, the job running; esc closes it.
+#[test]
+fn another_key_leaves_the_job_list_open() {
+    let (mut app, _dir) = app_with(library());
+    app.job = Some(job(false, false));
+    press(&mut app, "&");
+    press(&mut app, "z");
+    assert!(matches!(app.modal, Some(Modal::Jobs(_))), "the list stays");
+    assert!(app.job.is_some(), "nothing's cancelled");
+    press(&mut app, "\u{1b}");
+    assert!(app.modal.is_none());
+}
+
 /// A plan stops at once, from the list as from esc.
 #[test]
 fn a_cancel_stops_a_plan() {

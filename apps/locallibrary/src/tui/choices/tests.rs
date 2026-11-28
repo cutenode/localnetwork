@@ -29,6 +29,7 @@ fn every_choice_in_the_palette_is_kept() {
             Act::KeyPalette(k) => assert_eq!(d.key_palette, k, "{}", item.label),
             Act::EndWarning(secs) => assert_eq!(d.end_warning, secs, "{}", item.label),
             Act::Hints(hints) => assert_eq!(app.hints, hints, "{}", item.label),
+            Act::HelpHint(on) => assert_eq!(app.help_hint, on, "{}", item.label),
             Act::Art(on) => assert_eq!(d.art, on, "{}", item.label),
             Act::ArtHalfblocks(on) => assert_eq!(d.art_halfblocks, on, "{}", item.label),
             other => panic!("{other:?}"),
@@ -90,11 +91,12 @@ fn the_hint_setting_is_kept() {
     assert_eq!(next.saved_state().hints, None, "the default isn't written");
 }
 
-/// Off takes the footer's hints away; errors and a job's progress stay.
+/// Off, with the `? help` hint off too, takes the footer's hints away; errors and a job's progress stay.
 #[test]
 fn errors_and_progress_show_with_the_hints_off() {
     let (mut app, _dir) = app_with(library());
     app.hints = Hints::Off;
+    app.help_hint = false;
     assert!(!screen(&mut app, 120, 40).contains("? help"));
     app.toast("it went wrong", Level::Error);
     app.job = Some(job(true, false));
@@ -127,8 +129,9 @@ fn errors_outlast_info_and_the_log_keeps_them() {
 /// the deck has, and that comes back from what's saved.
 #[hegel::test(test_cases = 30)]
 fn prop_the_last_choice_of_each_kind_holds(tc: hegel::TestCase) {
-    // The hint setting has a test of its own, and isn't part of the deck's choices.
-    let choices: Vec<_> = items().into_iter().filter(|(act, _)| !matches!(act, Act::Hints(_))).collect();
+    // The hint settings have tests of their own, and aren't part of the deck's choices.
+    let hint = |act: &Act| matches!(act, Act::Hints(_) | Act::HelpHint(_));
+    let choices: Vec<_> = items().into_iter().filter(|(act, _)| !hint(act)).collect();
     let (mut app, _dir) = blank(View::Library);
     let mut want = chosen(&app);
     let steps = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));

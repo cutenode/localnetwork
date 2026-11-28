@@ -155,7 +155,6 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
     let said = out + &err;
     assert_eq!((code, said.contains("token is set"), said.contains("hunter2")), (0, true, false), "{said}");
     let (_, shown, _) = run(&["plugin", "settings", "echo"], "");
-    // Padded to the longest key: a command's key in the player (`keys.playlist`).
     let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(words.contains("token set Token") && !shown.contains("hunter2"), "{shown}");
     let (_, json, _) = run(&["--json", "plugin", "info", "echo"], "");
@@ -360,8 +359,7 @@ fn plugins_are_listed_and_their_settings_kept() {
 
     let settings = env.ok(&["plugin", "settings", "echo"]);
     assert!(crate::support::line(&settings, "greeting ").ends_with("  hello  Greeting (default)"), "{settings}");
-    let key = crate::support::line(&settings, "keys.titles ");
-    assert!(key.ends_with("  not set  List the drive's tracks: its key in the player"), "{settings}");
+    assert!(!settings.contains("keys."), "the player's keys are in keybinds.json: {settings}");
     assert_eq!(
         env.exits(3, &["plugin", "settings", "echo", "greeting", "hi"]).lines().next(),
         Some("• set the echo plugin's greeting to hi")

@@ -14,11 +14,12 @@ use super::app::{App, VERSION, View};
 use super::choices::Hints;
 use super::edits::{Modal, Prompt, PromptFor};
 use super::icons;
-use super::keymap::Act;
+use super::keymap::{self, Act, Scope};
 use super::theme::{self, bold, dim, fg, text};
 
 /// The keys a first library names.
-const STARTERS: [(&str, &str); 4] = [("enter", "play"), ("e", "actions"), (":", "commands"), ("?", "help")];
+const STARTERS: [(Act, &str); 4] =
+    [(Act::Activate, "play"), (Act::Actions, "actions"), (Act::Palette, "commands"), (Act::Help, "help")];
 
 impl App {
     /// What can be done with no drive: a folder can always be opened; the store's snapshots while
@@ -82,10 +83,12 @@ impl App {
     }
 }
 
-/// The footer's line for a first library.
-pub(super) fn intro_line() -> Vec<Span<'static>> {
+/// The footer's line for a first library, with the keys where `scopes` apply (one with no key
+/// there isn't named).
+pub(super) fn intro_line(scopes: &[Scope]) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled(" new here?  ", fg(theme::current().accent))];
-    for (k, label) in STARTERS {
+    for (act, label) in STARTERS {
+        let Some(k) = keymap::key_name(scopes, act) else { continue };
         spans.push(Span::styled(k, theme::key()));
         spans.push(Span::styled(format!(" {label}  "), dim()));
     }

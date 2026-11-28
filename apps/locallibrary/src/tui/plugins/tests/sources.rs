@@ -9,8 +9,8 @@ use ratatui::crossterm::event::KeyCode;
 
 use super::super::super::app::App;
 use super::super::super::app::testing::{
-    Plugged, app_on, confirming, demo_drive, demo_drive_in, echo_plugin, key, last_message, mounted, press, say_yes,
-    settle, wait,
+    Plugged, app_on, confirming, demo_drive, demo_drive_in, echo_plugin, esc_and_yes, key, last_message, mounted,
+    press, say_yes, settle, wait,
 };
 use super::super::super::edits::Modal;
 use super::super::super::ui::screen;
@@ -158,7 +158,7 @@ fn prop_a_drive_is_built_from_a_source_once_confirmed(tc: TestCase) {
     }
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
     if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
-        press(&mut app, "\u{1b}");
+        esc_and_yes(&mut app);
         assert_eq!((app.job.is_none(), app.modal.is_none(), last_message(&app)), (true, true, "cancelled"));
         assert_eq!(titles(), before);
         return;
@@ -184,7 +184,7 @@ fn prop_a_drive_is_built_from_a_source_once_confirmed(tc: TestCase) {
     assert!(s.contains("with the library source echo:folder?"), "{s}");
     settle(&mut app);
     if tc.draw(gs::booleans()) {
-        press(&mut app, tc.draw(gs::sampled_from(vec!["n", "\u{1b}", "q"])));
+        press(&mut app, tc.draw(gs::sampled_from(vec!["n", "\u{1b}"])));
         assert_eq!((last_message(&app), titles()), ("nothing written", before));
         return;
     }

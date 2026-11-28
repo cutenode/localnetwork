@@ -304,10 +304,6 @@ pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
 /// `services.<name>`.
 pub const SERVICES: &str = "services.";
 
-/// What the player's key for one of a plugin's commands or operations is named with, among its
-/// settings: `keys.<name>`.
-pub const KEYS: &str = "keys.";
-
 impl Default for Options {
     fn default() -> Options {
         Options {

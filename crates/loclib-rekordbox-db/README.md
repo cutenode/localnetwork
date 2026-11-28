@@ -5,7 +5,8 @@ Reads and edits rekordbox's SQLite databases. It's a loclib crate, split out of
 rekordbox USB drives in sync, edits their libraries in place and compares them with rekordbox's
 own collection.
 
-- `masterdb` reads that collection: `master.db` in rekordbox's folder on a computer.
+- `masterdb` reads that collection, `master.db` in rekordbox's folder on a computer, and writes
+  it (`masterdb::write`) only while rekordbox is closed and over a fresh backup.
 - `onelibrary` reads and edits OneLibrary (rekordbox's name since 7.2; "Device Library Plus"
   before): the `PIONEER/rekordbox/exportLibrary.db` rekordbox 6.8 and 7 write to a USB drive. The
   CDJ-3000X, OPUS-QUAD, XDJ-AZ and other newer players read only this file, so a change to a
@@ -82,13 +83,25 @@ rekordbox's settings and nothing else, and keeps neither. To read your own colle
 build, name it: `LOCALLIBRARY_MASTERDB=~/Library/Pioneer/rekordbox/master.db`. A plain
 `cargo test --release` counts as a release build.
 
-Nothing here writes to rekordbox's files or opens them with SQLite. `open` copies the database and
-its WAL to a temporary folder (again, should rekordbox restart its WAL meanwhile), decrypts the
+Nothing but `masterdb::write` writes to rekordbox's files, and nothing opens them with SQLite.
+`open` copies the database and its WAL to a temporary folder (again, should rekordbox restart its WAL meanwhile), decrypts the
 copy there with the WAL's committed transactions replayed, and reads only that, so rekordbox can
 keep running. A `Collection` holds the library, cues by track, My Tags, the intelligent
 playlists' rules (`smartlist`: read, matched against tracks, and written as a filter where one
 can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`CloudFolders`,
 `Collection::audio_file`).
+
+`masterdb::write` (the `files` feature) writes the collection as ADR 0007 in locallibrary decides.
+It refuses while rekordbox or its agent runs, while a WAL beside `master.db` holds anything,
+while Cloud Library Sync is on or might be, while another write holds the collection's lock, on a
+drive that may not replace a file in one rename, and for a rekordbox version whose layout hasn't
+been checked (`write::VERSIONS`). Otherwise it backs `master.db` up and reads the backup back,
+makes the edit on that decrypted copy in one transaction, and stamps what it changes with
+rekordbox's update counter. It then checks the copy, encrypts it again with the original's salt,
+reads it back and swaps it in with one rename, if `master.db` hasn't changed meanwhile. A track's
+cues are written as rekordbox lays them out, changing only the rows an edit changes, with the
+`contentCue` list made again from the rows and `CueUpdated` raised. Each edit answers what it
+replaced, which a later write puts back as a new change.
 
 ## Features
 
@@ -96,7 +109,7 @@ can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`Cl
   [loclib-plugin](https://crates.io/crates/loclib-plugin)'s `collection:files` reads describe
   them: where they are, whether rekordbox is running and its version, a copy of `master.db` as
   rekordbox's own backup makes one (without the cloud agent's sign-in, unless asked), and its
-  tracks' files.
+  tracks' files; and `masterdb::write`, which needs to know whether rekordbox and its agent run.
 - `schemars`: `JsonSchema` for `Collection`, `CollectionInfo`, the My Tag types and
   `CueRowChanges`.
 - `test-util`: databases and drawn tracks for tests (`test_util`). Not a stable API.

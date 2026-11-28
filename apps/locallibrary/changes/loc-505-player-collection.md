@@ -6,4 +6,4 @@
   lists, and plays its tracks from where they are on this computer, with rekordbox's waveforms,
   beat grids, cues, phrases and covers. Edits and drive actions say the collection is read-only
   instead. With no drive plugged in, the player opens the collection rather than an empty screen,
-  and the collection open when the player quit opens again. `r` reads it again.
+  and the collection open when the player quit opens again. `f5` reads it again.

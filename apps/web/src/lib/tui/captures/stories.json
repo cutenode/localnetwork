@@ -13,123 +13,533 @@
   },
   "stories": {
     "overview/start": {
-      "widget": "Overview",
       "cols": 80,
       "rows": 4,
       "moves": false
     },
     "overview/bridge": {
-      "widget": "Overview",
       "cols": 80,
       "rows": 4,
       "moves": false
     },
     "wave-overview/three-band": {
-      "widget": "WaveOverview",
       "cols": 80,
       "rows": 5,
       "moves": false
     },
     "detail/on-a-cue": {
-      "widget": "Detail",
       "cols": 80,
       "rows": 8,
       "moves": false
     },
     "detail/in-a-loop": {
-      "widget": "Detail",
       "cols": 80,
       "rows": 8,
       "moves": false
     },
     "cue-lane/bridge": {
-      "widget": "CueLane",
       "cols": 80,
       "rows": 2,
       "moves": false
     },
     "phrase-strip/intro": {
-      "widget": "PhraseStrip",
       "cols": 80,
       "rows": 1,
       "moves": false
     },
     "phrase-strip/bridge": {
-      "widget": "PhraseStrip",
       "cols": 80,
       "rows": 1,
       "moves": false
     },
     "phrase-strip/into-the-verse": {
-      "widget": "PhraseStrip",
       "cols": 80,
       "rows": 1,
       "moves": true
     },
     "spectrum/bars": {
-      "widget": "Spectrum",
       "cols": 40,
       "rows": 8,
       "moves": false
     },
     "spectrum/mirrored": {
-      "widget": "Spectrum",
       "cols": 40,
       "rows": 8,
       "moves": false
     },
     "scope/tone": {
-      "widget": "Scope",
       "cols": 40,
       "rows": 6,
       "moves": false
     },
     "pixels/gradient": {
-      "widget": "Pixels",
       "cols": 16,
       "rows": 8,
       "moves": false
     },
     "beat/one": {
-      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/two": {
-      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/three": {
-      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/four": {
-      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/two-bars": {
-      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": true
     },
     "phrase/intro": {
-      "widget": "phrase_chip",
       "cols": 16,
       "rows": 1,
       "moves": false
     },
     "phrase/bridge": {
-      "widget": "phrase_chip",
       "cols": 16,
       "rows": 1,
+      "moves": false
+    },
+    "header/library-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/library-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/prepare-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/prepare-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/drives-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/drives-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/recordings-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/recordings-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/localnetwork-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/localnetwork-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/player-mode-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/player-mode-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/search-and-marks-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/search-and-marks-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/search-all-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/search-all-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/signed-in-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/signed-in-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "header/no-drive-narrow": {
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "header/no-drive-wide": {
+      "cols": 160,
+      "rows": 1,
+      "moves": false
+    },
+    "footer/library-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/library-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/prepare-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/prepare-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/drives-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/drives-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/recordings-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/recordings-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/localnetwork-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/localnetwork-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/player-mode-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/player-mode-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/prompt-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/prompt-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/picking-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/picking-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/pads-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/pads-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/hints-compact-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/hints-compact-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-all-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-all-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-error-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/search-error-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/intro-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/intro-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/no-drive-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/no-drive-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/quit-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/quit-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/job-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/job-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/job-committed-narrow": {
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "footer/job-committed-wide": {
+      "cols": 160,
+      "rows": 2,
+      "moves": false
+    },
+    "keys/defaults-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/defaults-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/filter-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/filter-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/no-match-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/no-match-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/fixed-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/fixed-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/capture-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/capture-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/conflict-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/conflict-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/swap-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/swap-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/reset-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/reset-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/refused-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/refused-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/import-preview-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/import-preview-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/signed-out-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/signed-out-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/signed-in-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/signed-in-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/publish-error-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/publish-error-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/file-problems-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/file-problems-wide": {
+      "cols": 160,
+      "rows": 45,
+      "moves": false
+    },
+    "keys/file-unreadable-narrow": {
+      "cols": 80,
+      "rows": 24,
+      "moves": false
+    },
+    "keys/file-unreadable-wide": {
+      "cols": 160,
+      "rows": 45,
       "moves": false
     }
   }

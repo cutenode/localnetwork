@@ -1,16 +1,19 @@
 //! Everything set here in one file, to keep a copy or take it to another computer: the My Settings
 //! profile, the players `check` remembers, the profile's preferences, the player's preferences
 //! (never where it was: the drive, the list, the queue, its panels), what's set for identifying
-//! mixes and for the store, the host's settings for plugins and each plugin's own (its services' switches and the player's keys for its commands
-//! included). A plugin's settings go as the JSON object the store keeps for it, installed here or
-//! not. Secrets never do: they're kept apart (see [`crate::plugin`]).
+//! mixes and for the store, the host's settings for plugins and each plugin's own (its services'
+//! switches included), and the keys set in the player ([`crate::keybinds`]). A plugin's settings go
+//! as the JSON object the store keeps for it, installed here or not. Secrets never do: they're kept
+//! apart (see [`crate::plugin`]).
 //!
 //! Importing one ([`merge`]) adds what's missing here and leaves what's the same. Where a value
 //! differs the one here stays, unless `replace` says to take the file's. Lists of names (tracks
 //! and artists the profile hides, players) get the names they lack; with `replace`, the file's list.
+//! The player's keys go action by action: an action's keys are one value.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use chrono::Utc;
 use indexmap::IndexMap;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -19,11 +22,12 @@ use serde_json::{Map, Value};
 
 use super::SettingsProfile;
 use crate::equipment::Remembered;
+use crate::keybinds::{self, Keybinds};
 use crate::mix::prefs::{self as mix_prefs, MixPrefs};
-use crate::profile::{PREFS_FILE, ProfilePrefs};
+use crate::profile::{PREFS_FILE, ProfilePrefs, timestamp};
 use crate::query::SortKey;
 use crate::store::prefs::{self as store_prefs, StorePrefs};
-use crate::store::{PLAYER_FILE, Store, player_fallback};
+use crate::store::{KEYBINDS_FILE, PLAYER_FILE, Store, player_file};
 use crate::{Error, Result, fsutil, plugin};
 
 /// The file's format.
@@ -60,10 +64,13 @@ pub struct SettingsExport {
     /// provider's candidate is picked, and whether each check runs.
     #[serde(default)]
     pub plugin_host: Map<String, Value>,
-    /// Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`
-    /// among them).
+    /// Each plugin's settings by its id, as it keeps them (`services.<name>` among them).
     #[serde(default)]
     pub plugins: Map<String, Value>,
+    /// The keys set in the player ([`Keybinds`], `keybinds.json`), without when they last changed
+    /// here.
+    #[serde(default)]
+    pub keybinds: Map<String, Value>,
 }
 
 impl Default for SettingsExport {
@@ -78,6 +85,7 @@ impl Default for SettingsExport {
             store: Map::new(),
             plugin_host: Map::new(),
             plugins: Map::new(),
+            keybinds: Map::new(),
         }
     }
 }
@@ -151,25 +159,18 @@ pub struct PlayerPrefs {
     /// How much the footer says: `full`, `compact` or `off`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hints: Option<String>,
+    /// With no hints, the footer still says `? help`, unless this is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_hint: Option<bool>,
     /// The palette's commands run lately, newest first, by name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recent_commands: Option<Vec<String>>,
 }
 
-/// The file the player reads what it remembers from: the store's, else the one beside it (see
-/// [`player_fallback`]).
-fn player_file(store: &Store) -> Option<PathBuf> {
-    let file = store.root().join(PLAYER_FILE);
-    match file.is_file() {
-        true => Some(file),
-        false => player_fallback(store.root()).map(|d| d.join(PLAYER_FILE)),
-    }
-}
-
 /// What the player remembers, as a JSON object (none when it's missing or damaged: the player
 /// starts afresh then too). An error when it can't be read right now: importing writes it back.
 fn player_state(store: &Store) -> Result<Map<String, Value>> {
-    let Some(file) = player_file(store) else { return Ok(Map::new()) };
+    let Some(file) = player_file(store.root(), PLAYER_FILE) else { return Ok(Map::new()) };
     Ok(fsutil::unless_damaged(fsutil::read_json_opt(&file))?.unwrap_or_default())
 }
 
@@ -190,7 +191,7 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[schemars(rename = "SettingsFileChange")]
 pub struct Change {
-    /// The section, then each key down to the value: `["plugins", "sound", "keys.analyze"]`.
+    /// The section, then each key down to the value: `["plugins", "sound", "services.watch"]`.
     pub path: Vec<String>,
     pub action: Action,
     /// The value here (`None`: not set).
@@ -231,6 +232,7 @@ enum Target {
     Store,
     PluginHost,
     Plugin(String),
+    Keybinds,
 }
 
 impl Target {
@@ -244,6 +246,7 @@ impl Target {
             Target::Store => store_prefs::PREFS_FILE.into(),
             Target::PluginHost => "plugins/settings.json".into(),
             Target::Plugin(id) => format!("plugins/{id}/settings.json"),
+            Target::Keybinds => KEYBINDS_FILE.into(),
         }
     }
 
@@ -268,12 +271,18 @@ impl Target {
             Target::Store => typed::<StorePrefs>(value)?.save(store),
             Target::PluginHost => plugin::save_host_settings(store, &typed(value)?),
             Target::Plugin(id) => plugin::save_settings(store, id, &typed(value)?),
+            Target::Keybinds => {
+                // Importing them is changing them here.
+                let keybinds = Keybinds { updated_at: Some(timestamp(Utc::now())), ..typed(value)? };
+                keybinds::save(store.root(), &keybinds)
+            }
         }
     }
 }
 
 /// The sections, by their names in the file.
-const SECTIONS: [&str; 8] = ["my_settings", "players", "profile", "player", "mix", "store", "plugin_host", "plugins"];
+const SECTIONS: [&str; 9] =
+    ["my_settings", "players", "profile", "player", "mix", "store", "plugin_host", "plugins", "keybinds"];
 
 impl SettingsExport {
     /// The store files its sections are kept in, below the store's folder: what importing it
@@ -287,6 +296,7 @@ impl SettingsExport {
             (Target::Mix, &self.mix),
             (Target::Store, &self.store),
             (Target::PluginHost, &self.plugin_host),
+            (Target::Keybinds, &self.keybinds),
         ];
         let sections = sections.into_iter().filter(|(_, s)| !s.is_empty()).map(|(t, _)| t.file());
         sections.chain(self.plugins.keys().map(|id| Target::Plugin(id.clone()).file())).collect()
@@ -301,6 +311,7 @@ impl SettingsExport {
             "mix" => &self.mix,
             "store" => &self.store,
             "plugin_host" => &self.plugin_host,
+            "keybinds" => &self.keybinds,
             _ => &self.plugins,
         }
     }
@@ -314,6 +325,7 @@ impl SettingsExport {
             "mix" => &mut self.mix,
             "store" => &mut self.store,
             "plugin_host" => &mut self.plugin_host,
+            "keybinds" => &mut self.keybinds,
             _ => &mut self.plugins,
         }
     }
@@ -352,6 +364,11 @@ impl SettingsExport {
             return Err(in_section("plugins", Error::invalid(format!("{id:?} isn't a plugin's id with its settings"))));
         }
         self.plugins.sort_keys();
+        // When they last changed is this computer's: importing them stamps its own.
+        let mut keybinds: Keybinds = typed(&self.keybinds).map_err(|e| in_section("keybinds", e))?;
+        keybinds.updated_at = None;
+        keybinds.keys.sort_unstable_keys();
+        self.keybinds = untyped(&keybinds);
         for name in SECTIONS {
             prune(&mut vec![name.to_string()], self.section_mut(name));
         }
@@ -389,7 +406,7 @@ fn untyped<T: Serialize>(value: &T) -> Map<String, Value> {
 fn is_value(path: &[String], v: &Value) -> bool {
     let path: Vec<&str> = path.iter().map(String::as_str).collect();
     match path[..] {
-        ["plugins", _, _] | ["plugin_host", _] | ["profile", "sections"] => true,
+        ["plugins", _, _] | ["plugin_host", _] | ["profile", "sections"] | ["keybinds", "keys", _] => true,
         _ => !(v.is_object() || v.is_array()),
     }
 }
@@ -432,6 +449,7 @@ pub fn export(store: &Store) -> Result<SettingsExport> {
         store: kept::<StorePrefs>(store, store_prefs::PREFS_FILE)?,
         plugin_host: plugin::host_settings_to_change(store)?.into_iter().collect(),
         plugins: plugins.collect(),
+        keybinds: untyped(&keybinds::load(store.root())?),
     };
     doc.normalized()
 }
@@ -464,6 +482,7 @@ pub fn merge(store: &Store, file: &SettingsExport, replace: bool) -> Result<Merg
             "mix" => Target::Mix,
             "store" => Target::Store,
             "plugin_host" => Target::PluginHost,
+            "keybinds" => Target::Keybinds,
             _ => {
                 ids.dedup();
                 for id in ids {

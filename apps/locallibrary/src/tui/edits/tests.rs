@@ -74,12 +74,14 @@ fn menu_says_why_actions_are_unavailable() {
     assert!(items.iter().any(|i| i.label == "sort Friday by BPM ↓ on the drive"));
     assert!(items.iter().any(|i| i.label == "new playlist in Sets…"));
     let t = Target { stale: true, ..t };
-    assert!(menu_items(&t).iter().filter(|i| i.action != Action::CrateAdd).all(|i| i.unavailable.is_some()));
+    // What goes in the queue isn't the drive's.
+    let queued = |a: Action| matches!(a, Action::CrateAdd | Action::PlayNext);
+    assert!(menu_items(&t).iter().filter(|i| !queued(i.action)).all(|i| i.unavailable.is_some()));
     // rekordbox's collection is never written: everything but the crate (which isn't the
     // collection's) says so.
     let t = Target { stale: false, collection: true, ..t };
     let items = menu_items(&t);
-    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate));
+    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::PlayNext | Action::ClearCrate));
     assert!(
         others.clone().all(|i| i.unavailable.as_deref() == Some(COLLECTION_READ_ONLY)),
         "{:?}",
@@ -114,12 +116,12 @@ fn the_menu_and_its_pickers_answer_to_keys() {
     assert_eq!(menu(&app).1, Some(0));
     press(&mut app, "x");
     assert_eq!(last_message(&app), "the list shown isn't a playlist");
-    assert_eq!(menu(&app).1, Some(6), "still open, on that item");
+    assert_eq!(menu(&app).1, Some(7), "still open, on that item");
 
     // The rating picker: opened with right, moved through, and left again.
     press(&mut app, "kkkkk");
     key(&mut app, KeyCode::Right);
-    assert_eq!(menu(&app), (Some(Sub::Rating), Some(1), Some(0)));
+    assert_eq!(menu(&app), (Some(Sub::Rating), Some(2), Some(0)));
     press(&mut app, "jj");
     key(&mut app, KeyCode::Down);
     press(&mut app, "k");
@@ -127,10 +129,10 @@ fn the_menu_and_its_pickers_answer_to_keys() {
     key(&mut app, KeyCode::Up);
     press(&mut app, "9x");
     key(&mut app, KeyCode::Tab);
-    assert_eq!(menu(&app), (Some(Sub::Rating), Some(1), Some(1)), "no 9 stars, nor anything else");
+    assert_eq!(menu(&app), (Some(Sub::Rating), Some(2), Some(1)), "no 9 stars, nor anything else");
     key(&mut app, KeyCode::Left);
     key(&mut app, KeyCode::Tab);
-    assert_eq!(menu(&app), (None, Some(1), Some(1)));
+    assert_eq!(menu(&app), (None, Some(2), Some(1)));
 
     // The colour picker: as far down as it goes; esc goes back, then closes the menu.
     press(&mut app, "c");
@@ -141,8 +143,11 @@ fn the_menu_and_its_pickers_answer_to_keys() {
     assert_eq!(menu(&app).2, Some(8));
     key(&mut app, KeyCode::Esc);
     assert_eq!(menu(&app).0, None);
-    press(&mut app, "q");
-    assert!(app.modal.is_none());
+    // (q plays next here, as everywhere: v is no item's.)
+    press(&mut app, "v");
+    assert!(app.modal.is_some(), "v isn't esc");
+    press(&mut app, "e");
+    assert!(app.modal.is_none(), "e closes the menu it opened");
 
     // A colour by its digit, a rating chosen with enter: each planned.
     press(&mut app, "ec3");
@@ -152,7 +157,7 @@ fn the_menu_and_its_pickers_answer_to_keys() {
     key(&mut app, KeyCode::Enter);
     assert!(app.job.is_none(), "adding to the crate plans nothing");
     assert_eq!(app.crate_list.len(), 1);
-    press(&mut app, "ej\nj\n");
+    press(&mut app, "ejj\nj\n");
     assert!(app.modal.is_none() && app.job.is_some(), "4 stars, planned");
     wait(&mut app, |a| a.job.is_none());
 }
@@ -166,7 +171,7 @@ fn prompts_say_what_a_name_needs() {
         Some(Modal::Prompt(p)) => (p.label.clone(), p.text.clone()),
         _ => panic!("no prompt: {}", last_message(app)),
     };
-    press(&mut app, "eF");
+    press(&mut app, "ef");
     assert_eq!(prompt(&app), ("New folder".into(), String::new()));
     press(&mut app, "\n");
     assert_eq!(last_message(&app), "give it a name, with any folders before it: Sets/2026/Friday");
@@ -202,7 +207,7 @@ fn prompts_say_what_a_name_needs() {
     assert!(app.modal.is_none() && app.job.is_some());
     wait(&mut app, |a| a.job.is_none());
     // Esc puts a prompt away.
-    press(&mut app, "eN\u{1b}");
+    press(&mut app, "el\u{1b}");
     assert!(app.modal.is_none() && app.job.is_none());
 }
 
@@ -250,6 +255,8 @@ fn reports_scroll_and_questions_wait_for_an_answer() {
     key(&mut app, KeyCode::Up);
     assert_eq!(scroll(&app), 10);
     press(&mut app, "x");
+    assert!(app.modal.is_some(), "x leaves the report open");
+    key(&mut app, KeyCode::Esc);
     assert!(app.modal.is_none());
 
     let ask = |app: &mut App| {
@@ -262,6 +269,8 @@ fn reports_scroll_and_questions_wait_for_an_answer() {
     assert!(app.modal.is_none() && app.toast.is_none());
     ask(&mut app);
     press(&mut app, "Y");
+    assert!(matches!(app.modal, Some(Modal::Ask(..))), "no key is a capital");
+    press(&mut app, "y");
     assert_eq!(last_message(&app), "done it");
 }
 
@@ -350,7 +359,7 @@ fn esc_stops_a_job_only_before_it_writes() {
     let (mut app, _dir) = app_with(library());
     app.job = Some(job(true, false));
     app.on_progress(99, "copying · 1.mp3".into(), false);
-    press(&mut app, "\u{1b}");
+    esc_and_yes(&mut app);
     let j = app.job.as_ref().unwrap();
     assert!(j.cancel.is_cancelled() && j.detail == "cancelling…");
     app.on_progress(99, "copying · 2.mp3".into(), true);
@@ -362,7 +371,7 @@ fn esc_stops_a_job_only_before_it_writes() {
     assert_eq!(last_message(&app), "writing the drive: too late to stop");
     assert!(!app.job.as_ref().unwrap().cancel.is_cancelled());
     app.job = Some(job(false, false));
-    press(&mut app, "\u{1b}");
+    esc_and_yes(&mut app);
     assert!(app.job.is_none());
     assert_eq!(last_message(&app), "cancelled");
 }
@@ -694,7 +703,6 @@ fn prop_a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
                 KeyCode::PageDown,
                 KeyCode::Char('x'),
                 KeyCode::Char('n'),
-                KeyCode::Char('q'),
                 KeyCode::Esc,
             ][..],
         ));
@@ -833,7 +841,7 @@ fn prop_the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
         press(&mut app, "aj");
     }
     let t = app.target().unwrap();
-    let key = tc.draw(gs::sampled_from(&["N", "F", "r", "w", "X", "b", "y"][..]));
+    let key = tc.draw(gs::sampled_from(&["l", "f", "r", "w", "z", "b", "y"][..]));
     press(&mut app, "e");
     let unavailable = match &app.modal {
         Some(Modal::Menu(m)) => m.items.iter().find(|i| i.key == key).unwrap().unavailable.clone(),
@@ -853,7 +861,7 @@ fn prop_the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
     let prompt = match &app.modal {
         Some(Modal::Prompt(p)) => (p.label.clone(), p.text.clone()),
         Some(Modal::Ask(q, _)) => {
-            assert_eq!(key, "X");
+            assert_eq!(key, "z");
             assert!(q.contains("queue"), "{q}");
             press(&mut app, "y");
             assert!(app.crate_list.is_empty() && last_message(&app) == "queue cleared");
@@ -863,8 +871,8 @@ fn prop_the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
     };
     let leaf = t.node.as_ref().map(|(p, _)| p.rsplit('/').next().unwrap().to_string());
     let want = match key {
-        "N" => ("New playlist".to_string(), in_folder),
-        "F" => ("New folder".to_string(), in_folder),
+        "l" => ("New playlist".to_string(), in_folder),
+        "f" => ("New folder".to_string(), in_folder),
         "r" => (format!("Rename {} to", leaf.clone().unwrap()), leaf.unwrap()),
         // Bringing back the playlist or folder selected (or shown), or one to be named.
         "b" => (
@@ -1015,7 +1023,7 @@ fn prop_the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
                 assert!(planned(&app), "{}", last_message(&app));
             }
             3 => {
-                press(&mut app, "eT");
+                press(&mut app, "et");
                 assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Reading My Tags"));
             }
             4 => {
@@ -1023,7 +1031,7 @@ fn prop_the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
                     Some(Modal::Ask("Sure?".into(), Box::new(|app: &mut App| app.toast("done it", Level::Info))));
                 press(&mut app, "x");
                 assert!(matches!(app.modal, Some(Modal::Ask(..))), "only y or n answers");
-                press(&mut app, if tc.draw(gs::booleans()) { "n" } else { "q" });
+                press(&mut app, if tc.draw(gs::booleans()) { "n" } else { "\u{1b}" });
                 assert!(app.modal.is_none() && last_message(&app) != "done it");
             }
             5 => {

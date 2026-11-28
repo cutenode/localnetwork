@@ -28,6 +28,8 @@ export const COLLECTION = {
 	djRecording: `${NS}.dj.recording`,
 	/** A DJ's rekordbox settings, written by locallibrary to the DJ's own repo. */
 	locallibrarySettings: `${NS}.locallibrary.settings`,
+	/** The keys someone set in locallibrary's player, written by locallibrary to their own repo. */
+	locallibraryKeybinds: `${NS}.locallibrary.keybinds`,
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,

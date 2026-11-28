@@ -17,9 +17,11 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in asks to know who you are, and for tokens for two of Local Network's website's
 methods: one says which [feature flags](#feature-flags) are on for you, the other has its directory
-read your records again ([below](#where-records-are-read)). locallibrary can't post or change
-anything. [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the four record types it publishes, to delete sets and their recordings (`sets
+read your records again ([below](#where-records-are-read)). Signing in from the player also asks
+to publish the keys you set in it ([Your own keys](player.md#your-own-keys)),
+`repo:computer.localnetwork.locallibrary.keybinds?action=create&action=update`; otherwise
+locallibrary can't post or change anything. [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
+and replace the five record types it publishes, to delete sets and their recordings (`sets
 delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
 Network's directory to read them again, and nothing else in the account. `account login
 --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
@@ -35,7 +37,8 @@ writes records needs permission for each type it writes, which `account login --
   sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
   set's title and description when you approve, and the session is granted what the set lists in
   its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, the
-  same for `computer.localnetwork.dj.profile`, `repo:computer.localnetwork.dj.set` and
+  same for `computer.localnetwork.dj.profile` and `computer.localnetwork.locallibrary.keybinds`,
+  `repo:computer.localnetwork.dj.set` and
   `repo:computer.localnetwork.dj.recording` for creating, replacing and deleting them, and
   `rpc:computer.localnetwork.directory.requestIndex?aud=*`, a token for that one method of Local
   Network's website; see [Where records are read](#where-records-are-read)). A permission set
@@ -107,6 +110,7 @@ shows the plan again for the account you approved. Publishing again replaces the
 | Command | Record | Holds |
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
+| the player, signed in, after a key changes | `computer.localnetwork.locallibrary.keybinds`, key `self` | the keys you set in the player that differ from its own, by action id, and who you imported them from |
 | `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
 | `sets publish <set> --upload` | `computer.localnetwork.dj.recording`, keyed by the set's id, then the set's record | the recording on this computer, uploaded to your account (as AAC when it has to be, see [Sets](sets.md#sets)), and how long it plays |
 | `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, studio, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`, each with its name) and the record its recording plays from (`recording`, such as a plyr.fm track), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
@@ -164,8 +168,8 @@ and copied around the network: deleting a record later doesn't delete the copies
 Everything locallibrary reads from the network comes from Local Network's directory, the
 [HappyView](https://localnetwork.hpy.at) AppView the website uses, never from an
 account's data server or Bluesky's: what's published in a record's place before a publish, My
-Settings for `settings import --from-handle` and `--from-account`, and the space bug reports go
-to. Writes still go to your account's data server, which is otherwise only asked to sign you in
+Settings for `settings import --from-handle` and `--from-account`, the keys the player loads after
+signing in and imports, and the space bug reports go to. Writes still go to your account's data server, which is otherwise only asked to sign you in
 (found from your handle or DID), to check the session, and for the tokens that have the website
 re-read your records (below) or say which [feature flags](#feature-flags) are on for you. A handle
 is found from its own DNS record or

@@ -81,6 +81,50 @@ describe('storyCoverage', () => {
 		]);
 	});
 
+	it('fails a stories file that renders TuiStory without the tui tag', () => {
+		const meta = (tags: string) =>
+			`import TuiStory from './TuiStory.svelte';\nconst { Story } = defineMeta({ component: TuiStory${tags} });`;
+
+		write('src/lib/tui/TuiStory.svelte');
+		write('src/lib/tui/Beat.stories.svelte', meta(", tags: ['tui']"));
+		write('src/lib/tui/Scope.stories.svelte', meta(''));
+
+		expect(storyCoverage(root)).toEqual([
+			"tui/Scope.stories.svelte: renders TuiStory without tags: ['tui'], so no screenshot checks it"
+		]);
+	});
+
+	it('fails a story left out of the screenshots without saying why', () => {
+		const meta = (before: string, tag: string) =>
+			`import Clock from './Clock.svelte';\n${before}const { Story } = defineMeta({ component: Clock, ${tag} });`;
+
+		write('src/lib/ui/Clock.svelte');
+		write('src/lib/ui/Clock.stories.svelte', meta('', "tags: ['no-screenshot']"));
+		write(
+			'src/lib/ui/Said.stories.svelte',
+			meta('// Shows the time now, which is never the same twice.\n', "tags: ['no-screenshot']")
+		);
+		write('src/lib/ui/Inline.stories.svelte', meta('', "tags: ['no-screenshot'] /* a live clock */"));
+		// One story of a file, tagged on its own: the second says nothing.
+		write(
+			'src/lib/ui/Ticker.stories.svelte',
+			`${meta('', "tags: ['autodocs']")}\n<!-- The time now. -->\n<Story name="Now" tags={['no-screenshot']} />\n\n<Story name="Later" tags={['no-screenshot']} />`
+		);
+
+		expect(storyCoverage(root)).toEqual([
+			'ui/Clock.stories.svelte: tagged no-screenshot without a comment beside it saying why',
+			'ui/Ticker.stories.svelte: tagged no-screenshot without a comment beside it saying why'
+		]);
+	});
+
+	it('skips a folder named like a stories file', () => {
+		write('src/lib/ui/Mark.svelte');
+		write('src/lib/ui/Mark.stories.svelte', `import Mark from './Mark.svelte';`);
+		write('src/lib/ui/__screenshots__/Mark.stories.svelte/Default-storybook.png');
+
+		expect(storyCoverage(root)).toEqual([]);
+	});
+
 	it('ignores components outside src/lib', () => {
 		write('src/lib/ui/Mark.svelte');
 		write('src/lib/ui/Mark.stories.svelte', `import Mark from './Mark.svelte';`);

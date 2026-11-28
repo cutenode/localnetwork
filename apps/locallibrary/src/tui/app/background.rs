@@ -49,14 +49,14 @@ pub enum Msg {
     Sets(u64, Result<Vec<Set>, String>),
     /// A track's audio file opened (or not), for the play with this id.
     Opened(u64, Result<audio::OpenedFile, String>),
-    /// The output devices and the system's default, for the listing with this id (`d`).
+    /// The output devices and the system's default, for the listing with this id (outputs, in `:`).
     Outputs(u64, Result<audio::Listed, String>),
     /// An output opened in the background (or not), for the ask with this id, as it was asked
     /// for.
     Output(u64, OutputAsk, Result<OpenedOutput, String>),
     /// Something background work has to say (a report written, say).
     Note(String, Level),
-    /// A line of a plugin's log, for the messages (`!`) alone.
+    /// A line of a plugin's log, for the messages (in `:`) alone.
     Log(String),
     /// What a plugin tells the user.
     Notice(locallibrary::plugin::PluginNotice),
@@ -84,6 +84,9 @@ pub enum Msg {
     /// Signing in to (or out of) the Atmosphere account.
     #[cfg(feature = "account")]
     Account(crate::tui::account::AccountEvent),
+    /// News from the keys' worker threads.
+    #[cfg(feature = "account")]
+    Keys(crate::tui::keybinds::KeysEvent),
     /// A recorded set identified: which identification, and its result.
     Mix(u64, Box<Result<crate::tui::mix::Opened, String>>),
     /// The recordings on a drive, from which listing of it.
@@ -524,6 +527,8 @@ impl App {
             Msg::Profile(generation, r) => self.profile.loaded(generation, *r),
             #[cfg(feature = "account")]
             Msg::Account(e) => crate::tui::account::on_event(self, e),
+            #[cfg(feature = "account")]
+            Msg::Keys(e) => self.on_keys_event(e),
             Msg::Mix(generation, r) => crate::tui::mix::loaded(self, generation, *r),
             Msg::MixSources(listing, root, sources) => {
                 if listing == self.mix.drive_listing {

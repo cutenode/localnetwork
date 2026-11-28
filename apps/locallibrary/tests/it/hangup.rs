@@ -107,9 +107,9 @@ fn end_of(shown: &[u8], text: &[u8]) -> Option<usize> {
 }
 
 /// `locallibrary tui` typed into a [`Session`] as a job of its own, once it waits for input
-/// between frames: the session, and where the job's `sh` (which outlives a hangup or SIGTERM)
-/// writes how the player exited.
-fn idle_player(fx: &Env) -> (Session, std::path::PathBuf) {
+/// between frames: the session, where the job's `sh` (which outlives a hangup or SIGTERM) writes
+/// how the player exited, and what the terminal is shown from then on.
+fn idle_player(fx: &Env) -> (Session, std::path::PathBuf, Receiver<&'static str>) {
     let (mut session, seen) = Session::new(fx);
     assert_eq!(seen.recv_timeout(Duration::from_secs(30)), Ok("prompt"));
     // The `sh` says its process ID, the job's process group, first.
@@ -129,7 +129,7 @@ fn idle_player(fx: &Env) -> (Session, std::path::PathBuf) {
     while seen.recv_timeout(Duration::from_millis(100)) == Ok("shown") {
         assert!(started.elapsed() < Duration::from_secs(10), "the player draws without pause");
     }
-    (session, status_file)
+    (session, status_file, seen)
 }
 
 /// How the player exited, once it has (within a few seconds).
@@ -150,7 +150,7 @@ fn exit_status(session: &Session, status_file: &std::path::Path) -> u8 {
 #[test]
 fn the_player_exits_when_its_terminal_closes() {
     let fx = Env::new();
-    let (session, status_file) = idle_player(&fx);
+    let (session, status_file, _) = idle_player(&fx);
     // As ttyd does when its page closes (and a terminal window, as it closes): the shell is hung
     // up, which hangs up its jobs and exits. The system then takes the terminal from the player.
     // SAFETY: a signal to the shell the test started, which hasn't been waited for yet.
@@ -160,20 +160,25 @@ fn the_player_exits_when_its_terminal_closes() {
     assert!(status < 128, "the player ended with status {status}");
 }
 
-/// `Q` quits, read from the terminal as keys are.
+/// Esc twice with nothing open quits, read from the terminal as keys are: each esc on its own, as a
+/// key pressed twice arrives (two at once would read as one key with alt). An idle player writes
+/// nothing, so what it shows after the first esc (the footer saying a second quits) means that one
+/// was read; the second goes then.
 #[test]
-fn the_player_quits_on_shift_q() {
+fn the_player_quits_on_esc_twice() {
     let fx = Env::new();
-    let (session, status_file) = idle_player(&fx);
-    (&session.terminal).write_all(b"Q").unwrap();
+    let (session, status_file, seen) = idle_player(&fx);
+    (&session.terminal).write_all(b"\x1b").unwrap();
+    assert_eq!(seen.recv_timeout(Duration::from_secs(10)), Ok("shown"), "the first esc drew nothing");
+    (&session.terminal).write_all(b"\x1b").unwrap();
     assert_eq!(exit_status(&session, &status_file), 0);
 }
 
-/// SIGTERM, with the terminal still there, quits as `q` does.
+/// SIGTERM, with the terminal still there, quits as esc twice does.
 #[test]
 fn the_player_quits_on_sigterm() {
     let fx = Env::new();
-    let (session, status_file) = idle_player(&fx);
+    let (session, status_file, _) = idle_player(&fx);
     // SAFETY: a signal to the job the test typed, by its process group.
     assert_eq!(unsafe { libc::kill(-session.job.unwrap(), libc::SIGTERM) }, 0);
     assert_eq!(exit_status(&session, &status_file), 0);

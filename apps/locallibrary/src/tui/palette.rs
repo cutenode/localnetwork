@@ -1,22 +1,23 @@
 //! Choosing from a list by typing: the command palette (`:`), which lists every action of the
 //! keymap by name, with the key each has, the ones used lately first and those that can't run now
 //! greyed with the reason; the lists actions ask for an answer from (a drive, a snapshot, a tag, a
-//! plugin's question); and `e` where a pane has no menu of its own. What's typed narrows the list
-//! fuzzily: its letters in order, best where they start words. A list some of which may be chosen
-//! is marked with space.
+//! plugin's question); and the actions menu (`e`) outside the Library view, which works as the
+//! Library's does: its letters run their item, and `/` starts narrowing it. What's typed narrows
+//! the list fuzzily: its letters in order, best where they start words. A list some of which may be
+//! chosen is marked with space.
 
 use std::cmp::Reverse;
 use std::path::PathBuf;
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 use ratatui::widgets::ListState;
 use uuid::Uuid;
 
-use super::app::{App, View, edit_line};
+use super::app::{App, View, edit_line, step_list};
 use super::drives::{DriveKey, PackWhat};
 use super::edits::Modal;
-use super::keymap::{self, Act, K, KEYMAP, Scope};
+use super::keymap::{self, Act, KEYMAP, Scope, dialogs};
 use super::mytags::TagChoice;
 use super::plugins::Asking;
 use super::prepare;
@@ -39,6 +40,10 @@ pub struct Picker {
     /// How recently each item was used, higher for later, 0 for not lately; empty but in the
     /// palette, whose choices count as used.
     recency: Vec<usize>,
+    /// An actions menu: its letters run their item until `/` starts a filter.
+    pub actions: bool,
+    /// An actions menu whose filter `/` started, with nothing typed yet.
+    pub filtering: bool,
 }
 
 /// One choice.
@@ -86,6 +91,8 @@ pub enum Then {
     Tag { root: PathBuf, tracks: Vec<String>, choices: Vec<TagChoice> },
     /// Answer a plugin's question: its items are the question's.
     Choose(Box<Asking>),
+    /// Take someone's keys, or a preset's: those of the actions marked.
+    Keys(Box<super::keybinds::KeysImport>),
 }
 
 impl Picker {
@@ -100,9 +107,29 @@ impl Picker {
             empty: "nothing matches",
             marks: None,
             recency: Vec::new(),
+            actions: false,
+            filtering: false,
         };
         p.state.select(p.first_available());
         p
+    }
+
+    /// An actions menu: as [`Picker::new`], its letters running their item.
+    pub fn actions(title: impl Into<String>, items: Vec<Item>, then: Then) -> Picker {
+        Picker { actions: true, ..Picker::new(title, items, then) }
+    }
+
+    /// Whether letters are typed into the filter, rather than chosen by.
+    pub fn typing(&self) -> bool {
+        !self.actions || !self.query.is_empty() || self.filtering
+    }
+
+    /// What each item does, for a list whose items are actions.
+    fn acts(&self) -> &[Act] {
+        match &self.then {
+            Then::Act(acts) | Then::Drive { acts, .. } | Then::Library { acts, .. } => acts,
+            _ => &[],
+        }
     }
 
     fn first_available(&self) -> Option<usize> {
@@ -119,15 +146,18 @@ impl Picker {
 
     /// Narrow the list to what's typed, in the label, the detail (so a command's name finds it) or
     /// the words it's found by, best matches first, with the edge a command used lately has (ties
-    /// go to the later one, then keep the list's order). A label typed out in full comes first whatever was used lately, so
-    /// "cover art" isn't "no cover art" just because that ran last.
+    /// go to the later one, then keep the list's order). A label or one of its words typed out in
+    /// full comes first whatever was used lately, so "cover art" isn't "no cover art" just because
+    /// that ran last.
     pub fn filter(&mut self) {
         let recency = |i: usize| self.recency.get(i).copied().unwrap_or(0);
         let typed = self.query.trim().to_lowercase();
         let mut scored: Vec<(bool, i32, usize)> = (self.items.iter().enumerate())
             .filter_map(|(i, it)| it.score(&self.query).map(|s| (s, i)))
             .map(|(s, i)| {
-                let named = !typed.is_empty() && self.items[i].label.to_lowercase() == typed;
+                let it = &self.items[i];
+                let word = it.words.split(',').any(|w| w.trim().to_lowercase() == typed);
+                let named = !typed.is_empty() && (it.label.to_lowercase() == typed || word);
                 (named, if recency(i) > 0 { s + RECENT_EDGE } else { s }, i)
             })
             .collect();
@@ -156,6 +186,15 @@ impl Picker {
         }
         let cur = self.state.selected().unwrap_or(0) as isize;
         self.state.select(Some((cur + delta).clamp(0, n as isize - 1) as usize));
+    }
+
+    /// Select the item that does `act`, when it's shown.
+    fn select_act(&mut self, act: Act) -> bool {
+        let at = self.acts().iter().position(|a| *a == act).and_then(|i| self.shown.iter().position(|s| *s == i));
+        if at.is_some() {
+            self.state.select(at);
+        }
+        at.is_some()
     }
 }
 
@@ -195,29 +234,26 @@ pub fn fuzzy(query: &str, text: &str) -> Option<i32> {
     best.into_iter().flatten().max()
 }
 
-/// How a key is written in the palette: as the help writes it (a test checks every command's).
-pub(super) fn key_name(k: &K) -> String {
-    let code = |c: &KeyCode| match c {
-        KeyCode::Up => "↑".to_string(),
-        KeyCode::Down => "↓".into(),
-        KeyCode::Left => "←".into(),
-        KeyCode::Right => "→".into(),
-        other => format!("{other:?}").to_lowercase(),
+/// The palette's commands in `view` as it opens (the track list with focus, nothing over it).
+#[cfg(test)]
+pub fn commands(view: View) -> Vec<(Act, Item)> {
+    use super::app::{DrivePane, Focus};
+    let s = keymap::Situation {
+        replay: false,
+        deck: false,
+        view,
+        focus: Focus::Tracks,
+        empty: false,
+        pads: false,
+        drive_pane: DrivePane::List,
     };
-    match k {
-        K::Ch(' ') => "space".into(),
-        K::Ch(c) => c.to_string(),
-        K::Code(c) => code(c),
-        K::Shift(c) => format!("shift {}", code(c)),
-        K::Ctrl(c) => format!("ctrl-{c}"),
-        K::Digits(a, b) => format!("{a}-{b}"),
-    }
+    commands_in(view, &keymap::scopes_of(&s))
 }
 
 /// The palette's commands in `view`: the view's own first, then those for everywhere (the keymap
-/// names each command once in a view, which a test checks), each with its key here. One with no
-/// key here says where it lives and the word it's known by.
-pub fn commands(view: View) -> Vec<(Act, Item)> {
+/// names each command once in a view, which a test checks), each with the key that does it where
+/// `scopes` apply. One with no key there says where it lives and the word it's known by.
+pub fn commands_in(view: View, scopes: &[Scope]) -> Vec<(Act, Item)> {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Tracks, Scope::Tree, Scope::Details, Scope::Library, Scope::Crate],
         View::Prepare => &[Scope::Prepare],
@@ -225,23 +261,41 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
         View::Profile => &[Scope::Profile],
         View::Mixes => &[Scope::Mixes],
     };
-    let scopes = own.iter().chain(&[Scope::Global, Scope::Goto]);
-    let named = scopes.flat_map(|scope| KEYMAP.iter().filter(move |b| b.scope == *scope && !b.name.is_empty()));
+    let named = own
+        .iter()
+        .chain(&[Scope::Global])
+        .flat_map(|scope| KEYMAP.iter().filter(move |b| b.scope == *scope && !b.name.is_empty()));
+    // A key is shown where it does the command: not where another wins it (the digits are hot
+    // cues in player mode, n skips the set's tracks in Recordings).
+    let does = |act: Act, k: &keymap::K| keymap::lookup(scopes, &k.pressed()).is_some_and(|h| h.act == act);
+    // The actions menu's letters run these too, with its key (none: there's no menu to name).
+    let in_menu = menu_key(scopes).map_or_else(String::new, |k| format!("in {k}"));
     named
         .map(|b| {
-            // What follows `g` needs the `g`.
-            let keys = b.keys.first().filter(|_| b.scope != Scope::Goto);
-            let key = keys.or_else(|| own.iter().find_map(|scope| keymap::key_in(*scope, b.act)));
-            // The word a job's known by stays findable.
-            let detail = match (key, prepare::holds(b.act) && b.keys.is_empty()) {
-                (Some(k), true) => format!("{} · {}", key_name(k), b.shown),
-                (Some(k), false) => key_name(k),
-                (None, true) => format!("{} · {}", View::Prepare.title(), b.shown),
-                (None, false) => b.shown.to_string(),
+            let key = keymap::key_for(scopes, b.act).filter(|k| does(b.act, k));
+            // The word a job's known by stays findable. With no key, where else it is, if anywhere.
+            let detail = match key {
+                Some(k) => k.name(),
+                None if prepare::holds(b.act) => format!("{} · {}", View::Prepare.title(), b.shown),
+                None if !in_menu.is_empty() && !keymap::menu_letters(&[b.act])[0].is_empty() => in_menu.clone(),
+                // Its key does something else here.
+                None if !b.keys.is_empty() => String::new(),
+                None => b.shown.to_string(),
             };
             (b.act, Item { words: b.words.to_string(), ..Item::new(b.name, detail) })
         })
         .collect()
+}
+
+/// The key that opens the actions menu where `scopes` apply: the library's, a drive's or a pane's.
+fn menu_key(scopes: &[Scope]) -> Option<String> {
+    [Act::Actions, Act::DriveActions, Act::PaneActions].into_iter().find_map(|act| keymap::key_name(scopes, act))
+}
+
+/// That a search comes first, with the key the library searches with.
+pub(super) fn search_first() -> String {
+    keymap::key_name(&[Scope::Library, Scope::Global], Act::Search)
+        .map_or_else(|| "search first".into(), |k| format!("search first ({k})"))
 }
 
 impl App {
@@ -249,10 +303,23 @@ impl App {
     /// library the columns of their fields, their settings, what they suggest, and the fixes the
     /// last check found.
     pub(super) fn open_palette(&mut self) {
-        let acts = commands(self.view)
+        // The library's actions menu, by name: what each does to what's selected, and that it's in `e`. The
+        // player's own, so before the plugins'.
+        let target = (self.view == View::Library).then(|| self.target()).flatten();
+        let in_menu = menu_key(&keymap::scopes(self)).map_or_else(String::new, |k| format!("in {k}"));
+        let edits = target.iter().flat_map(super::edits::menu_items).filter_map(|m| {
+            let named = !matches!(m.action, super::edits::Action::Plugin(..) | super::edits::Action::Fetch(_));
+            // Typed, "delete" is the playlist's, before the store's commands that delete.
+            let words =
+                if m.action == super::edits::Action::Delete { "delete, delete playlist, delete folder" } else { "" };
+            let item = Item { unavailable: m.unavailable, words: words.into(), ..Item::new(m.label, in_menu.clone()) };
+            named.then_some((Act::Edit(m.action), item))
+        });
+        let acts = commands_in(self.view, &keymap::scopes(self))
             .into_iter()
             .chain(super::looks::items())
             .chain(super::choices::items())
+            .chain(edits)
             .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let fixes = super::plugins::checks::items(self);
@@ -277,23 +344,32 @@ impl App {
         }
     }
 
-    /// `e` where a pane has no menu of its own: what enter does there, then the pane's keys.
+    /// `e` where a pane has no menu of its own: what enter does there, then the pane's actions
+    /// (Prepare's jobs), each with its letter.
     pub(super) fn open_actions(&mut self) {
         let panes = [Scope::Prepare, Scope::Snapshots, Scope::History, Scope::Profile, Scope::Mixes];
         let scopes = keymap::scopes(self);
         let Some(&scope) = scopes.iter().find(|s| panes.contains(s)) else { return };
         let mine = || KEYMAP.iter().filter(|b| b.scope == scope);
-        let enter = mine().find(|b| b.shown == "enter" && b.hint.is_some());
-        let enter = enter.and_then(|b| b.hint).map(|(label, _)| (Act::Activate, Item::new(label, "enter")));
-        let keys = mine().filter(|b| !b.keys.is_empty() && b.act != Act::PaneActions && b.act != Act::Remove);
-        let named = keys.map(|b| {
-            let name = if b.name.is_empty() { keymap::name(b.act) } else { b.name };
-            let item = Item { unavailable: self.unavailable(b.act), ..Item::new(name, b.shown) };
-            (b.act, item)
+        let enter = mine().find(|b| b.act == Act::Activate && b.hint.is_some());
+        let enter_key = keymap::key_name(&dialogs::ACTIONS, Act::Activate).unwrap_or_default();
+        let enter = enter.map(|b| (Act::Activate, Item::new(b.label, enter_key)));
+        // What acts on the selection, or plays, isn't an action of the pane.
+        let skipped =
+            [Act::Activate, Act::PaneActions, Act::MixForget, Act::MixPlay, Act::MixTrack(true), Act::MixTrack(false)];
+        let own = mine().filter(|b| !b.name.is_empty() && !skipped.contains(&b.act)).map(|b| b.act);
+        let acts: Vec<Act> = if scope == Scope::Prepare { prepare::jobs().to_vec() } else { own.collect() };
+        let letters = keymap::menu_letters(&acts);
+        let named = acts.into_iter().zip(letters).map(|(act, letter)| {
+            let name = match act {
+                Act::ProfileAccount => self.profile.account.action(),
+                _ => keymap::name(act).to_string(),
+            };
+            (act, Item { unavailable: self.unavailable(act), ..Item::new(name, letter) })
         });
         let (acts, items): (Vec<Act>, Vec<Item>) = enter.into_iter().chain(named).unzip();
         let title = format!("Actions · {}", self.view.title());
-        self.modal = Some(Modal::Pick(Picker::new(title, items, Then::Act(acts))));
+        self.modal = Some(Modal::Pick(Picker::actions(title, items, Then::Act(acts))));
     }
 
     /// Why `act` can't run now, for the palette and the Prepare view to say.
@@ -324,7 +400,7 @@ impl App {
             | Act::SmartApply
             | Act::Run(_) => writes(self.action_drive().is_some()),
             Act::Undo => writes(self.undo_drive().is_some()),
-            Act::SmartNew => library.or(need(self.query.trim().is_empty(), "search first (/)")),
+            Act::SmartNew => library.or(need(self.query.trim().is_empty(), &search_first())),
             Act::Actions
             | Act::Search
             | Act::Sort
@@ -334,7 +410,7 @@ impl App {
             | Act::CrateAdd
             | Act::ExportList
             | Act::Details => library,
-            Act::SortReverse => library.or(need(self.sort.is_none(), "sort the list first (b)")),
+            Act::SortReverse => library.or(need(self.sort.is_none(), "sort the list first (click a column)")),
             Act::CrateSave | Act::CrateClear => need(self.crate_list.is_empty(), "the crate is empty"),
             Act::Stop
             | Act::Seek(_)
@@ -358,18 +434,37 @@ impl App {
     }
 
     /// Keys while a list to choose from is open: typing narrows it (in a question taking several,
-    /// space marks an item), the arrows move, enter chooses, esc closes it.
+    /// space marks an item), the arrows move, enter chooses, esc closes it. An actions menu runs
+    /// an item by its letter until `/` starts a filter; esc then clears the filter first.
     pub(super) fn on_picker_key(&mut self, mut p: Picker, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => return,
-            KeyCode::Enter => return self.choose_item(p),
-            KeyCode::Up => p.step(-1),
-            KeyCode::Down => p.step(1),
-            KeyCode::PageUp => p.step(-10),
-            KeyCode::PageDown => p.step(10),
-            KeyCode::Char(' ') if p.marks.is_some() => p.toggle(),
+        // An action's letter, where nothing's being typed.
+        if !p.typing()
+            && let Some(act) = keymap::menu_act(p.acts(), &key)
+            && p.select_act(act)
+        {
+            return self.choose_item(p);
+        }
+        let scopes: &[Scope] = match (p.actions, p.typing()) {
+            (false, _) => &dialogs::PICKER,
+            (true, true) => &dialogs::FILTERING,
+            (true, false) => &dialogs::ACTIONS,
+        };
+        match keymap::dialog_act(scopes, &key) {
+            Some(Act::Escape) if p.actions && p.typing() => {
+                (p.query, p.filtering) = (String::new(), false);
+                p.filter();
+            }
+            Some(Act::Escape) => return,
+            Some(Act::Activate) => return self.choose_item(p),
+            Some(Act::Search) if p.actions => p.filtering = true,
+            Some(Act::Mark) if p.marks.is_some() => p.toggle(),
+            Some(act @ (Act::Move(_) | Act::Page(_) | Act::End(_))) => {
+                let mut state = std::mem::take(&mut p.state);
+                step_list(&mut state, p.shown.len(), act);
+                p.state = state;
+            }
             _ => {
-                if edit_line(&mut p.query, key) {
+                if p.typing() && edit_line(&mut p.query, key) {
                     p.filter();
                 }
             }
@@ -409,16 +504,19 @@ impl App {
             let Then::Choose(asking) = p.then else { unreachable!("matched above") };
             return self.answer(*asking, values);
         }
-        let Some(i) = p.selected() else {
-            self.toast(p.empty, super::app::Level::Info);
-            self.modal = Some(Modal::Pick(p));
-            return;
+        // An import of keys takes its marked rows too, whatever's selected.
+        let import = matches!(p.then, Then::Keys(_));
+        let selected = p.selected();
+        let why = match selected {
+            None => Some(p.empty.to_string()),
+            Some(i) => p.items[i].unavailable.clone(),
         };
-        if let Some(why) = p.items[i].unavailable.clone() {
+        if let Some(why) = why.filter(|_| !import) {
             self.toast(why, super::app::Level::Info);
             self.modal = Some(Modal::Pick(p));
             return;
         }
+        let i = selected.unwrap_or_default();
         match p.then {
             Then::Act(acts) => {
                 // What's plugin-made and passing (a suggestion, a fix) won't be there to come back to.
@@ -443,6 +541,8 @@ impl App {
                 let value = asking.choice().items[i].value.clone();
                 self.answer(*asking, vec![value])
             }
+            // `preview_keys` makes it with every row marked.
+            Then::Keys(import) => self.take_keys(*import, p.marks.unwrap_or_default()),
         }
     }
 }
