@@ -18,6 +18,7 @@ use super::app::testing::{demo_drive, just_now, key, overlay, press, read_sets, 
 use super::app::{App, DrivePane, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
+use super::keymap::Act;
 use super::ui::screen;
 
 const SIZES: [(u16, u16); 2] = [(80, 24), (160, 45)];
@@ -99,7 +100,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
         if !overlay(app) {
-            assert!(lines[0].contains("◉") && lines[0].contains("n localnetwork"), "{what} {w}x{h}: header\n{s}");
+            assert!(lines[0].contains("◉") && lines[0].contains("localnetwork"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }
         let missing: Vec<&&str> =
@@ -168,7 +169,7 @@ fn sets() {
 #[test]
 fn drives() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gd");
+    press(&mut app, "3");
     assert_eq!(app.view, View::Drives);
     let name = app.drives[0].volume_name.clone();
     check(
@@ -200,25 +201,21 @@ fn drives() {
         lines: super::drives::check_lines(&report),
         scroll: 0,
     }));
-    check(
-        &mut app,
-        "a check",
-        &["Check · DEMO", "1 untitled", "fix it from the commands (:)", "any other key closes"],
-        &[],
-    );
+    check(&mut app, "a check", &["Check · DEMO", "1 untitled", "fix it from the commands (:)", "esc close"], &[]);
 }
 
 #[test]
 fn snapshots() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gd3");
+    // The Drives view, then two panes on.
+    press(&mut app, "3\t\t");
     assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::Snapshots));
     let Some(Ok(history)) = &app.history else { panic!("no history") };
     let short = history[0].1[0].short_id.clone();
     check(
         &mut app,
         "the snapshots",
-        &["▸ 3 Snapshots", "Library", "Demo", &short[..8], "R refresh", "enter bring back a playlist"],
+        &["▸ Snapshots", "Library", "Demo", &short[..8], "f5 refresh", "enter bring back"],
         &["after Friday's export"],
     );
     // Enter: a playlist from the selected snapshot, onto the drive open in the library.
@@ -229,23 +226,18 @@ fn snapshots() {
 #[test]
 fn profile() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gn");
+    press(&mut app, "5");
     assert_eq!(app.view, View::Profile);
     let first = super::profile::SECTIONS[0].title();
-    check(&mut app, "the profile", &[first, "2 tracks", "i in/out of document"], &[]);
+    check(&mut app, "the profile", &[first, "2 tracks", "e actions"], &[]);
 }
 
 #[test]
 fn mixes() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gr");
+    press(&mut app, "4");
     assert_eq!(app.view, View::Mixes);
-    check(
-        &mut app,
-        "a set",
-        &["Sunday Warm-up", "Signal Path", "Night Bus", "O open a file"],
-        &["Halogen", "30s blend"],
-    );
+    check(&mut app, "a set", &["Sunday Warm-up", "Signal Path", "Night Bus", "e actions"], &["Halogen", "30s blend"]);
 }
 
 #[test]
@@ -254,12 +246,12 @@ fn help_and_messages() {
     key(&mut app, KeyCode::Char('?'));
     assert!(app.help);
     // The library's own keys first, then those for everywhere.
-    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE QUEUE"]);
+    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter run it"], &["MARKS AND THE QUEUE"]);
     key(&mut app, KeyCode::Esc);
     app.toast("added 2 to the crate", super::app::Level::Info);
     // (Said just now, however long the screens below take to draw.)
     app.log.back_mut().unwrap().2 = just_now();
-    key(&mut app, KeyCode::Char('!'));
+    app.perform(Act::Messages, None);
     check(&mut app, "the messages", &["Messages", "added 2 to the crate", "just now"], &[]);
 }
 
@@ -272,9 +264,9 @@ fn settle(app: &mut App) {
 fn my_tags() {
     let Fixture { _dir, mut app, .. } = fixture();
     app.focus = Focus::Tracks;
-    key(&mut app, KeyCode::Char('#'));
+    app.perform(Act::TagsColumn, None);
     check(&mut app, "the My Tags column", &["My Tags", "Title"], &[]);
-    key(&mut app, KeyCode::Char('T'));
+    app.perform(Act::Tag, None);
     settle(&mut app);
     check(&mut app, "the tags to give", &["My Tag for 1 track", "a new tag…", "Category/Tag"], &[]);
 }
@@ -338,7 +330,7 @@ fn command_palette() {
     check(
         &mut app,
         "the palette",
-        &["Commands", "›", "search or filter the tracks", "↑↓ choose"],
+        &["Commands", "›", "search or filter the tracks", "↑↓ move"],
         &["sort by the next column"],
     );
     for c in "loop".chars() {
@@ -376,12 +368,7 @@ fn plugins() {
     let view =
         loclib_plugin::View::Table { title: Some("Titles".into()), columns: vec!["Title".into(), "BPM".into()], rows };
     app.show_answer("List the drive's tracks".into(), locallibrary::plugin::CommandOutput::View(view));
-    check(
-        &mut app,
-        "a plugin's table",
-        &["Titles", "Title         BPM", "Demo Track 1  128", "any other key closes"],
-        &[],
-    );
+    check(&mut app, "a plugin's table", &["Titles", "Title         BPM", "Demo Track 1  128", "esc close"], &[]);
     key(&mut app, KeyCode::Esc);
 
     key(&mut app, KeyCode::Char('e'));
@@ -570,7 +557,7 @@ fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();
     app.focus = Focus::Tracks;
     key(&mut app, KeyCode::Char('e'));
-    check(&mut app, "the edit menu", &["Actions ·", "set the rating…", "enter · esc close"], &[]);
+    check(&mut app, "the edit menu", &["Actions ·", "set the rating…", "enter run · esc close"], &[]);
     key(&mut app, KeyCode::Esc);
 
     // The plan for a rating, as the player gets it back from planning.
@@ -594,7 +581,7 @@ fn edit_menu_and_confirmation() {
     check(
         &mut app,
         "the confirmation",
-        &["Write to DEMO?", "export.pdb", "1 track changed", "y write", "n cancel", "backed up first"],
+        &["Write to DEMO?", "export.pdb", "1 track changed", "y write", "n no", "backed up first"],
         &[],
     );
     // A guard said something about it, and stops it.

@@ -3,11 +3,12 @@
 use std::time::{Duration, Instant};
 
 use locallibrary::query::SortField;
-use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::browse::{self};
 use crate::tui::edits::{Menu, Modal};
+use crate::tui::keymap::Act;
 use crate::tui::ui::Density;
 
 use super::*;
@@ -16,6 +17,8 @@ use super::*;
 #[derive(Default)]
 pub struct Areas {
     pub tabs: Vec<(View, Rect)>,
+    /// The deck's head, what's playing: a dialog over the deck stays below it.
+    pub deck_head: Rect,
     /// How much room the panes had.
     pub density: Density,
     /// The titles of what's beside the Drives view's list.
@@ -50,7 +53,7 @@ pub struct Areas {
     /// The empty state's next steps.
     pub steps: Rect,
     /// The footer's hints, each the key it stands for: a click on one is that key.
-    pub hints: Vec<(Rect, KeyEvent)>,
+    pub hints: Vec<(Rect, Act)>,
     /// The loop chip under player mode's waveforms: a click ends the loop.
     pub loop_chip: Rect,
 }
@@ -85,8 +88,9 @@ pub(super) type ClickedRow = (View, Option<Focus>, usize);
 impl App {
     pub fn on_mouse(&mut self, m: MouseEvent) {
         self.follow_queue(); // as for a key
+        // A click ends what a key would: the first-run line, and esc's wait for a second esc.
         if matches!(m.kind, MouseEventKind::Down(_)) {
-            self.intro = false;
+            (self.intro, self.quit_armed) = (false, None);
         }
         let p = Position::new(m.column, m.row);
         if self.zoom_drag.is_some() {
@@ -103,6 +107,18 @@ impl App {
                 MouseEventKind::ScrollUp => self.help_row = self.help_row.saturating_sub(3),
                 MouseEventKind::ScrollDown => self.help_row = self.help_row.saturating_add(3),
                 MouseEventKind::Down(_) => self.help = false,
+                _ => {}
+            }
+            return;
+        }
+        // The Keys screen as the help: the wheel moves through the list, and a click is esc (back a
+        // step, or closed from the list).
+        if self.keys.is_some() {
+            let step = |code| KeyEvent::new(code, KeyModifiers::NONE);
+            match m.kind {
+                MouseEventKind::ScrollUp => (0..3).for_each(|_| self.on_keys_key(step(KeyCode::Up))),
+                MouseEventKind::ScrollDown => (0..3).for_each(|_| self.on_keys_key(step(KeyCode::Down))),
+                MouseEventKind::Down(_) => self.on_keys_key(step(KeyCode::Esc)),
                 _ => {}
             }
             return;
@@ -126,11 +142,11 @@ impl App {
             self.on_modal_mouse(m);
             return;
         }
-        // The footer's hints and the loop chip are buttons: a click is their key.
+        // The footer's hints and the loop chip are buttons: a click does what they say.
         if m.kind == MouseEventKind::Down(MouseButton::Left) {
-            if let Some(&(_, key)) = self.areas.hints.iter().find(|(r, _)| r.contains(p)) {
+            if let Some(&(_, act)) = self.areas.hints.iter().find(|(r, _)| r.contains(p)) {
                 self.last_click = None;
-                return self.on_key(key);
+                return self.perform(act, None);
             }
             if self.areas.loop_chip.contains(p) {
                 return crate::tui::deck::toggle_loop(self);
@@ -219,7 +235,8 @@ impl App {
         }
     }
 
-    /// Clicks while a dialog is open: menu items can be clicked; a click elsewhere closes it.
+    /// Clicks while a dialog is open: menu items can be clicked; a click outside closes it (a plan
+    /// to confirm, then, writes nothing).
     fn on_modal_mouse(&mut self, m: MouseEvent) {
         match self.modal.take() {
             Some(Modal::Pick(p)) => return self.on_picker_mouse(p, m),
@@ -229,11 +246,10 @@ impl App {
         if m.kind != MouseEventKind::Down(MouseButton::Left) {
             return;
         }
+        let inside = self.areas.menu.contains(Position::new(m.column, m.row));
         match self.modal.take() {
-            Some(Modal::Jobs(list)) if self.areas.menu.contains(Position::new(m.column, m.row)) => {
-                self.modal = Some(Modal::Jobs(list));
-            }
-            Some(Modal::Jobs(_)) => {}
+            Some(Modal::Jobs(_) | Modal::Report(_) | Modal::Ask(..)) if !inside => {}
+            Some(Modal::Confirm(_)) if !inside => self.toast("nothing written", Level::Info),
             Some(Modal::Menu(menu)) => {
                 let r = self.areas.menu;
                 if !r.contains(Position::new(m.column, m.row)) {
@@ -248,14 +264,10 @@ impl App {
                             None => self.modal = Some(Modal::Menu(menu)),
                         }
                     }
-                    None => {
-                        let i = menu.state.offset() + row;
-                        if i < menu.items.len() {
-                            self.choose(menu, i);
-                        } else {
-                            self.modal = Some(Modal::Menu(menu));
-                        }
-                    }
+                    None => match menu.visible().get(menu.state.offset() + row).copied() {
+                        Some(i) => self.choose(menu, i),
+                        None => self.modal = Some(Modal::Menu(menu)),
+                    },
                 }
             }
             other => self.modal = other,

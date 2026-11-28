@@ -4,7 +4,7 @@
 	import TuiStory from './TuiStory.svelte';
 
 	/** The visualiser's oscilloscope trace in braille. */
-	const { Story } = defineMeta({ title: 'Terminal/Scope', component: TuiStory });
+	const { Story } = defineMeta({ title: 'Terminal/Scope', component: TuiStory, tags: ['tui'] });
 </script>
 
 <Story name="A tone" args={{ id: 'scope/tone' }} play={drawn()} />

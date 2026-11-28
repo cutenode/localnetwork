@@ -1,5 +1,6 @@
 use locallibrary::plugin::Cli;
 use loclib_plugin::{Command, Context, Manifest};
+use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
 use super::super::app::View;
@@ -129,7 +130,9 @@ fn fields_are_clicked_and_gone_round() {
     assert_eq!(selected(&app), (1, "b".into()), "round to the last choice");
     app.on_key(KeyEvent::new(KeyCode::BackTab, ratatui::crossterm::event::KeyModifiers::SHIFT));
     app.on_key(KeyEvent::new(KeyCode::Up, ratatui::crossterm::event::KeyModifiers::NONE));
-    assert_eq!(selected(&app).0, 1, "round to the last field");
+    assert_eq!(selected(&app).0, 0, "the first field is as far up as it goes");
+    app.on_key(KeyEvent::new(KeyCode::Tab, ratatui::crossterm::event::KeyModifiers::NONE));
+    assert_eq!(selected(&app).0, 1, "tab, the next field");
     press(&mut app, " ");
     assert_eq!(selected(&app).1, "", "space picks the next");
     mouse(&mut app, LEFT, (0, 0));

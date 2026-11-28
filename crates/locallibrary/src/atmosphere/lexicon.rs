@@ -2,8 +2,8 @@
 //! fits its type.
 //!
 //! Each type is a Lexicon document in the repo's `lexicons/`, in the folder its NSID names.
-//! [`SETTINGS`] (My Settings, one per account) is locallibrary's own, under the authority
-//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account), [`SET`]
+//! [`SETTINGS`] (My Settings, one per account) and [`KEYBINDS`] (the player's keys, one per
+//! account) are locallibrary's own, under the authority `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account), [`SET`]
 //! (a set, one per set) and [`RECORDING`] (a set's recording) are shared by Local Network's tools,
 //! under the authority `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. The documents others
 //! maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`], Lexicon
@@ -35,6 +35,8 @@ use crate::{Error, Result};
 
 /// A DJ's My Settings (record key `self`).
 pub const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
+/// The keys someone set in the player (record key `self`; see [`crate::keybinds`]).
+pub const KEYBINDS: &str = "computer.localnetwork.locallibrary.keybinds";
 /// A DJ's public profile (record key `self`).
 pub const PROFILE: &str = "computer.localnetwork.dj.profile";
 /// A set: where and when it was played, and its tracklist (record key: a TID).
@@ -52,11 +54,12 @@ pub const DISCUSSION: &str = "app.userinput.discussion";
 pub const STRONG_REF: &str = "com.atproto.repo.strongRef";
 
 /// Every record type locallibrary publishes.
-pub const COLLECTIONS: [&str; 4] = [SETTINGS, PROFILE, SET, RECORDING];
+pub const COLLECTIONS: [&str; 5] = [SETTINGS, PROFILE, SET, RECORDING, KEYBINDS];
 
 /// The Lexicon documents locallibrary writes records of, by NSID, and the ones they share.
-pub const DOCUMENTS: [(&str, &str); 8] = [
+pub const DOCUMENTS: [(&str, &str); 9] = [
     (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
+    (KEYBINDS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/keybinds.json")),
     (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
     (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
     (RECORDING, include_str!("../../../../lexicons/computer/localnetwork/dj/recording.json")),

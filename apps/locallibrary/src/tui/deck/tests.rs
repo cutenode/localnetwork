@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use locallibrary::anlz::{PhraseKind, TrackAnalysis};
+use ratatui::crossterm::event::KeyCode;
 
 use super::super::app::testing::*;
-use super::super::app::{DrivePane, Focus, PhraseSpan};
+use super::super::app::{DrivePane, PhraseSpan};
 use super::*;
 
 /// Where playback goes once the track is open.
@@ -15,11 +16,11 @@ fn target(app: &App) -> Option<u64> {
 fn pads_play_hot_cues_in_full_screen_or_when_turned_on() {
     let cues = vec![cue(Some(0), 1_000, None), cue(Some(3), 64_000, None), cue(None, 30_000, None)];
     let (mut app, _dir) = playing(TrackAnalysis { cues, ..Default::default() });
-    // Off: digits jump to panes.
+    // Off: digits go to the views.
     press(&mut app, "2");
-    assert_eq!(app.focus, Focus::Playlists);
-    press(&mut app, "3");
-    assert_eq!((app.focus, target(&app)), (Focus::Tracks, None));
+    assert_eq!(app.view, View::Prepare);
+    press(&mut app, "1");
+    assert_eq!((app.view, target(&app)), (View::Library, None));
 
     // Full screen: 4 is hot cue D.
     press(&mut app, "f");
@@ -33,18 +34,34 @@ fn pads_play_hot_cues_in_full_screen_or_when_turned_on() {
     let b = app.now.as_ref().unwrap().analysis.cues.iter().find(|c| c.hot_cue == Some(1)).map(|c| c.start_ms);
     assert_eq!(b, Some(1_000));
 
-    // Out of full screen, ' turns the pads on and off.
+    // Out of full screen, pads on (in :) turns the pads on and off.
     press(&mut app, "f");
-    press(&mut app, "'");
+    app.perform(Act::Pads, None);
     assert!(app.pads_on());
     press(&mut app, "4");
     assert_eq!((app.view, target(&app)), (View::Library, Some(64_000)));
     // They stay on in every view, as the deck does.
-    press(&mut app, "gd4");
+    app.perform(Act::ShowView(View::Drives), None);
+    press(&mut app, "4");
     assert_eq!((app.view, app.drive_pane, target(&app)), (View::Drives, DrivePane::List, Some(64_000)));
-    press(&mut app, "'4");
-    assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::History), "digits jump to panes again");
+    app.perform(Act::Pads, None);
+    assert_eq!(last_message(&app), "pads off: digits go to the views");
+    press(&mut app, "4");
+    assert_eq!(app.view, View::Mixes, "digits go to the views again");
     assert!(!app.pads_on());
+}
+
+/// Browsing over player mode keeps the pads: 2 plays hot cue B, and the Library stays.
+#[test]
+fn browsing_over_player_mode_keeps_the_pads() {
+    let cues = vec![cue(Some(0), 1_000, None), cue(Some(1), 8_000, None)];
+    let (mut app, _dir) = playing(TrackAnalysis { cues, ..Default::default() });
+    press(&mut app, "fb");
+    assert!(app.browsing && !app.deck_showing());
+    press(&mut app, "2");
+    assert_eq!((app.view, app.browsing, target(&app)), (View::Library, true, Some(8_000)));
+    let tabs = super::super::ui::screen(&mut app, 160, 40);
+    assert!(!tabs.lines().next().unwrap_or_default().contains("2 Prepare"), "the digits aren't the views'");
 }
 
 #[test]
@@ -103,22 +120,25 @@ fn quantized_cue_jumps_keep_the_beat_while_playing() {
 fn beat_jump_keys() {
     let (mut app, _dir) = playing(TrackAnalysis { beats: grid(100, 120.0, 600), ..Default::default() });
     // Paused (the audio's still opening), quantized: along the grid from the beat nearest 0.
-    for (key, to) in [('.', 600), ('>', 2100), ('}', 16_100)] {
+    press(&mut app, ".");
+    assert_eq!(target(&app), Some(600), ".");
+    // A bar and 8 bars, from the palette.
+    for (beats, to) in [(4, 2100), (32, 16_100)] {
         app.pending_seek = None;
-        press(&mut app, &key.to_string());
-        assert_eq!(target(&app), Some(to), "{key}");
+        app.perform(Act::BeatJump(beats), None);
+        assert_eq!(target(&app), Some(to), "{beats} beats");
     }
-    press(&mut app, "Z");
+    app.perform(Act::Quantize, None);
     assert!(!app.deck.quantize && app.snap() == Snap::Off);
     app.pending_seek = None;
-    press(&mut app, ">");
+    app.perform(Act::BeatJump(4), None);
     assert_eq!(target(&app), Some(2000), "4 beats of 500 ms from 0");
     // Back past the start stops at it.
-    press(&mut app, "{");
+    app.perform(Act::BeatJump(-32), None);
     assert_eq!(target(&app), Some(0));
     // No grid: the track's BPM (121) says how long a beat is.
     app.now.as_mut().unwrap().analysis.beats.clear();
-    press(&mut app, ">");
+    app.perform(Act::BeatJump(4), None);
     assert_eq!(target(&app), Some(1983));
 }
 
@@ -144,7 +164,7 @@ fn phrase_jump_keys() {
 
     use super::super::app::PhraseSpan;
     let (mut app, _dir) = playing(TrackAnalysis { beats: grid(0, 120.0, 600), ..Default::default() });
-    press(&mut app, "N");
+    app.perform(Act::Phrase(true), None);
     assert_eq!(
         (target(&app), app.toast.as_ref().map(|t| t.0.as_str())),
         (None, Some("no phrase analysis for this track"))
@@ -153,9 +173,9 @@ fn phrase_jump_keys() {
     app.now.as_mut().unwrap().phrases =
         vec![span(PhraseKind::Intro, 0.0, 16_000.0), span(PhraseKind::Chorus, 16_000.0, 32_000.0)];
     // (The audio's still opening: jumps go from the start.)
-    press(&mut app, "N");
+    app.perform(Act::Phrase(true), None);
     assert_eq!(target(&app), Some(16_000));
-    press(&mut app, "P");
+    app.perform(Act::Phrase(false), None);
     assert_eq!(target(&app), Some(0));
 }
 
@@ -199,10 +219,10 @@ fn loop_keys() {
     assert_eq!(looped(&app), Some((0, 2000, true)));
     assert_eq!(app.loop_playing().unwrap().1, Some(4.0));
     // Halved, doubled twice: along the grid.
-    press(&mut app, "(");
+    app.perform(Act::LoopSize(false), None);
     assert_eq!(looped(&app), Some((0, 1000, true)));
-    press(&mut app, ")");
-    press(&mut app, ")");
+    app.perform(Act::LoopSize(true), None);
+    app.perform(Act::LoopSize(true), None);
     assert_eq!(looped(&app), Some((0, 4000, true)));
     assert!(
         app.drawn_cues().iter().any(|c| c.end_ms == Some(4000) && c.comment == "loop" && c.loop_beats == Some((8, 1)))
@@ -241,7 +261,7 @@ fn made_loops_and_seeks_keep_to_the_track() {
 #[test]
 fn outputs_list_and_close() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     let o = app.deck.outputs.as_ref().expect("listed");
     assert_eq!(o.state.selected(), Some(0), "the default, with nothing picked");
@@ -254,9 +274,11 @@ fn outputs_list_and_close() {
     }
     assert_eq!(app.deck.outputs.as_ref().unwrap().state.selected(), Some(n));
     press(&mut app, "2");
-    assert!(app.deck.outputs.is_none() && app.view == View::Library, "closed, not switched");
+    assert!(app.deck.outputs.is_some() && app.view == View::Library, "neither closed nor switched");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.deck.outputs.is_none(), "esc closes it");
     // Picking the default: plays through it (with a device), or says there isn't one.
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     key(&mut app, KeyCode::Enter);
     output_opened(&mut app);
     let said = app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
@@ -267,7 +289,7 @@ fn outputs_list_and_close() {
     assert_eq!(app.deck.output, None);
 }
 
-/// `d` opens the outputs list at once, saying the devices are being listed (they're listed in
+/// The outputs (in :) open at once, saying the devices are being listed (they're listed in
 /// the background: that can take a while); they fill it as they come, the one playing selected.
 #[test]
 fn the_outputs_list_opens_before_its_devices_are_in() {
@@ -276,7 +298,7 @@ fn the_outputs_list_opens_before_its_devices_are_in() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     app.outputs = OUTPUTS;
     app.audio = Some((OUTPUTS.open)(Some("Phones")).unwrap());
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     let s = screen(&mut app, 100, 30);
     assert!(s.contains("the system's default") && s.contains("listing the outputs…") && !s.contains("Phones"), "{s}");
     key(&mut app, KeyCode::Down);
@@ -294,14 +316,14 @@ fn a_late_listing_of_the_outputs_is_dropped() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     app.outputs = super::super::audio::tests::OUTPUTS;
     let listing = |app: &App| app.deck.outputs.as_ref().and_then(|o| o.listing);
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     let first = listing(&app).expect("being listed");
     key(&mut app, KeyCode::Esc);
     assert!(app.deck.outputs.is_none(), "esc closes it while it's listed");
     let old = || Ok((vec!["Unplugged".to_string()], None));
     app.handle_msg(Msg::Outputs(first, old()));
     assert!(app.deck.outputs.is_none(), "not opened again");
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     assert_ne!(listing(&app), Some(first));
     app.handle_msg(Msg::Outputs(first, old()));
     let o = app.deck.outputs.as_ref().unwrap();
@@ -351,7 +373,7 @@ fn a_slow_output_opens_without_holding_up_the_player() {
     let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
     app.outputs = Outputs { open: |name| open_when_let(&GATE, name), ..super::super::audio::tests::OUTPUTS };
     opened(&mut app);
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     press(&mut app, "j\n");
     assert_eq!(last_message(&app), "opening Phones…");
@@ -360,8 +382,9 @@ fn a_slow_output_opens_without_holding_up_the_player() {
     (&mut out).take(800).for_each(drop);
     app.tick();
     assert!(app.position() > at, "plays on through the output it was on");
-    press(&mut app, "Z");
-    assert!(!app.deck.quantize, "keys go on");
+    let volume = app.volume;
+    press(&mut app, "-");
+    assert!(app.volume < volume, "keys go on");
     let_open(&GATE);
     output_opened(&mut app);
     assert_eq!(app.audio.as_ref().and_then(|a| a.device()), Some("Phones"));
@@ -374,11 +397,11 @@ fn the_last_output_picked_wins() {
     let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
     app.outputs = super::super::audio::tests::OUTPUTS;
     opened(&mut app);
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     press(&mut app, "j\n");
     let first = app.deck.opening.expect("opening");
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     press(&mut app, "\n");
     output_opened(&mut app);
@@ -395,7 +418,7 @@ fn outputs_that_cant_be_listed_say_why() {
     use super::super::audio::Outputs;
     let (mut app, _dir) = playing(TrackAnalysis::default());
     app.outputs = Outputs { list: || anyhow::bail!("no sound server"), ..Outputs::NONE };
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     let s = super::super::ui::screen(&mut app, 100, 30);
     assert!(s.contains("can't list the outputs: no sound server"), "{s}");
@@ -405,7 +428,7 @@ fn outputs_that_cant_be_listed_say_why() {
     assert_eq!(last_message(&app), "no audio output device", "the default, tried");
 
     app.outputs = Outputs { list: || panic!("a broken driver"), ..Outputs::NONE };
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     let failed = app.deck.outputs.as_ref().unwrap().failed.clone().unwrap_or_default();
     assert!(failed.contains("a broken driver"), "{failed}");
@@ -423,7 +446,7 @@ fn full_screen_shows_which_key_plays_which_pad() {
     assert!(s.contains(" A  D ") && !s.contains("1 A 4 D"), "{s}");
     app.deck.pads = true;
     let s = screen(&mut app, 120, 50);
-    assert!(s.contains("1 A 4 D") && s.contains("' pads on"), "{s}");
+    assert!(s.contains("1 A 4 D") && s.contains(" pads on "), "{s}");
     app.deck.pads = false;
     app.deck_layout = true;
     for mode in [None, Some(Mode::Plain)] {
@@ -445,34 +468,35 @@ fn says_why_a_jump_or_loop_cant_be_made() {
     assert_eq!(last_message(&app), "no beat grid or tempo to jump by");
     press(&mut app, "l");
     assert_eq!(last_message(&app), "no beat grid or tempo to loop by");
-    press(&mut app, "(");
+    app.perform(Act::LoopSize(false), None);
     assert_eq!(last_message(&app), "no loop: l makes one");
     app.now.as_mut().unwrap().loading = true;
     press(&mut app, ".");
     assert_eq!(last_message(&app), "reading the beat grid…");
     press(&mut app, "l");
     assert_eq!(last_message(&app), "reading the beat grid…");
-    press(&mut app, "N");
+    app.perform(Act::Phrase(true), None);
     assert_eq!(last_message(&app), "reading the phrases…");
-    press(&mut app, "'1");
+    app.perform(Act::Pads, None);
+    press(&mut app, "1");
     assert_eq!(last_message(&app), "reading the cues…");
     assert!(app.deck.looped.is_none() && target(&app).is_none());
 
     // Past the last phrase there's nowhere to go.
     app.now.as_mut().unwrap().phrases =
         vec![PhraseSpan { kind: PhraseKind::Intro, start_ms: 0.0, end_ms: 16_000.0, bars: 8 }];
-    press(&mut app, "N");
+    app.perform(Act::Phrase(true), None);
     assert_eq!(last_message(&app), "no more phrases");
 }
 
-/// `A` turns auto cue on and off, and says what it does.
+/// Auto cue (in :) turns on and off, and says what it does.
 #[test]
 fn auto_cue_is_turned_on_and_off() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
-    press(&mut app, "A");
+    app.perform(Act::AutoCue, None);
     assert!(app.deck.auto_cue);
     assert!(last_message(&app).starts_with("auto cue on"), "{}", last_message(&app));
-    press(&mut app, "A");
+    app.perform(Act::AutoCue, None);
     assert!(!app.deck.auto_cue);
     assert!(last_message(&app).starts_with("auto cue off"), "{}", last_message(&app));
 }
@@ -486,7 +510,7 @@ fn an_output_that_wont_open_is_said() {
         open: |_| anyhow::bail!("the interface is gone"),
     };
     // The default and the interface: the list stops at either end.
-    press(&mut app, "d");
+    app.perform(Act::Outputs, None);
     outputs_listed(&mut app);
     press(&mut app, "jjk");
     assert_eq!(app.deck.outputs.as_ref().and_then(|o| o.state.selected()), Some(0));
@@ -523,7 +547,7 @@ fn loops_by_the_tempo_without_a_grid() {
     app.now.as_mut().unwrap().track.bpm = 120.0;
     press(&mut app, "l");
     assert_eq!(app.deck.looped.map(|l| (l.start, l.end)), Some((0.0, 2000.0)));
-    press(&mut app, "(");
+    app.perform(Act::LoopSize(false), None);
     assert_eq!(app.deck.looped.map(|l| (l.start, l.end)), Some((0.0, 1000.0)));
 }
 
@@ -551,56 +575,25 @@ fn any_ms(tc: &hegel::TestCase, beats: &[locallibrary::anlz::Beat]) -> f64 {
 }
 
 /// A capital from a terminal that reports keys by their codes (CSI u, xterm's modifyOtherKeys)
-/// comes as the letter with shift: `Z` turns quantize off and on, as any other terminal's `Z`
-/// does, and `Q` quits rather than starting the queue's `q` (LOC-11). Other capitals the deck has
-/// too.
+/// comes as the letter with shift. No key is a capital, so it does nothing, and isn't taken for the
+/// lowercase letter (shift and `n` isn't the next track, nor shift and `q` play next); held with
+/// control, `q` still quits.
 #[test]
-fn a_shifted_letter_sent_as_its_code_is_the_capital() {
+fn a_shifted_letter_sent_as_its_code_is_nothing() {
     use ratatui::crossterm::event::KeyModifiers;
     let (mut app, _dir) = playing(TrackAnalysis::default());
-    let shifted = |app: &mut App, c: char| app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
-    shifted(&mut app, 'z');
-    assert!(!app.quit && !app.deck.quantize, "quit {}", app.quit);
-    shifted(&mut app, 'z');
-    assert!(!app.quit && app.deck.quantize);
-    shifted(&mut app, 's');
-    shifted(&mut app, 'a');
-    assert!(app.deck.single && app.deck.auto_cue && !app.shuffle);
-    assert!(app.chord.is_none(), "no q chord waiting");
-    shifted(&mut app, 'q');
-    assert!(app.quit && app.chord.is_none(), "Q quits");
-    // Held with control, it's control-q, which quits too.
-    app.quit = false;
+    let state = |app: &App| {
+        let deck = (app.deck.quantize, app.deck.single, app.deck.auto_cue, app.deck.looped.is_some());
+        (app.now.as_ref().map(|n| n.id), app.queue.len(), app.pending_seek, app.deck_showing(), deck)
+    };
+    let before = state(&app);
+    for c in ['n', 'p', 'c', 'h', 'l', 'f', 'a', 'q', 'z', 's'] {
+        app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
+    }
+    assert!(!app.quit && !app.shuffle);
+    assert_eq!(state(&app), before, "shift and n isn't next");
     app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::SHIFT | KeyModifiers::CONTROL));
     assert!(app.quit);
-}
-
-/// The deck's and the library's capitals, typed while a track plays, do the same sent either
-/// way: as the capital, or as a terminal reporting keys by their codes sends them, the lowercase
-/// letter with shift. Sent that way, `Q` once quit the player (LOC-11); now `Q` is quit, so it's
-/// left out (see the test above), as are capitals that start work in the background (`R`, `T`,
-/// `O`), as it ends when it ends.
-#[hegel::test(test_cases = 50)]
-fn prop_a_shifted_letter_sent_as_its_code_is_its_capital(tc: hegel::TestCase) {
-    use super::super::ui::screen;
-    use hegel::generators as gs;
-    use ratatui::crossterm::event::KeyModifiers;
-    let typed: Vec<char> = "SACNPGMBUXJKZ".chars().collect();
-    let letters: Vec<char> = tc.draw(gs::vecs(gs::sampled_from(&typed[..])).max_size(6));
-    let (mut capitals, a) = playing(TrackAnalysis::default());
-    let (mut codes, b) = playing(TrackAnalysis::default());
-    // Each drive is a temporary folder of its own name.
-    let shown = |app: &mut App, dir: &tempfile::TempDir| {
-        screen(app, 120, 40).replace(dir.path().file_name().unwrap().to_str().unwrap(), "DRIVE")
-    };
-    for c in letters {
-        capitals.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
-        codes.on_key(KeyEvent::new(KeyCode::Char(c.to_ascii_lowercase()), KeyModifiers::SHIFT));
-        assert!(!codes.quit, "{c} quit");
-        let (by_code, by_capital) = (shown(&mut codes, &b), shown(&mut capitals, &a));
-        let differ: Vec<_> = by_code.lines().zip(by_capital.lines()).filter(|(x, y)| x != y).collect();
-        assert!(differ.is_empty(), "after {c}: {differ:#?}");
-    }
 }
 
 /// A beat grid as a damaged export can hold one: empty or one beat, out of order, beats at the
@@ -919,7 +912,9 @@ fn prop_the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
             _ => {
                 app.perform(Act::Outputs, None);
                 press(&mut app, "x");
-                assert!(app.deck.outputs.is_none(), "any other key closes the list");
+                assert!(app.deck.outputs.is_some(), "x leaves the list open");
+                key(&mut app, KeyCode::Esc);
+                assert!(app.deck.outputs.is_none(), "esc closes it");
             }
         }
     }

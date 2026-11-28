@@ -8,6 +8,10 @@ import type { EventPageView } from '#lib/events.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import EventPage from './EventPage.svelte';
 
+// The editor's code, loaded with this file. Edit mode loads it with `import()` once the editor opens, which in a test is
+// inside the test's time limit, and a busy run's first cold load of it outlasted that.
+await import('./edit/editor.ts');
+
 const tresor = {
 	space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor',
 	skey: '3tresor',

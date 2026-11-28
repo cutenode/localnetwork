@@ -9,11 +9,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::output::{bytes, plural};
-use crate::tui::app::{App, CHORD_HINT, typed_tail};
+use crate::tui::app::{App, typed_tail};
 use crate::tui::browse::{COLOURS, colour_name, stars};
 use crate::tui::edits::{Menu, Modal, Sub};
 use crate::tui::icons;
-use crate::tui::keymap::{self, KEYMAP, Scope};
+use crate::tui::keymap::{self, Act, Scope, dialogs};
+use crate::tui::palette::Then;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
@@ -28,33 +29,6 @@ pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) 
     Rect { x, y, width: w, height: h }
 }
 
-/// After `g` (or `q`, or `del` in player mode) and a pause, what can follow, in the corner over
-/// the deck.
-pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
-    if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
-        return;
-    }
-    let (scope, heading) = match app.chord_scope {
-        Scope::Queue => (Scope::Queue, "Queue"),
-        Scope::DeleteCue => (Scope::DeleteCue, "Delete cue"),
-        _ => (Scope::Goto, "Go to"),
-    };
-    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == scope))
-        .map(|b| {
-            let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };
-            Line::from(vec![
-                Span::styled(format!(" {} ", b.shown), theme::key()),
-                Span::styled(format!("{about} "), dim()),
-            ])
-        })
-        .collect();
-    let w = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 2;
-    let (w, h) = (w.min(area.width), (lines.len() as u16 + 2).min(area.height));
-    let r = Rect { x: area.right() - w, y: area.bottom() - h, width: w, height: h };
-    f.render_widget(Clear, r);
-    f.render_widget(Paragraph::new(lines).block(block(title(heading, true), true)), r);
-}
-
 /// How many rows `lines` take wrapped to `width` (near enough: words may wrap a little earlier).
 fn wrapped_height(lines: &[Line], width: u16) -> u16 {
     let w = width.max(1) as usize;
@@ -67,9 +41,8 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let (heading, items, state): (String, Vec<ListItem>, &mut ListState) = match m.sub {
         None => {
             let label_w = (w as usize).saturating_sub(9);
-            let items = m
-                .items
-                .iter()
+            let shown = m.visible();
+            let items = (shown.iter().map(|&i| &m.items[i]))
                 .map(|i| {
                     let (k, l) = if i.unavailable.is_some() { (faint(), faint()) } else { (theme::key(), text()) };
                     ListItem::new(Line::from(vec![
@@ -78,7 +51,11 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
                     ]))
                 })
                 .collect();
-            (format!("Actions · {}", clip(&m.target.what, (w as usize).saturating_sub(17))), items, &mut m.state)
+            let what = match &m.query {
+                Some(q) => format!("/ {q}{}", icons::CURSOR.get()),
+                None => clip(&m.target.what, (w as usize).saturating_sub(17)),
+            };
+            (format!("Actions · {what}"), items, &mut m.state)
         }
         Some(sub) => {
             let items = Menu::sub_items(sub)
@@ -109,8 +86,13 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let h = items.len() as u16 + 2;
     let r = popup(area, w, h, m.at);
     state.fit(r.height.saturating_sub(2) as usize, items.len());
-    let b = block(title(&heading, true), true)
-        .title_bottom(Line::styled(" ↑↓ choose · enter · esc close ", faint()).right_aligned());
+    let scopes: &[Scope] = match (m.sub, &m.query) {
+        (Some(_), _) => &dialogs::SUB_MENU,
+        (None, Some(_)) => &dialogs::FILTERING,
+        (None, None) => &dialogs::ACTIONS,
+    };
+    let bar = dialog_bar(scopes);
+    let b = block(title(&heading, true), true).title_bottom(lent(&bar).right_aligned());
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
@@ -125,19 +107,43 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
 pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Pick(p)) = &mut app.modal else { return };
     let w = 72u16.min(area.width.saturating_sub(2));
+    // An import says what of theirs it can't take, under the list.
+    let note = match &p.then {
+        Then::Keys(k) if k.left_out > 0 => Some(left_out(k.left_out)),
+        _ => None,
+    };
     let rows = (p.shown.len().max(1) as u16).min(area.height.saturating_sub(6).clamp(1, 16));
-    let h = rows + 3;
+    let h = rows + 3 + u16::from(note.is_some());
     // Near the top, so the list grows down from where the eye is.
     let r = Rect { y: area.y + (area.height.saturating_sub(h) / 4), ..popup(area, w, h, None) };
-    let hint = match p.marks {
-        Some(_) => " ↑↓ choose · space mark · enter takes the marked · esc close ",
-        None => " ↑↓ choose · enter · esc close ",
+    let scopes: &[Scope] = match (p.actions, p.typing()) {
+        (false, _) => &dialogs::PICKER,
+        (true, true) => &dialogs::FILTERING,
+        (true, false) => &dialogs::ACTIONS,
     };
-    let b = block(title(&p.title, true), true).title_bottom(Line::styled(hint, faint()).right_aligned());
+    let marks = p.marks.is_some();
+    // Kept while the keys, the list's kind, the marks and how it looks stay as they are.
+    let key: (&'static [Scope], bool, theme::Look) = (scopes, marks, theme::look());
+    let bar = keymap::effective::memo(
+        |k| *k == key,
+        || key,
+        || {
+            let hints: Vec<_> =
+                (keymap::dialog_hints(scopes).into_iter()).filter(|h| marks || h.act != Act::Mark).collect();
+            let says: &[(Act, &str)] = if marks { &[(Act::Activate, "take the marked")] } else { &[] };
+            hint_bar(&hints, says)
+        },
+    );
+    let b = block(title(&p.title, true), true).title_bottom(lent(&bar).right_aligned());
     let inner = b.inner(r);
     f.render_widget(Clear, r);
     f.render_widget(b, r);
-    let [input, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+    let note_h = u16::from(note.is_some());
+    let [input, list, under] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(note_h)]).areas(inner);
+    if let Some(note) = note {
+        f.render_widget(Paragraph::new(Line::styled(clip(&note, under.width as usize), dim())), under);
+    }
     let label = vec![Span::styled(" › ", theme::key())];
     let n = p.shown.len();
     let after = vec![Span::styled(format!("  {n} of {}", p.items.len()), faint())];
@@ -179,6 +185,11 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     app.areas.menu = r;
 }
 
+/// What an import of someone's keys can't take, said under its list.
+fn left_out(n: usize) -> String {
+    format!("  {n} left out: this version can't read {}", if n == 1 { "it" } else { "them" })
+}
+
 /// How a line of results is drawn: the mark before it, and its style.
 pub(in crate::tui) fn tone_style(tone: crate::tui::drives::Tone) -> (&'static str, Style) {
     use crate::tui::drives::Tone;
@@ -193,8 +204,8 @@ pub(in crate::tui) fn tone_style(tone: crate::tui::drives::Tone) -> (&'static st
     }
 }
 
-/// Results to read (a check's, a plugin's command's): a panel that scrolls, closed by any other
-/// key.
+/// Results to read (a check's, a plugin's command's): a panel that scrolls, closed by esc or a
+/// click outside it.
 pub(super) fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     use crate::tui::drives::Tone;
     let Some(Modal::Report(r)) = &mut app.modal else { return };
@@ -214,13 +225,15 @@ pub(super) fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let total = lines.len() as u16;
     let r_area = popup(area, w, total + 2, None);
+    let bar = dialog_bar(&dialogs::REPORT);
     let b = block(title(&r.title, true), true)
-        .title_bottom(Line::styled(" ↑↓ scroll · any other key closes ", faint()).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r_area);
     r.scroll = r.scroll.min(total.saturating_sub(inner.height));
     f.render_widget(Clear, r_area);
     f.render_widget(Paragraph::new(lines).scroll((r.scroll, 0)).block(b), r_area);
+    app.areas.menu = r_area;
 }
 
 /// A plugin's params to fill in: a row for each field (its label, then what's typed or picked),
@@ -287,7 +300,7 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let r = popup(area, w, lines.len() as u16 + 2, None);
-    let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
+    let picked = !selected.choices().is_empty();
     let then = match form.then {
         crate::tui::form::For::Run(_)
         | crate::tui::form::For::Export { .. }
@@ -303,15 +316,18 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         crate::tui::form::For::Keys(..) => "sign in",
         crate::tui::form::For::Restore(_) => "restore",
     };
+    let hints: Vec<_> = (keymap::dialog_hints(&dialogs::FORM).into_iter())
+        .filter(|h| picked || !matches!(h.act, Act::Change(_)))
+        .collect();
     let b = block(title(&form.title, true), true)
-        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
+        .title_bottom(hint_bar(&hints, &[(Act::Activate, then)]).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     f.render_widget(Clear, r);
     f.render_widget(Paragraph::new(lines).block(b), r);
     app.areas.menu = r;
 }
 
-/// The outputs to play through (`d`), the system's default first.
+/// The outputs to play through (in `:`), the system's default first.
 pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let playing = app.audio.as_ref().map(|a| a.device().map(str::to_string));
     let Some(o) = &mut app.deck.outputs else { return };
@@ -342,8 +358,8 @@ pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let r = popup(area, w, items.len() as u16 + 2, None);
     o.state.fit(r.height.saturating_sub(2) as usize, items.len());
-    let b = block(title("Output", true), true)
-        .title_bottom(Line::styled(" enter play through it · esc close ", faint()).right_aligned());
+    let bar = dialog_bar(&dialogs::OUTPUTS);
+    let b = block(title("Output", true), true).title_bottom(lent(&bar).right_aligned());
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
@@ -620,40 +636,30 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let r = popup(area, w, h, None);
     let visible = h.saturating_sub(2);
     c.scroll = c.scroll.min(total.saturating_sub(visible));
-    let more = if total > visible { " ↑↓ scroll ·" } else { "" };
+    let more = total > visible;
+    let hints: Vec<_> = (keymap::dialog_hints(&dialogs::CONFIRM).into_iter())
+        .filter(|h| more || !matches!(h.act, Act::Move(_)))
+        .collect();
     let b = block(title(&wording.ask, true), true)
         .border_style(fg(theme::current().warning))
-        .title_bottom(
-            Line::from(vec![
-                Span::styled(format!("{more} "), faint()),
-                Span::styled("y", theme::key()),
-                Span::styled(format!(" {}  ", wording.yes), text()),
-                Span::styled("n", theme::key()),
-                Span::styled(" cancel ", text()),
-            ])
-            .right_aligned(),
-        )
+        .title_bottom(hint_bar(&hints, &[(Act::Answer(true), wording.yes), (Act::Move(-1), "scroll")]).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
+    app.areas.menu = r;
     f.render_widget(Clear, r);
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((c.scroll, 0)).block(b), r);
 }
 
-pub(super) fn draw_ask(f: &mut Frame, question: String, area: Rect) {
+pub(super) fn draw_ask(f: &mut Frame, app: &mut App, area: Rect) {
+    let Some(Modal::Ask(question, _)) = &app.modal else { return };
     let w = 60u16.min(area.width.saturating_sub(2));
-    let lines = vec![Line::styled(question, text())];
+    let lines = vec![Line::styled(question.clone(), text())];
     let h = wrapped_height(&lines, w.saturating_sub(4)) + 2;
     let r = popup(area, w, h, None);
+    let bar = dialog_bar(&dialogs::ASK);
     let b = block(title("Sure?", true), true)
-        .title_bottom(
-            Line::from(vec![
-                Span::styled(" y", theme::key()),
-                Span::styled(" yes  ", text()),
-                Span::styled("n", theme::key()),
-                Span::styled(" no ", text()),
-            ])
-            .right_aligned(),
-        )
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
+    app.areas.menu = r;
     f.render_widget(Clear, r);
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }).block(b), r);
 }
@@ -695,43 +701,15 @@ fn help_footer(width: u16) -> Vec<Line<'static>> {
 pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let w = 96.min(area.width);
     let inner_w = w.saturating_sub(4);
-    let rows = keymap::help_rows(app, &app.help_query);
-    app.help_row = app.help_row.min(rows.len().saturating_sub(1));
-    let narrowed = !app.help_query.is_empty();
-    // The keys are here; everything else is in the palette, by name.
-    let mut lines: Vec<Line<'static>> = vec![
-        Line::from(vec![Span::styled(":", theme::key()), Span::styled(" searches everything", dim())]),
-        Line::raw(""),
-    ];
-    let mut section = "";
-    let mut selected = 0..0;
-    for (i, row) in rows.iter().enumerate() {
-        if !narrowed && row.title != section {
-            section = row.title;
-            if lines.len() > 2 {
-                lines.push(Line::raw(""));
-            }
-            lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
-        }
-        let start = lines.len();
-        lines.extend(help_row_lines(row.binding.shown, row.binding.help, inner_w));
-        if i == app.help_row {
-            selected = start..lines.len();
-            lines[start..].iter_mut().for_each(|l| l.style = theme::selected());
-        }
-    }
-    if rows.is_empty() {
-        lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
-    }
-    if !narrowed {
-        lines.push(Line::raw(""));
-        lines.extend(help_footer(inner_w));
-    }
+    let page = help_page(app, inner_w);
+    app.help_row = app.help_row.min(page.rows.len().saturating_sub(1));
+    let selected = page.rows.get(app.help_row).cloned().unwrap_or(0..0);
+    let lines = &page.lines;
     let total = lines.len() as u16;
     let r = popup(area, w, total + 3, None);
-    let keys = " ↑↓ choose · enter runs it · esc close ";
+    let bar = dialog_bar(&dialogs::HELP);
     let b = block(title(&format!("Keys · {}", app.view.title()), true), true)
-        .title_bottom(Line::styled(keys, faint()).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r);
     f.render_widget(Clear, r);
@@ -740,7 +718,63 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let label = vec![Span::styled("› ", theme::key())];
     f.render_widget(Paragraph::new(input_line(label, &app.help_query, Vec::new(), input.width)), input);
     // The row selected in view, and past the last one, what's under it.
-    let end = if app.help_row + 1 == rows.len() { lines.len() } else { selected.end };
+    let end = if app.help_row + 1 == page.rows.len() { lines.len() } else { selected.end };
     let top = end.saturating_sub(list.height as usize).min(selected.start);
-    f.render_widget(Paragraph::new(lines).scroll((top as u16, 0)), list);
+    let shown = lines.iter().enumerate().skip(top).take(list.height as usize);
+    let shown = shown.map(|(n, l)| if selected.contains(&n) { lent(l).style(theme::selected()) } else { lent(l) });
+    f.render_widget(Paragraph::new(shown.collect::<Vec<_>>()), list);
+}
+
+/// The help as drawn: its lines, and each row's among them.
+struct HelpPage {
+    lines: Vec<Line<'static>>,
+    rows: Vec<std::ops::Range<usize>>,
+}
+
+/// The help as drawn for where the player is and what's typed, `inner_w` columns wide: made once
+/// while those, the keys and how it looks stay as they are.
+fn help_page(app: &App, inner_w: u16) -> std::rc::Rc<HelpPage> {
+    let situation = keymap::situation(app);
+    let same =
+        |k: &(_, String, _, _)| k.0 == situation && k.1 == app.help_query && k.2 == inner_w && k.3 == theme::look();
+    keymap::effective::memo(
+        same,
+        || (situation, app.help_query.clone(), inner_w, theme::look()),
+        || help_page_now(app, inner_w),
+    )
+}
+
+fn help_page_now(app: &App, inner_w: u16) -> HelpPage {
+    let rows = keymap::help_rows(app, &app.help_query);
+    let narrowed = !app.help_query.is_empty();
+    // The keys are here; everything else is in the palette, by name.
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![
+            Span::styled("type", theme::key()),
+            Span::styled(" to narrow the keys; enter on words no key has searches the commands", dim()),
+        ]),
+        Line::raw(""),
+    ];
+    let mut section = "";
+    let mut at = Vec::with_capacity(rows.len());
+    for row in &rows {
+        if !narrowed && row.title != section {
+            section = row.title;
+            if lines.len() > 2 {
+                lines.push(Line::raw(""));
+            }
+            lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
+        }
+        let start = lines.len();
+        lines.extend(help_row_lines(&row.keys, row.binding.help, inner_w));
+        at.push(start..lines.len());
+    }
+    if rows.is_empty() {
+        lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
+    }
+    if !narrowed {
+        lines.push(Line::raw(""));
+        lines.extend(help_footer(inner_w));
+    }
+    HelpPage { lines, rows: at }
 }

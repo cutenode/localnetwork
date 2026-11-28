@@ -110,7 +110,7 @@ sequenceDiagram
   else pauseRequestIndex is on
     A-->>L: indexed: false
   else
-    par sets, recordings, stats, settings, all at once
+    par sets, recordings, stats, settings, keys, all at once
       A->>H: Backfill the issuer's repo,<br/>unless done in the last 10 minutes
       A->>H: Wait up to 5 s
     end
@@ -129,7 +129,7 @@ flowchart LR
   Jet["Jetstream or<br/>the Network store"]
   Jet -- "the root's only" --> Root["project, listing, listing.profile,<br/>verification"]
   Jet -- "the root's, as party events'<br/>public copies" --> Copies["calendar event"]
-  Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings"]
+  Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings,<br/>locallibrary.keybinds"]
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
   Jet -- "managers, accounts the root<br/>verified, and accounts with a profile" --> Names["Bluesky display names<br/>and pronouns"]
   Jet -- "press kits of the<br/>root's performers" --> Kits["The root's, and a<br/>manager's older ones"]

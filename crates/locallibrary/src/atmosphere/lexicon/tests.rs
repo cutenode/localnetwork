@@ -77,8 +77,9 @@ fn every_lexicon_parses_and_its_refs_resolve() {
     }
     assert!(problems.is_empty(), "{problems:#?}");
     for nsid in COLLECTIONS {
-        // locallibrary's own settings, and the DJ records Local Network's tools share.
-        let group = if nsid == SETTINGS { "computer.localnetwork.locallibrary." } else { "computer.localnetwork.dj." };
+        // locallibrary's own settings and keys, and the DJ records Local Network's tools share.
+        let ours = [SETTINGS, KEYBINDS].contains(&nsid);
+        let group = if ours { "computer.localnetwork.locallibrary." } else { "computer.localnetwork.dj." };
         assert!(nsid.starts_with(group), "{nsid}");
         let main = &document(nsid).unwrap()["defs"]["main"];
         assert_eq!(main["type"], "record", "{nsid}");
@@ -104,7 +105,7 @@ fn every_lexicon_parses_and_its_refs_resolve() {
     }
     let documents = DOCUMENTS.iter().map(|(nsid, _)| path(nsid)).filter(|p| ours.iter().any(|d| p.starts_with(d)));
     assert_eq!(found, documents.collect());
-    assert_eq!(found.len(), 5, "settings, and the DJ profile, set, recording and defs");
+    assert_eq!(found.len(), 6, "settings and keybinds, and the DJ profile, set, recording and defs");
 }
 
 #[test]

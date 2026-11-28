@@ -20,8 +20,8 @@ use uuid::Uuid;
 use super::app::{App, Focus, Level, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Modal, Prompt, PromptFor};
-use super::keymap::{self, Act, Scope};
-use super::palette::{Item, Picker, Then, key_name};
+use super::keymap::{self, Act};
+use super::palette::{Item, Picker, Then};
 
 /// What happens once a confirmed change has been made: the next step of something that takes
 /// two (saving the crate as a playlist, then packing it).
@@ -271,9 +271,10 @@ impl App {
             (Act::SetPrep, "check its clones for a set"),
             (Act::Eject, "eject its clones"),
         ];
+        let letters = keymap::menu_letters(&items.map(|(a, _)| a));
         let (acts, items): (Vec<Act>, Vec<Item>) =
-            items.into_iter().map(|(a, label)| (a, Item::new(label, ""))).unzip();
-        self.modal = Some(Modal::Pick(Picker::new(format!("Library · {name}"), items, Then::Library { id, acts })));
+            items.into_iter().zip(letters).map(|((a, label), letter)| (a, Item::new(label, letter))).unzip();
+        self.modal = Some(Modal::Pick(Picker::actions(format!("Library · {name}"), items, Then::Library { id, acts })));
     }
 
     /// One of a library's actions (see [`Self::library_menu`]), on its clones plugged in.
@@ -350,28 +351,31 @@ impl App {
         let name = self.drive_label(&root);
         let export = self.drives.iter().find(|d| d.root == root).is_none_or(|d| d.has_export);
         let no_export = (!export).then(|| "no rekordbox export on it".to_string());
-        // `u` undoes on the drive changed last this run, which may be another.
-        let undo_key = if self.undo_drive().as_ref() == Some(&root) { "u" } else { "" };
-        let item = |act: Act, why: &Option<String>| {
-            let key = keymap::key_in(Scope::Drives, act).map_or(String::new(), key_name);
-            (act, Item { unavailable: why.clone(), ..Item::new(keymap::name(act), key) })
-        };
-        let items = vec![
-            item(Act::Pull, &no_export),
-            item(Act::Check, &no_export),
-            item(Act::SetPrep, &no_export),
-            item(Act::SyncGroup, &no_export),
-            item(Act::Pack, &None),
-            item(Act::RestorePlaylist, &no_export),
-            item(Act::Replay, &no_export),
-            (Act::Undo, Item::new(keymap::name(Act::Undo), undo_key)),
-            item(Act::Eject, &None),
+        let offered = [
+            (Act::Pull, &no_export),
+            (Act::Check, &no_export),
+            (Act::SetPrep, &no_export),
+            (Act::SyncGroup, &no_export),
+            (Act::Pack, &None),
+            (Act::RestorePlaylist, &no_export),
+            (Act::Replay, &no_export),
+            (Act::Undo, &None),
+            (Act::Eject, &None),
         ];
+        let letters = keymap::menu_letters(&offered.map(|(a, _)| a));
+        // `u` undoes on the drive changed last this run, which may be another.
+        let undoes_here = self.undo_drive().as_ref() == Some(&root);
+        let items: Vec<(Act, Item)> = (offered.into_iter().zip(letters))
+            .map(|((act, why), letter)| {
+                let letter = if act == Act::Undo && !undoes_here { String::new() } else { letter };
+                (act, Item { unavailable: why.clone(), ..Item::new(keymap::name(act), letter) })
+            })
+            .collect();
         let (acts, items): (Vec<Act>, Vec<Item>) =
             items.into_iter().chain(self.plugin_items(Some(&root), &[Where::Drive])).unzip();
         let drive = self.drive_at(root);
         self.modal =
-            Some(Modal::Pick(Picker::new(format!("Drive · {name}"), items, Then::Drive { drive, name, acts })));
+            Some(Modal::Pick(Picker::actions(format!("Drive · {name}"), items, Then::Drive { drive, name, acts })));
     }
 
     /// Save the drive in the store (a snapshot of its library), once the plan is confirmed.

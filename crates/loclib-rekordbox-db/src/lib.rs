@@ -11,4 +11,4 @@ pub mod onelibrary;
 #[doc(hidden)]
 pub mod test_util;
 
-pub use error::{Error, Result};
+pub use error::{Error, Refusal, Result};

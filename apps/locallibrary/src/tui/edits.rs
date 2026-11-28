@@ -28,10 +28,10 @@ use loclib_plugin::Where;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
-use super::app::{App, Focus, Level, Msg, UNDO_HINT, View, edit_line};
+use super::app::{App, Focus, Level, Msg, UNDO_HINT, View, edit_line, scrolled, step_list};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
-use super::keymap::{self, Act};
+use super::keymap::{self, Act, Scope, dialogs};
 use crate::output::plural;
 
 // ---------------------------------------------------------------------------------------------
@@ -102,7 +102,7 @@ fn leaf(path: &str) -> &str {
 // The actions menu
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     CrateAdd,
     RatingMenu,
@@ -125,6 +125,8 @@ pub enum Action {
     Restore,
     /// Give the tracks a My Tag, or take one off.
     Tag,
+    /// Play the tracks next, before the queue's other picks.
+    PlayNext,
     /// A plugin's command or operation, by the plugin's id and its name.
     Plugin(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks.
@@ -169,7 +171,8 @@ pub struct Target {
 }
 
 pub struct MenuItem {
-    pub key: &'static str,
+    /// Its letter (see [`keymap::letters`]).
+    pub key: String,
     pub label: String,
     pub action: Action,
     /// Why it can't be done here, if it can't.
@@ -191,6 +194,8 @@ pub struct Menu {
     pub sub_state: ListState,
     /// Opened with the mouse here, rather than in the middle.
     pub at: Option<(u16, u16)>,
+    /// What's typed after `/`, narrowing the items to those it matches.
+    pub query: Option<String>,
 }
 
 impl Menu {
@@ -204,6 +209,7 @@ impl Menu {
             sub: None,
             sub_state: ListState::default(),
             at,
+            query: None,
         }
     }
 
@@ -214,13 +220,35 @@ impl Menu {
             Sub::Colour => std::iter::once(None).chain(COLOURS.map(Some)).map(Action::Colour).collect(),
         }
     }
+
+    /// The items shown (indexes into `items`): all of them, or those the filter matches, best first.
+    pub fn visible(&self) -> Vec<usize> {
+        let Some(query) = &self.query else { return (0..self.items.len()).collect() };
+        let mut scored: Vec<(i32, usize)> = (self.items.iter().enumerate())
+            .filter_map(|(i, it)| super::palette::fuzzy(query, &it.label).map(|s| (s, i)))
+            .collect();
+        scored.sort_by_key(|&(s, i)| (std::cmp::Reverse(s), i));
+        scored.into_iter().map(|(_, i)| i).collect()
+    }
+
+    /// Narrow the items to `query` (`None`: show them all again), selecting the first.
+    pub fn filter(&mut self, query: Option<String>) {
+        self.query = query;
+        let any = !self.visible().is_empty();
+        self.state.select(any.then_some(0));
+    }
 }
 
 /// Why nothing is changed in rekordbox's collection from here.
 pub const COLLECTION_READ_ONLY: &str = "rekordbox's collection is read-only here: export it to a drive to edit";
 
 pub fn menu_items(t: &Target) -> Vec<MenuItem> {
-    let item = |key, label: String, action, unavailable: Option<String>| MenuItem { key, label, action, unavailable };
+    let item = |key: &str, label: String, action, unavailable: Option<String>| MenuItem {
+        key: key.to_string(),
+        label,
+        action,
+        unavailable,
+    };
     let because = |cond: bool, why: &str| cond.then(|| why.to_string());
     let stale = because(t.collection, COLLECTION_READ_ONLY).or(because(t.stale, "the drive was unplugged"));
     let no_tracks = because(t.tracks.is_empty(), "no track selected");
@@ -232,10 +260,11 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     let no_node = because(t.node.is_none(), "select a playlist or folder");
     let into = if t.folder.is_empty() { String::new() } else { format!(" in {}", leaf(&t.folder)) };
     let items: Vec<MenuItem> = vec![
-        item("a", "add to the queue".into(), Action::CrateAdd, no_tracks),
+        item("a", "add to the queue".into(), Action::CrateAdd, no_tracks.clone()),
+        item("q", keymap::name(Act::QueueNext).into(), Action::PlayNext, no_tracks),
         item("0-5", "set the rating…".into(), Action::RatingMenu, tracks.clone()),
         item("c", "set the colour…".into(), Action::ColourMenu, tracks.clone()),
-        item("T", "give them a My Tag (or take one off)…".into(), Action::Tag, tracks.clone()),
+        item("t", "give them a My Tag (or take one off)…".into(), Action::Tag, tracks.clone()),
         item("p", "add to a playlist…".into(), Action::AddToPlaylist, tracks.clone()),
         item("n", "new playlist with them…".into(), Action::NewPlaylistWith, tracks.clone()),
         item(
@@ -258,10 +287,13 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
                 _ => "sort this playlist on the drive".into(),
             },
             Action::SortList,
-            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")),
+            stale
+                .clone()
+                .or(not_list)
+                .or(because(t.sort.is_none(), "sort the list first (click a column, or sort in :)")),
         ),
-        item("N", format!("new playlist{into}…"), Action::NewPlaylist, stale.clone()),
-        item("F", format!("new folder{into}…"), Action::NewFolder, stale.clone()),
+        item("l", format!("new playlist{into}…"), Action::NewPlaylist, stale.clone()),
+        item("f", format!("new folder{into}…"), Action::NewFolder, stale.clone()),
         item(
             "r",
             format!("rename {}…", node_name.as_deref().unwrap_or("playlist")),
@@ -280,7 +312,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             Action::SaveCrate,
             stale.clone().or(because(t.crated.is_empty(), "the queue has nothing from this drive")),
         ),
-        item("X", "clear the queue".into(), Action::ClearCrate, because(t.crate_total == 0, "the queue is empty")),
+        item("z", "clear the queue".into(), Action::ClearCrate, because(t.crate_total == 0, "the queue is empty")),
         item(
             "b",
             format!("bring back {} from a snapshot…", node_name.as_deref().unwrap_or("a playlist")),
@@ -314,7 +346,26 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     };
     let mut items = items;
     items.sort_by_key(|i| first.iter().position(|a| *a == i.action).unwrap_or(first.len()));
+    let came: Vec<(Act, String)> = items.iter().map(|i| (act_of(i.action), i.key.clone())).collect();
+    for (item, letter) in items.iter_mut().zip(keymap::letters(&came)) {
+        item.key = letter;
+    }
     items
+}
+
+/// The keymap's act for one of the library's actions: the one it duplicates, where it does.
+fn act_of(a: Action) -> Act {
+    match a {
+        Action::CrateAdd => Act::CrateAdd,
+        Action::PlayNext => Act::QueueNext,
+        Action::SaveCrate => Act::CrateSave,
+        Action::ClearCrate => Act::CrateClear,
+        Action::Replay => Act::Replay,
+        Action::Restore => Act::RestorePlaylist,
+        Action::Tag => Act::Tag,
+        Action::Plugin(plugin, name) => Act::Plugin(plugin, name),
+        a => Act::Edit(a),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -345,6 +396,9 @@ pub enum PromptFor {
     },
     /// A folder holding an export, to open.
     OpenFolder,
+    /// Whose keys to import, by handle or DID.
+    #[cfg(feature = "account")]
+    KeysFrom,
     /// The folder to look in for tracks' missing files (none: the drive alone), or with `upgrade`
     /// for lossless files of lossy tracks (see `tui::cli`).
     LookIn {
@@ -718,7 +772,6 @@ impl App {
     /// Whether keys go somewhere other than the view: to a dialog, or a line being typed.
     pub(super) fn input_taken(&self) -> bool {
         self.modal.is_some()
-            || self.chord.is_some()
             || self.searching
             || self.picking.is_some()
             || self.deck.outputs.is_some()
@@ -726,6 +779,7 @@ impl App {
             || self.show_log
             || self.mix.input.is_some()
             || self.profile.account.typing()
+            || self.keys.is_some()
     }
 
     /// Open a dialog that comes from the background (a plan, a task's results). While another
@@ -765,51 +819,44 @@ impl App {
         let Some(modal) = self.modal.take() else { return };
         match modal {
             Modal::Menu(m) => self.on_menu_key(m, key),
-            Modal::Prompt(mut p) => match key.code {
-                KeyCode::Esc => {}
-                KeyCode::Enter => self.submit(p),
+            Modal::Prompt(mut p) => match keymap::dialog_act(&dialogs::PROMPT, &key) {
+                Some(Act::Escape) => {}
+                Some(Act::Activate) => self.submit(p),
                 _ => {
                     edit_line(&mut p.text, key);
                     self.modal = Some(Modal::Prompt(p));
                 }
             },
             // Only y writes, and only once the dialog has been up long enough to be read.
-            Modal::Confirm(c) if c.shown.elapsed() < SETTLE && key.code != KeyCode::Esc => {
+            Modal::Confirm(c)
+                if c.shown.elapsed() < SETTLE && keymap::dialog_act(&dialogs::CONFIRM, &key) != Some(Act::Escape) =>
+            {
                 self.modal = Some(Modal::Confirm(c));
             }
-            Modal::Confirm(mut c) => match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => self.apply(c),
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc => {
+            Modal::Confirm(mut c) => match keymap::dialog_act(&dialogs::CONFIRM, &key) {
+                Some(Act::Answer(true)) => self.apply(c),
+                Some(Act::Answer(false) | Act::Escape) => {
                     self.toast("nothing written", Level::Info);
                     self.cue_save_failed(true);
                 }
-                code => {
-                    c.scroll = match code {
-                        KeyCode::Up | KeyCode::Char('k') => c.scroll.saturating_sub(1),
-                        KeyCode::Down | KeyCode::Char('j') => c.scroll.saturating_add(1),
-                        KeyCode::PageUp => c.scroll.saturating_sub(10),
-                        KeyCode::PageDown => c.scroll.saturating_add(10),
-                        _ => c.scroll,
-                    };
+                act => {
+                    c.scroll = act.map_or(c.scroll, |act| scrolled(c.scroll, act));
                     self.modal = Some(Modal::Confirm(c));
                 }
             },
             Modal::Pick(p) => self.on_picker_key(p, key),
             Modal::Form(f) => self.on_form_key(f, key),
             Modal::Jobs(list) => self.on_jobs_key(list, key),
-            Modal::Report(mut r) => {
-                r.scroll = match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => r.scroll.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') => r.scroll.saturating_add(1),
-                    KeyCode::PageUp => r.scroll.saturating_sub(10),
-                    KeyCode::PageDown | KeyCode::Char(' ') => r.scroll.saturating_add(10),
-                    _ => return,
-                };
-                self.modal = Some(Modal::Report(r));
-            }
-            Modal::Ask(question, yes) => match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => yes(self),
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Char('q') => {}
+            Modal::Report(mut r) => match keymap::dialog_act(&dialogs::REPORT, &key) {
+                Some(Act::Escape) => {}
+                act => {
+                    r.scroll = act.map_or(r.scroll, |act| scrolled(r.scroll, act));
+                    self.modal = Some(Modal::Report(r));
+                }
+            },
+            Modal::Ask(question, yes) => match keymap::dialog_act(&dialogs::ASK, &key) {
+                Some(Act::Answer(true)) => yes(self),
+                Some(Act::Answer(false) | Act::Escape) => {}
                 _ => self.modal = Some(Modal::Ask(question, yes)),
             },
         }
@@ -818,29 +865,29 @@ impl App {
     fn on_menu_key(&mut self, mut m: Menu, key: KeyEvent) {
         if let Some(sub) = m.sub {
             let choices = Menu::sub_items(sub);
-            let pick = match key.code {
-                KeyCode::Esc | KeyCode::Backspace | KeyCode::Left => {
+            let pick = match keymap::dialog_act(&dialogs::SUB_MENU, &key) {
+                Some(Act::Escape) => {
                     m.sub = None;
                     None
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    m.sub_state.select(Some(m.sub_state.selected().unwrap_or(0).saturating_sub(1)));
+                Some(Act::Activate) => m.sub_state.selected().and_then(|i| choices.get(i)).copied(),
+                Some(act) => {
+                    step_list(&mut m.sub_state, choices.len(), act);
                     None
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    m.sub_state.select(Some((m.sub_state.selected().unwrap_or(0) + 1).min(choices.len() - 1)));
-                    None
-                }
-                KeyCode::Enter => m.sub_state.selected().and_then(|i| choices.get(i)).copied(),
-                KeyCode::Char(d @ '0'..='9') => {
-                    let n = d as u8 - b'0';
-                    match sub {
-                        Sub::Rating if n <= 5 => Some(Action::Rate(n)),
-                        Sub::Colour if n <= 8 => Some(Action::Colour(n.checked_sub(1).map(|c| COLOURS[c as usize]))),
-                        _ => None,
+                None => match key.code {
+                    KeyCode::Char(d @ '0'..='9') => {
+                        let n = d as u8 - b'0';
+                        match sub {
+                            Sub::Rating if n <= 5 => Some(Action::Rate(n)),
+                            Sub::Colour if n <= 8 => {
+                                Some(Action::Colour(n.checked_sub(1).map(|c| COLOURS[c as usize])))
+                            }
+                            _ => None,
+                        }
                     }
-                }
-                _ => None,
+                    _ => None,
+                },
             };
             match pick {
                 Some(action) => self.run_action(action, m.target),
@@ -848,27 +895,43 @@ impl App {
             }
             return;
         }
-        let pick = match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('e') => return,
-            KeyCode::Up | KeyCode::Char('k') => {
-                m.state.select(Some(m.state.selected().unwrap_or(0).saturating_sub(1)));
+        // Filtering, letters are typed; else they're the items' own.
+        let scopes: &[Scope] = if m.query.is_some() { &dialogs::FILTERING } else { &dialogs::ACTIONS };
+        let shown = m.visible();
+        let pick = match keymap::dialog_act(scopes, &key) {
+            Some(Act::Escape) if m.query.is_some() => {
+                m.filter(None);
                 None
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                m.state.select(Some((m.state.selected().unwrap_or(0) + 1).min(m.items.len() - 1)));
+            Some(Act::Escape) => return,
+            Some(Act::Search) => {
+                m.filter(Some(String::new()));
                 None
             }
-            KeyCode::Enter | KeyCode::Right => m.state.selected(),
-            KeyCode::Char(d @ '0'..='5') => {
-                let i = m.items.iter().position(|i| i.action == Action::RatingMenu);
-                if i.is_some_and(|i| m.items[i].unavailable.is_none()) {
-                    self.run_action(Action::Rate(d as u8 - b'0'), m.target);
-                    return;
+            Some(Act::Activate) => m.state.selected().and_then(|i| shown.get(i)).copied(),
+            Some(act @ (Act::Move(_) | Act::Page(_) | Act::End(_))) => {
+                step_list(&mut m.state, shown.len(), act);
+                None
+            }
+            _ if m.query.is_some() => {
+                let mut query = m.query.take().unwrap_or_default();
+                edit_line(&mut query, key);
+                m.filter(Some(query));
+                None
+            }
+            _ => match key.code {
+                KeyCode::Right => m.state.selected(),
+                KeyCode::Char(d @ '0'..='5') => {
+                    let i = m.items.iter().position(|i| i.action == Action::RatingMenu);
+                    if i.is_some_and(|i| m.items[i].unavailable.is_none()) {
+                        self.run_action(Action::Rate(d as u8 - b'0'), m.target);
+                        return;
+                    }
+                    i
                 }
-                i
-            }
-            KeyCode::Char(c) => m.items.iter().position(|i| i.key.len() == 1 && i.key.starts_with(c)),
-            _ => None,
+                KeyCode::Char(c) => m.items.iter().position(|i| i.key.chars().count() == 1 && i.key.starts_with(c)),
+                _ => None,
+            },
         };
         match pick {
             Some(i) => self.choose(m, i),
@@ -878,7 +941,9 @@ impl App {
 
     /// Choose menu item `i` (by key, click or enter).
     pub(super) fn choose(&mut self, mut m: Menu, i: usize) {
+        m.filter(None);
         m.state.select(Some(i));
+
         let Some(item) = m.items.get(i) else { return };
         if let Some(why) = &item.unavailable {
             self.toast(why.clone(), Level::Info);
@@ -965,10 +1030,17 @@ impl App {
             }
             Action::Replay => self.replay(t.root.clone()),
             Action::Tag => self.tag_tracks(),
+            Action::PlayNext => self.queue_picked(true),
             Action::Restore => self.restore_playlist(t.root.clone()),
             Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
             Action::Fetch(kind) => self.fetch_form(kind, Some(t.root.clone()), Some(&t)),
-            Action::RatingMenu | Action::ColourMenu => {}
+            // From a key or the palette: the menu, at its rating or colour.
+            Action::RatingMenu | Action::ColourMenu => {
+                let mut m = Menu::new(t, None);
+                m.sub = Some(if action == Action::RatingMenu { Sub::Rating } else { Sub::Colour });
+                m.sub_state.select(Some(0));
+                self.modal = Some(Modal::Menu(m));
+            }
         }
     }
 
@@ -1001,6 +1073,17 @@ impl App {
             PromptFor::LookIn { upgrade } => {
                 let upgrade = *upgrade;
                 self.looked_in(p, upgrade);
+                return;
+            }
+            #[cfg(feature = "account")]
+            PromptFor::KeysFrom => {
+                match p.text.trim() {
+                    "" => {
+                        self.toast("type their handle (alice.bsky.social) or DID", Level::Info);
+                        self.modal = Some(Modal::Prompt(p));
+                    }
+                    who => self.fetch_keys(who.to_string()),
+                }
                 return;
             }
             PromptFor::OpenFolder => {
@@ -1065,30 +1148,33 @@ impl App {
     }
 
     /// Keys while picking a playlist in the tree. Returns whether the key was used up: moving
-    /// about and playback keys still work, nothing else does until the pick is made or dropped.
+    /// about, pause, the volume, seeking and the help still work (the help runs nothing from
+    /// here), nothing else does until the pick is made or dropped.
     pub(super) fn on_pick_key(&mut self, key: KeyEvent) -> bool {
-        match key.code {
-            KeyCode::Esc => {
+        match keymap::dialog_act(&dialogs::PICKING, &key) {
+            Some(Act::Escape) => {
                 if let Some(p) = self.picking.take() {
                     self.focus = p.focus;
                 }
                 self.toast("nothing added", Level::Info);
                 true
             }
-            KeyCode::Enter => {
+            Some(Act::Activate) => {
                 self.pick();
                 true
             }
-            KeyCode::Up
-            | KeyCode::Down
-            | KeyCode::PageUp
-            | KeyCode::PageDown
-            | KeyCode::Home
-            | KeyCode::End
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Char('j' | 'k' | 'g' | 'G' | ' ' | '+' | '=' | '-' | '_' | '?') => false,
-            _ => true,
+            _ => !matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Char('j' | 'k' | ' ' | '+' | '=' | '-' | '_' | '?')
+            ),
         }
     }
 

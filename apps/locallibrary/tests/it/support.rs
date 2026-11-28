@@ -178,7 +178,7 @@ impl Env {
             "version": 1,
             "my_settings": { "base": { "quantize": "off" } },
             "player": { "theme": "themes.night" },
-            "plugins": { "sound": { "keys.analyze": "a" } }
+            "plugins": { "sound": {} }
         });
         std::fs::write(env.home("settings.json"), settings.to_string()).unwrap();
         env

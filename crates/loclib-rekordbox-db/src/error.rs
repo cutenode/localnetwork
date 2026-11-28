@@ -55,6 +55,91 @@ pub enum Error {
     /// An id an edit gives a new row is taken already.
     #[error("{0}")]
     Exists(String),
+
+    /// A write of rekordbox's collection that wasn't made, and why; `master.db` is as it was.
+    #[error("{0}")]
+    Refused(Refusal),
+
+    /// Renaming the new collection over `master.db` failed. `master.db` is most likely as it was,
+    /// but on a drive that removes a file before renaming over it, it can be gone: the new
+    /// collection and the backup of the old one are both kept.
+    #[error(
+        "{} couldn't be replaced ({source}): check it's still there. The edited collection is kept at {}, and the \
+         backup from before at {}", master_db.display(), new.display(), backup.display()
+    )]
+    SwapFailed {
+        /// The `master.db`.
+        master_db: PathBuf,
+        /// The new collection, beside it.
+        new: PathBuf,
+        /// The backup of `master.db` from right before.
+        backup: PathBuf,
+        /// What the system said.
+        source: io::Error,
+    },
+
+    /// The edit was written, but rekordbox or its agent started (or wrote beside `master.db`) as it
+    /// was swapped in, so rekordbox may have the old collection open: the backup from right before.
+    #[error(
+        "the edit was written, but rekordbox started as it was: quit rekordbox without saving changes and check its \
+         collection (the backup from before is {})", .0.display()
+    )]
+    OpenedDuringSwap(PathBuf),
+}
+
+/// Why a write of rekordbox's collection (`master.db`) wasn't made. Nothing was written.
+///
+/// New reasons may come: a `match` needs a `_` arm.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum Refusal {
+    /// rekordbox is open.
+    #[error("rekordbox is open: its collection is written only once rekordbox has quit")]
+    RekordboxRunning,
+
+    /// rekordbox's agent is still running, without rekordbox or with it.
+    #[error(
+        "rekordbox's agent (rekordboxAgent) is still running: it keeps rekordbox's collection open and writes to \
+         it, so the collection is written only once it has quit too (it quits when rekordbox asks it to, or quit \
+         it from its menu bar icon)"
+    )]
+    AgentRunning,
+
+    /// Cloud Library Sync is on, or might be: what made it look so.
+    #[error(
+        "Cloud Library Sync looks to be on ({0}). locallibrary doesn't write a synced collection yet: what a write \
+         has to change so it syncs, and isn't undone by the cloud's copy, hasn't been worked out"
+    )]
+    CloudSync(String),
+
+    /// A file beside `master.db` (its WAL, shared memory or journal) holds changes rekordbox hasn't
+    /// put into `master.db` yet.
+    #[error(
+        "{} holds changes rekordbox hasn't saved into master.db yet: open rekordbox and quit it again, then try \
+         again", .0.display()
+    )]
+    Unsaved(PathBuf),
+
+    /// `master.db` changed between its backup and the swap: rekordbox (or something else) wrote it.
+    #[error("master.db changed while the edit was being made (did rekordbox start?), so it wasn't written")]
+    Changed,
+
+    /// Another write of the same collection is being made.
+    #[error("another write of rekordbox's collection is being made")]
+    Busy,
+
+    /// Anything else that makes writing unsafe: what it is.
+    #[error("{0}, so it wasn't written")]
+    Odd(String),
+}
+
+impl Refusal {
+    /// Whether the write can be made later as it is, once rekordbox and its agent have quit (or
+    /// another write is done): they were running, the file changed underneath, or another write
+    /// was being made. An edit refused so is worth keeping (staged) and trying again.
+    pub fn waits(&self) -> bool {
+        matches!(self, Refusal::RekordboxRunning | Refusal::AgentRunning | Refusal::Changed | Refusal::Busy)
+    }
 }
 
 impl Error {

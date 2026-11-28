@@ -84,7 +84,7 @@ pub(super) fn keep_waves(app: &mut App) {
         phrases: now.map_or(0, |n| n.phrases.len()),
         cues: now.map_or(0, |n| n.analysis.cues.len()),
         looped: app.deck.looped.filter(|l| l.on).map(|l| (l.start as u32, l.end as u32)),
-        deleting: app.deleting_cue(),
+        deleting: app.deck.deleting,
         theme: ptr::from_ref(theme::current()) as usize,
         tier: theme::tier(),
     };
@@ -187,7 +187,7 @@ fn on_rail(cell: &mut Cell, colour: Color) {
 fn strip_line(app: &App, width: usize) -> Line<'static> {
     let mut right = Vec::new();
     if app.deck.pads {
-        right.extend([Span::styled(" ' ", theme::key()), Span::styled("pads on ", bold(theme::current().warning))]);
+        right.push(Span::styled(" pads on ", bold(theme::current().warning)));
     }
     let Some(now) = &app.now else {
         let (states, room) = (states(app), width.saturating_sub(right.iter().map(Span::width).sum()));
@@ -258,7 +258,7 @@ fn states(app: &App) -> Vec<Span<'static>> {
         say("auto cue".into());
     }
     if !app.deck.quantize {
-        say("Q off".into());
+        say("quantize off".into());
     }
     spans
 }
@@ -273,15 +273,9 @@ fn idle(app: &App) -> Vec<Span<'static>> {
         spans.push(Span::styled(format!("No audio output: {e}"), fg(theme::current().critical)));
         return spans;
     }
-    match app.resumable() {
-        // Where the last run left off.
-        Some((t, at)) => spans.extend([
-            Span::styled("space", theme::key()),
-            Span::styled(format!(" carries on with {} from {}", t.display_name(), clock(at.as_secs_f64())), dim()),
-        ]),
-        // The empty state says what comes first.
-        None if app.empty() => {}
-        None => spans.push(Span::styled("Pick a track and press enter.", dim())),
+    // The empty state says what comes first.
+    if app.resumable().is_some() || !app.empty() {
+        spans.extend(idle_line(app).spans);
     }
     spans
 }

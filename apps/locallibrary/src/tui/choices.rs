@@ -1,6 +1,6 @@
 //! How the player looks, as the palette offers it: how keys are written and coloured, how waveforms
-//! are coloured, when it warns of a track's end, cover art (and whether it's in half blocks) and the
-//! footer's hints. What's chosen is kept in tui.json.
+//! are coloured, when it warns of a track's end, cover art (and whether it's in half blocks), the
+//! footer's hints and whether `? help` stays with them off. What's chosen is kept in tui.json.
 
 use super::app::{App, Level};
 use super::deck::BandMode;
@@ -76,6 +76,11 @@ fn warning_label(secs: u16) -> String {
     if secs == 0 { "no warning before a track ends".into() } else { format!("warn {secs} s before a track ends") }
 }
 
+/// What the palette calls the help hint's two settings.
+fn help_hint_label(on: bool) -> &'static str {
+    if on { "? help with no hints" } else { "no ? help with no hints" }
+}
+
 /// The choices, as the palette lists them.
 pub(super) fn items() -> Vec<(Act, Item)> {
     let item = |label: String| Item::new(label, "Player");
@@ -87,7 +92,9 @@ pub(super) fn items() -> Vec<(Act, Item)> {
     let art = [(Act::Art(true), item("cover art".into())), (Act::Art(false), item("no cover art".into()))];
     let halfblocks = [false, true].map(|on| (Act::ArtHalfblocks(on), item(halfblocks_label(on).into())));
     let hints = Hints::ALL.map(|h| (Act::Hints(h), item(h.label().into())));
-    bands.chain(notations).chain(palettes).chain(warnings).chain(art).chain(halfblocks).chain(hints).collect()
+    let help = [true, false].map(|on| (Act::HelpHint(on), item(help_hint_label(on).into())));
+    let rest = halfblocks.into_iter().chain(hints).chain(help);
+    bands.chain(notations).chain(palettes).chain(warnings).chain(art).chain(rest).collect()
 }
 
 impl App {
@@ -125,6 +132,11 @@ impl App {
     pub(super) fn use_hints(&mut self, hints: Hints) {
         self.hints = hints;
         self.toast(hints.label(), Level::Info);
+    }
+
+    pub(super) fn use_help_hint(&mut self, on: bool) {
+        self.help_hint = on;
+        self.toast(help_hint_label(on), Level::Info);
     }
 
     /// Forget what's been played, for the rest of a set: nothing's dimmed until it plays again.

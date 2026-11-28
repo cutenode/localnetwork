@@ -316,12 +316,13 @@ the beat grids it lays down and what an import makes of it), `onelibrary` (`expo
 its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
 `master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules),
 `rekordbox_sync` (`playlists3*.sync`), `challenge` (the `WWW-Authenticate` headers and bodies of a
-server refusing a plugin's token), `callback` (the request the sign-in reads on its loopback port)
-and `peers` (the requests, catalogs and snapshot manifests another computer sends). libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for formats whose tests keep their examples inline;
-`pdb_edit` grows its edit sequences from nothing) looking for a panic, a hang or a runaway
-allocation. The `pdb` and `anlz` aliases also hand libFuzzer a dictionary from `fuzz/dicts/` (the
-tags, page types and other values the readers branch on), so it gets past a header without
+server refusing a plugin's token), `callback` (the request the sign-in reads on its loopback port),
+`peers` (the requests, catalogs and snapshot manifests another computer sends) and `keybinds`
+(someone else's published keys, as an import reads them, and each key read back from how it's
+written). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for formats whose tests keep their
+examples inline; `pdb_edit` grows its edit sequences from nothing) looking for a panic, a hang or a
+runaway allocation. The `pdb` and `anlz` aliases also hand libFuzzer a dictionary from `fuzz/dicts/`
+(the tags, page types and other values the readers branch on), so it gets past a header without
 guessing four bytes at once. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash

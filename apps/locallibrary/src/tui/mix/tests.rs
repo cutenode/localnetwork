@@ -1,5 +1,6 @@
 use locallibrary::mix::{Alternate, MixInfo, Span as Gap};
 use locallibrary::tokens::bands::{HIGH, LOW, MID};
+use ratatui::crossterm::event::KeyCode;
 
 use super::super::app::View;
 use super::super::app::testing::*;
@@ -129,6 +130,12 @@ fn render(t: &mut MixTab, cx: &Context, w: u16, h: u16) -> String {
         .join("\n")
 }
 
+/// Open a recording or folder (in :) and type its path.
+fn type_to_open(app: &mut App, path: &Path) {
+    app.perform(Act::MixOpen, None);
+    press(app, &format!("{}\n", path.display()));
+}
+
 fn quiet() -> Context {
     Context { playhead: None, drive: Some("DNA".into()), status: None }
 }
@@ -223,7 +230,7 @@ fn draws_the_set_at_any_size() {
 fn empty_loading_and_failed_states_draw() {
     let (tx, _rx) = std::sync::mpsc::channel();
     let mut t = MixTab::new(tx);
-    assert!(render(&mut t, &quiet(), 100, 20).contains("to open a file or a folder"));
+    assert!(render(&mut t, &quiet(), 100, 20).contains("open a file or a folder from e"));
     assert!(render(&mut t, &quiet(), 100, 20).contains("No recordings on DNA"));
     t.set_recent(&[]);
     t.input = Some("~/Music/set.wav".into());
@@ -284,8 +291,8 @@ fn keys_move_zoom_and_type() {
     assert_eq!(app.mix.rows.selected(), Some(1));
     key(&mut app, KeyCode::End);
     assert_eq!(app.mix.rows.selected(), Some(2));
-    press(&mut app, "z");
-    press(&mut app, "z");
+    app.perform(Act::MixZoom, None);
+    app.perform(Act::MixZoom, None);
     assert_eq!(app.mix.zoom, 4);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.mix.pane, Pane::Mixes);
@@ -295,14 +302,14 @@ fn keys_move_zoom_and_type() {
     assert_eq!(app.mix.pane, Pane::Mixes);
 
     // Typing a path: every key goes to it, even view keys.
-    press(&mut app, "O");
+    app.perform(Act::MixOpen, None);
     press(&mut app, "1q");
     assert_eq!(app.mix.input.as_deref(), Some("1q"));
     assert!(!app.quit);
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.mix.input, None);
     // A folder with no recordings in it says so.
-    press(&mut app, "O");
+    app.perform(Act::MixOpen, None);
     press(&mut app, &store.path().display().to_string());
     key(&mut app, KeyCode::Enter);
     // The folder is listed in the background.
@@ -311,11 +318,13 @@ fn keys_move_zoom_and_type() {
     assert!(app.mix.folders.is_empty(), "a folder with none isn't kept");
 
     // Keys the view doesn't use still work.
-    press(&mut app, "gl");
+    press(&mut app, "1");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gr");
+    press(&mut app, "4");
     assert_eq!(app.view, View::Mixes);
-    press(&mut app, "Q");
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Esc);
+    }
     assert!(app.quit);
 }
 
@@ -408,7 +417,7 @@ fn esc_stops_identifying() {
 fn opening_a_file_says_why_it_cant() {
     let (mut app, dir) = blank(View::Mixes);
     let open_typed = |app: &mut App, path: &Path| {
-        press(app, &format!("O{}\n", path.display()));
+        type_to_open(app, path);
         last_message(app).to_string()
     };
     let gone = open_typed(&mut app, &dir.path().join("gone.wav"));
@@ -430,15 +439,20 @@ fn opening_a_file_says_why_it_cant() {
 #[test]
 fn a_tab_clicked_while_typing_a_path_puts_the_line_away() {
     let (mut app, _dir) = blank(View::Mixes);
-    press(&mut app, "O~/Music");
+    app.perform(Act::MixOpen, None);
+    press(&mut app, "~/Music");
     assert!(screen(&mut app, 120, 30).contains("Open a recording or folder:"));
-    point(&mut app, LEFT, "l Library");
+    point(&mut app, LEFT, "Library");
     assert_eq!(app.view, View::Library);
     press(&mut app, "\u{1b}5");
     let s = screen(&mut app, 120, 30);
     assert!(!s.contains("Open a recording or folder:") && !s.contains("~/Music"), "{s}");
-    press(&mut app, "Q");
-    assert!(app.quit, "Q quits, not typed");
+    // Quitting asks while the profile the view opened is still being built.
+    wait(&mut app, |a| crate::tui::jobs::rows(a).is_empty());
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Esc);
+    }
+    assert!(app.quit, "esc twice quits, not typed");
 }
 
 /// A folder's listing that comes back after another folder was opened is too late to count;
@@ -449,7 +463,7 @@ fn a_folder_opened_is_listed_until_forgotten() {
     let music = dir.path().join("music");
     wav_at(&music.join("Friday/warm-up.wav"));
     wav_at(&music.join("closing.wav"));
-    press(&mut app, &format!("O{}\n", music.display()));
+    type_to_open(&mut app, &music);
     wait(&mut app, |a| a.toast.is_some());
     assert!(last_message(&app).starts_with("2 recordings in "), "{}", last_message(&app));
     folders_listed(&mut app, Vec::new(), Vec::new());
@@ -460,7 +474,7 @@ fn a_folder_opened_is_listed_until_forgotten() {
     assert!(app.mix.sources.is_empty() && app.mix.folders.is_empty());
 }
 
-/// The open drive's own recordings are listed, read again with `R`.
+/// The open drive's own recordings are listed, read again with f5.
 #[test]
 fn the_open_drives_recordings_are_listed() {
     let dir = tempfile::tempdir().unwrap();
@@ -470,7 +484,7 @@ fn the_open_drives_recordings_are_listed() {
     app.view = View::Mixes;
     assert!(screen(&mut app, 120, 30).contains("No recordings on DNA."));
     wav_at(&drive.join("PIONEER REC/REC001.wav"));
-    press(&mut app, "R");
+    key(&mut app, KeyCode::F(5));
     wait(&mut app, |a| !a.mix.sources.is_empty());
     let s = &app.mix.sources[0];
     assert_eq!((s.name.as_str(), s.place.as_str(), s.folder.as_ref()), ("REC001.wav", "DNA", None));
@@ -486,7 +500,7 @@ fn an_older_listing_of_the_drive_is_dropped() {
     let rec = wav_at(&drive.join("PIONEER REC/REC001.wav"));
     let mut app = App::with_library(&drive, library());
     app.view = View::Mixes;
-    press(&mut app, "R");
+    key(&mut app, KeyCode::F(5));
     let older = app.mix.drive_listing - 1;
     let root = app.mix.drive.clone().unwrap();
     app.handle_msg(Msg::MixSources(older, root, vec![Source::recent(rec)]));
@@ -509,7 +523,7 @@ fn enter_on_the_set_shown_goes_to_its_tracks() {
     assert!(!app.mix.is_loading());
     // The zoom goes round: 2, 4 and 8 times, and back to the whole set.
     for zoom in [2, 4, 8, 1] {
-        press(&mut app, "z");
+        app.perform(Act::MixZoom, None);
         assert_eq!(app.mix.zoom, zoom);
     }
 }
@@ -682,16 +696,17 @@ fn the_mouse_picks_tracks_and_recordings() {
     assert!(at(&app) < 10.0, "{}", at(&app));
 }
 
-/// `E` saves the set as data for Local Network into the store's reports folder, from the
-/// drive it was matched against; `w` won't write the report without that drive.
+/// Exporting the set (`x` in the actions menu) saves it as data for Local Network into the store's
+/// reports folder, from the drive it was matched against; saving the report (`w` in the menu) won't
+/// write it without that drive.
 #[test]
 fn the_set_is_exported_from_its_drive() {
     let (mut app, dir) = blank(View::Mixes);
     let drive = dir.path().join("drive");
     std::fs::create_dir_all(&drive).unwrap();
-    press(&mut app, "E");
+    press(&mut app, "ex");
     assert_eq!(last_message(&app), "open a set first");
-    press(&mut app, "w");
+    app.perform(Act::MixReport, None);
     assert_eq!(last_message(&app), "open a set first");
 
     app.mix = tab();
@@ -699,7 +714,7 @@ fn the_set_is_exported_from_its_drive() {
         o.root = drive.clone();
         o.report.drive = "drive".into();
     }
-    press(&mut app, "E");
+    press(&mut app, "ex");
     assert!(
         last_message(&app).starts_with("saving ") && last_message(&app).ends_with(".mix.json…"),
         "{}",
@@ -711,11 +726,11 @@ fn the_set_is_exported_from_its_drive() {
     assert!(doc.to_string().contains("Signal Path"), "{doc}");
 
     std::fs::remove_dir(&drive).unwrap();
-    press(&mut app, "E");
+    press(&mut app, "ex");
     wait(&mut app, |a| a.toast.as_ref().is_some_and(|t| t.1 == Level::Error));
     assert!(last_message(&app).starts_with("the set's tracks are read from its drive"), "{}", last_message(&app));
     app.toast = None;
-    press(&mut app, "w");
+    app.perform(Act::MixReport, None);
     assert!(
         last_message(&app).starts_with("writing ") && last_message(&app).ends_with(".html…"),
         "{}",
@@ -725,14 +740,14 @@ fn the_set_is_exported_from_its_drive() {
     assert!(last_message(&app).starts_with("the set's tracks are read from its drive"), "{}", last_message(&app));
 }
 
-/// `o` with a set open goes to the selected track in the library, which is on the drive
-/// the set was matched against.
+/// Show in library (in `e`) with a set open goes to the selected track in the library,
+/// which is on the drive the set was matched against.
 #[test]
 fn o_finds_the_selected_track_on_its_drive() {
     let (mut app, _dir) = blank(View::Mixes);
-    assert!(!go_to(&mut app), "no set: o goes to the playing track");
+    assert!(!go_to(&mut app), "no set: it goes to the playing track");
     app.mix = tab();
-    press(&mut app, "o");
+    app.perform(Act::MixGoTo, None);
     assert_eq!(last_message(&app), "the track is on another drive");
     assert_eq!(app.view, View::Mixes);
 }
@@ -883,7 +898,7 @@ fn prop_recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCas
         match tc.draw(gs::integers::<u8>().max_value(4)) {
             0 | 1 => {
                 let f = tc.draw(gs::integers::<usize>().max_value(2));
-                press(&mut app, &format!("O{}\n", folders[f].display()));
+                type_to_open(&mut app, &folders[f]);
                 wait(&mut app, |a| a.mix.announce.is_none());
                 let said = last_message(&app).to_string();
                 kept.retain(|&k| k != f);
@@ -896,7 +911,7 @@ fn prop_recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCas
                 }
             }
             2 => {
-                press(&mut app, &format!("O{}\n", solo.display()));
+                type_to_open(&mut app, &solo);
                 wait(&mut app, |a| !a.mix.is_loading());
                 assert!(last_message(&app).contains("0 tracks found"), "{}", last_message(&app));
                 recent.retain(|p| *p != solo);
@@ -905,7 +920,7 @@ fn prop_recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCas
             3 => {
                 let (path, why) =
                     if tc.draw(gs::booleans()) { (&notes, "isn't a recording") } else { (&gone, "doesn't exist") };
-                press(&mut app, &format!("O{}\n", path.display()));
+                type_to_open(&mut app, path);
                 assert!(last_message(&app).contains(why), "{}", last_message(&app));
             }
             _ if !app.mix.sources.is_empty() => {
@@ -1015,7 +1030,7 @@ fn prop_a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
 /// The set played from the Mixes view: n goes to the start of the next track (or says that was
 /// the last), p back to the start of this one, or, near its start, the one before (or the set's
 /// start); space plays from the selected track, enter on a track from it, and a click on the
-/// timeline from there; z zooms in two, four, eight times and back.
+/// timeline from there; zoom (in :) goes in two, four, eight times and back.
 #[hegel::test(test_cases = 30)]
 fn prop_the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -1082,7 +1097,7 @@ fn prop_the_set_plays_through_its_tracks(tc: hegel::TestCase) {
             5 => {
                 // Round the zooms and back.
                 for _ in 0..4 {
-                    press(&mut app, "z");
+                    app.perform(Act::MixZoom, None);
                     zoom = if zoom == 8 { 1 } else { zoom * 2 };
                     assert_eq!(app.mix.zoom, zoom);
                 }
@@ -1110,11 +1125,12 @@ fn prop_a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
     let report = tc.draw(gs::booleans());
-    let key = if report { "w" } else { "E" };
+    // The report from the palette, the data from the actions menu.
+    let save = |app: &mut App| if report { app.perform(Act::MixReport, None) } else { press(app, "ex") };
     let drive = dir.path().join("drive");
     match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => {
-            press(&mut app, key);
+            save(&mut app);
             return assert_eq!(last_message(&app), "open a set first");
         }
         1 => {
@@ -1154,7 +1170,7 @@ fn prop_a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
         // (Written, it would open in the browser.)
         return;
     }
-    press(&mut app, key);
+    save(&mut app);
     let (start, end) = if report { ("writing ", ".html…") } else { ("saving ", ".mix.json…") };
     assert!(last_message(&app).starts_with(start) && last_message(&app).ends_with(end), "{}", last_message(&app));
     // (Not the line going once it's been read: a slow write can outlast it.)
@@ -1292,7 +1308,7 @@ fn prop_a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
 /// another recording identifies it (with no drive open, saying one's needed), and esc stops that;
 /// a result for an identification since dropped changes nothing, a failed one is said in place of
 /// the set; space with no audio to play says so; n and p with the set not playing move through the
-/// queue instead, o finds the selected track's drive (or says it's another); a click picks a
+/// queue instead, show in library finds the selected track's drive (or says it's another); a click picks a
 /// recording (a second opens it) or a track; del forgets a recording opened on its own, not the
 /// drive's.
 #[hegel::test(test_cases = 20)]
@@ -1368,7 +1384,7 @@ fn prop_the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
                 }
             }
             5 => {
-                press(&mut app, "o");
+                app.perform(Act::MixGoTo, None);
                 if matches!(&app.mix.opened, Some(Ok(_))) && app.mix.rows.selected().is_some() {
                     assert_eq!((last_message(&app), app.view), ("the track is on another drive", View::Mixes));
                 }
@@ -1418,7 +1434,7 @@ fn prop_the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
 /// The open drive's recordings are listed with how long each is and where it's from, beside
 /// those opened from this computer (which del forgets; the drive's stay); one being identified is
 /// marked; tab goes to the set's tracks only when there's a set with some; space with the set
-/// paused plays it on, enter on nothing asks for a path, and esc, o and space do the app's when
+/// paused plays it on, enter on nothing asks for a path, and esc, show in library and space do the app's when
 /// there's nothing of the Mixes view's to do; with no drive open the view says one's needed.
 #[hegel::test(test_cases = 15)]
 fn prop_the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
@@ -1478,7 +1494,7 @@ fn prop_the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase)
                 press(&mut app, "\u{1b}");
             }
             4 => {
-                // Nothing of the view's to do: esc, o and space go on to the app.
+                // Nothing of the view's to do: esc, show in library and space go on to the app.
                 (app.mix.pane, app.mix.opened) = (Pane::Mixes, None);
                 assert!(!escape(&mut app) && !go_to(&mut app));
                 assert!(!super::play(&mut app), "nothing to play here");
@@ -1499,7 +1515,7 @@ fn prop_the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase)
                 let at = app.mix.report().unwrap().plays[1].start;
                 play_from(&mut app, at);
                 assert!(!app.audio.as_ref().unwrap().is_paused(), "on again");
-                press(&mut app, "x");
+                app.perform(Act::Stop, None);
             }
             _ => {
                 // With no drive open, the view says one's needed.

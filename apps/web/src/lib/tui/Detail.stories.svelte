@@ -4,7 +4,7 @@
 	import TuiStory from './TuiStory.svelte';
 
 	/** The scrolling waveform centred on the playhead, with beat ticks, cue lines and loops. */
-	const { Story } = defineMeta({ title: 'Terminal/Detail', component: TuiStory });
+	const { Story } = defineMeta({ title: 'Terminal/Detail', component: TuiStory, tags: ['tui'] });
 </script>
 
 <Story name="On a cue" args={{ id: 'detail/on-a-cue' }} play={drawn()} />

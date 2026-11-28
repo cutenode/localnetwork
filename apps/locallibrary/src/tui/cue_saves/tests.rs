@@ -6,7 +6,6 @@ use locallibrary::cue_edit;
 
 use super::super::app::testing::*;
 use super::super::app::{App, NowPlaying, View};
-use super::super::keymap::Scope;
 use ratatui::crossterm::event::KeyCode;
 
 /// An app on the demo drive with its first track playing from `at_ms`, in player mode, on a
@@ -72,9 +71,9 @@ fn an_empty_pad_sets_a_hot_cue_on_the_beat_and_del_takes_it_off() {
 
     // del, then the pad: the letters turn red while it waits for one.
     key(&mut app, KeyCode::Delete);
-    assert_eq!((app.chord.is_some(), app.chord_scope), (true, Scope::DeleteCue));
+    assert!(app.deck.deleting);
     press(&mut app, &digit);
-    assert!(app.chord.is_none() && on_deck(&app).is_empty());
+    assert!(!app.deck.deleting && on_deck(&app).is_empty());
     wait(&mut app, settled);
     assert!(!on_drive(&app).iter().any(|(h, _)| *h == letter));
     assert_eq!(last_message(&app), format!("hot cue {letter} deleted · u undo"));
@@ -135,7 +134,7 @@ fn del_with_no_hot_cues_says_so() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     press(&mut app, "f");
     key(&mut app, KeyCode::Delete);
-    assert!(app.chord.is_none());
+    assert!(!app.deck.deleting);
     assert_eq!(last_message(&app), "no hot cues to delete");
 }
 
@@ -173,7 +172,9 @@ fn after_del_the_cues_turn_red_until_a_pad_is_pressed() {
     assert_eq!(during, red);
     assert!(armed.iter().any(|r| r.contains("DELETE CUE")), "the status line says what keys do now");
     press(&mut app, "9");
-    assert_ne!(letters(&mut app).1, red, "any other key ends it");
+    assert_eq!(letters(&mut app).1, red, "a key that's no pad leaves it waiting");
+    key(&mut app, KeyCode::Delete);
+    assert_ne!(letters(&mut app).1, red, "del again ends it");
 }
 
 #[test]
@@ -188,7 +189,7 @@ fn with_nothing_playing_the_commands_say_so() {
     let (mut app, _dir) = blank(View::Library);
     super::super::deck::set_next_hot_cue(&mut app);
     assert_eq!(last_message(&app), "nothing playing");
-    super::super::deck::delete_chord(&mut app);
+    super::super::deck::delete_cues(&mut app);
     assert_eq!(last_message(&app), "nothing playing");
 }
 
@@ -263,14 +264,31 @@ fn a_cue_the_drive_has_already_changes_nothing() {
 }
 
 #[test]
-fn the_hint_after_del_lists_the_pads() {
+fn the_footer_says_a_pad_deletes_until_del_again_or_esc() {
     let (mut app, _dir) = playing(TrackAnalysis { cues: vec![cue(Some(0), 0, None)], ..Default::default() });
     press(&mut app, "f");
-    key(&mut app, KeyCode::Delete);
-    app.chord = Some(std::time::Instant::now() - super::super::app::CHORD_HINT * 2);
     let (rows, _) = screen(&mut app);
-    assert!(rows.iter().any(|r| r.contains("Delete cue")), "{}", rows.join("\n"));
-    assert!(rows.iter().any(|r| r.contains("1 … 8") && r.contains("hot cue A … H")), "{}", rows.join("\n"));
+    assert!(rows.iter().any(|r| r.contains("del delete cue")), "{}", rows.join("\n"));
+    key(&mut app, KeyCode::Delete);
+    let (rows, _) = screen(&mut app);
+    assert!(rows.iter().any(|r| r.contains("DELETE CUE")), "{}", rows.join("\n"));
+    key(&mut app, KeyCode::Delete);
+    assert!(!app.deck.deleting, "del again deletes none");
+    key(&mut app, KeyCode::Delete);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.deck.deleting && app.deck_layout, "esc deletes none, and stays in player mode");
+    assert_eq!(on_deck(&app).len(), 1);
+}
+
+#[test]
+fn the_palettes_delete_takes_the_digit_row_in_any_view() {
+    let (mut app, _dir) = playing(TrackAnalysis { cues: vec![cue(Some(0), 0, None)], ..Default::default() });
+    assert!(!app.pads_on());
+    app.perform(super::super::keymap::Act::DeleteCues, None);
+    assert!(app.deck.deleting && app.pads_on(), "the digits are pads until one's pressed");
+    press(&mut app, "1");
+    assert!(on_deck(&app).is_empty() && !app.deck.deleting && !app.pads_on());
+    assert_eq!(app.view, View::Library, "1 deleted the cue rather than going to a view");
 }
 
 #[test]

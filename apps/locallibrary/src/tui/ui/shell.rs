@@ -32,8 +32,6 @@ const TIERS: [(Density, u16, u16); 4] =
 /// The smallest terminal that shows anything but the deck.
 const SMALLEST: (u16, u16) = (TIERS[3].1, TIERS[3].2);
 
-/// From this tall, the context line has its own row; under it, the header carries it.
-const CONTEXT_ROW: u16 = 30;
 /// Rows of the deck strip: its line and the waveform's markers and body.
 const STRIP: u16 = 3;
 const STRIP_FULL: u16 = 4;
@@ -54,12 +52,10 @@ impl Density {
 pub(super) struct Shell {
     pub density: Density,
     pub header: Rect,
-    /// No rows when the header carries it.
-    pub context: Rect,
     /// What the view draws in. With only the deck, what's left under it.
     pub body: Rect,
     pub strip: Rect,
-    pub status: Rect,
+    /// The status row and the keys row.
     pub footer: Rect,
 }
 
@@ -70,25 +66,27 @@ impl Shell {
             let strip_h = STRIP.min(area.height.saturating_sub(1)).max(1);
             let [strip, body] = Layout::vertical([Constraint::Length(strip_h), Constraint::Min(0)]).areas(area);
             let none = Rect::default();
-            return Shell { density, header: none, context: none, body, strip, status: none, footer: none };
+            return Shell { density, header: none, body, strip, footer: none };
         }
-        let context_h = u16::from(area.height >= CONTEXT_ROW);
         let strip_h = if density == Density::Full { STRIP_FULL } else { STRIP };
-        let [header, context, body, strip, status, footer] = Layout::vertical([
+        let [header, body, strip, footer] = Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(context_h),
             Constraint::Min(0),
             Constraint::Length(strip_h),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(2),
         ])
         .areas(area);
-        Shell { density, header, context, body, strip, status, footer }
+        Shell { density, header, body, strip, footer }
     }
 
     /// Where popups go: anywhere above the deck, or with only the deck, what's left under it.
     pub fn over(&self) -> Rect {
         if self.density == Density::DeckOnly { self.body } else { Rect { height: self.strip.y, ..self.header } }
+    }
+
+    /// The status row, where the latest message goes.
+    pub fn status(&self) -> Rect {
+        Rect { height: self.footer.height.min(1), ..self.footer }
     }
 }
 

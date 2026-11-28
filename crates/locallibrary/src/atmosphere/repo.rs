@@ -39,8 +39,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{
-    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, may_delete, may_upload, missing_scope, net,
-    not_signed_in, resolver, restore, status, store,
+    AccountInfo, KEYBINDS_SCOPE, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, may_delete, may_upload,
+    missing_scope, net, not_signed_in, resolver, restore, status, store,
 };
 use crate::error::{Action, IoContext, Reason};
 use crate::export::one_line;
@@ -67,19 +67,21 @@ fn what(collection: &str) -> &'static str {
         lexicon::PROFILE => "the profile",
         lexicon::SET => "sets",
         lexicon::RECORDING => "recordings",
+        lexicon::KEYBINDS => "your keys",
         lexicon::DISCUSSION => "bug reports",
         _ => "records",
     }
 }
 
 /// Signing `info`'s account in again, allowing what writing `collection` needs: publishing, or
-/// filing bug reports or writing another record type (a plugin's), keeping what the session may do
-/// now.
+/// publishing the player's keys, filing bug reports or writing another record type (a plugin's),
+/// keeping what the session may do now.
 pub(crate) fn sign_in_again(info: &AccountInfo, collection: &str) -> Action {
-    if lexicon::COLLECTIONS.contains(&collection) {
+    if collection != lexicon::KEYBINDS && lexicon::COLLECTIONS.contains(&collection) {
         return Action::call("account.login.begin", json!({ "publish": true }), "Sign in again, allowing publishing");
     }
     let (scope, allowing) = match collection {
+        lexicon::KEYBINDS => (KEYBINDS_SCOPE.to_string(), "publishing your keys".to_string()),
         lexicon::DISCUSSION => (REPORT_SCOPE.to_string(), "bug reports".to_string()),
         _ => (format!("repo:{collection}?action=create&action=update"), format!("{collection} records")),
     };

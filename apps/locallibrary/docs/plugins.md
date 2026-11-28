@@ -661,11 +661,12 @@ services, and whether they're on.
 
 ## Keys
 
-A plugin's command or operation can have a key of its own in the player:
-`locallibrary plugin settings ID keys.NAME KEY` (or its field in the plugin's settings form),
-where `KEY` is one character, `ctrl-` and a letter, or `f1` to `f12`. The player's own keys
-always win: one it uses anywhere, or one already bound to another command, is refused, saying
-why.
+A plugin's command or operation can have a key of its own in the player, set like any action's on
+the player's Keys screen ("change the keys" in the palette) or in `keybinds.json`, where its id is
+`plugin.ID.NAME` (see [Your own keys](player.md#your-own-keys)). It works in every view, and a
+key another action has is offered as a swap or refused, as for the player's own. Earlier versions
+kept these keys in the plugin's settings, as `keys.NAME`; the player moves them into
+`keybinds.json` the first time it starts, and takes them out of the plugin's settings.
 
 ## Settings
 
