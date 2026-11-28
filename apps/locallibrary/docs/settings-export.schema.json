@@ -88,6 +88,14 @@
 					"type": "object",
 					"additionalProperties": { "type": "string" }
 				},
+				"artists_together": {
+					"description": "Collaborations kept as one act (\"Above & Beyond\"), whoever is credited alone.",
+					"$ref": "#/$defs/names"
+				},
+				"artists_apart": {
+					"description": "Collaborations split into their acts, whoever is credited alone.",
+					"$ref": "#/$defs/names"
+				},
 				"headline": { "type": "string" }
 			}
 		},

@@ -17,7 +17,7 @@ fn groups_tracks_by_category() {
     let ids = by_id(&lib);
     let (copy_of, copies) = duplicates(&lib);
     let problems = Problems { missing: None, copy_of, copies };
-    let g = |cat| summary(&groups(&lib, cat, &ids, &problems, None, &[]));
+    let g = |cat| summary(&groups(&lib, cat, &ids, &problems, None, &[], &Collabs::default()));
     // Case and spacing don't split an artist; the first spelling names the group.
     assert_eq!(g(Category::Artist), [("Daft Punk".into(), vec![0, 3]), ("floorplan".into(), vec![1, 2])]);
     assert_eq!(g(Category::Album), [("No album".into(), vec![0, 1, 2, 3])]);
@@ -41,11 +41,71 @@ fn groups_tracks_by_category() {
     assert_eq!(g(Category::Problems), [("Duplicates".into(), vec![0, 3])]);
     let problems = Problems { missing: Some(vec![false, true, false, false]), ..problems };
     assert_eq!(
-        summary(&groups(&lib, Category::Problems, &ids, &problems, None, &[]))[0],
+        summary(&groups(&lib, Category::Problems, &ids, &problems, None, &[], &Collabs::default()))[0],
         ("Missing files".into(), vec![1])
     );
     assert_eq!(problems.others(0).collect::<Vec<_>>(), [3]);
     assert!(problems.is_missing(1) && !problems.is_missing(0));
+}
+
+/// Browse › Artist has a track in the folder of each artist it credits and each remixer, a
+/// collaboration split when one of its artists is credited alone and kept whole when neither is,
+/// unless the DJ chose otherwise; each folder named as the library spells it most.
+#[test]
+fn an_artist_folder_holds_their_collaborations_and_remixes() {
+    let mut lib = library();
+    let mut remix = track(9, "Someone Else", "Language (Porter Robinson Remix)");
+    remix.mix_name = String::new();
+    let mut fielded = track(10, "Someone Else", "Shelter");
+    fielded.remixer = "Ninajirachi & Porter Robinson".into();
+    lib.tracks = vec![
+        track(1, "Ninajirachi", "Solo"),
+        track(2, "PORTER ROBINSON", "Also Solo"),
+        track(3, "Porter Robinson", "Again"),
+        track(4, "Ninajirachi & Porter Robinson", "Together"),
+        track(5, "Porter Robinson x Status", "Guest"),
+        track(6, "Chase & Status", "Duo"),
+        remix,
+        fielded,
+        track(11, "", "Untitled"),
+    ];
+    let ids = by_id(&lib);
+    let artists = |c: &Collabs| summary(&groups(&lib, Category::Artist, &ids, &Problems::default(), None, &[], c));
+    let s = |v: &[(&str, &[usize])]| v.iter().map(|(n, t)| (n.to_string(), t.to_vec())).collect::<Vec<_>>();
+    assert_eq!(
+        artists(&Collabs::default()),
+        s(&[
+            ("Chase & Status", &[5]),
+            ("Ninajirachi", &[0, 3, 7]),
+            ("Porter Robinson", &[1, 2, 3, 4, 6, 7]),
+            ("Someone Else", &[6, 7]),
+            ("Status", &[4]),
+            ("Unknown artist", &[8]),
+        ])
+    );
+    // The DJ's choices: kept together, and split whoever is known alone.
+    let chosen = Collabs { together: vec!["porter robinson X status".into()], apart: vec!["Chase & Status".into()] };
+    assert_eq!(
+        artists(&chosen),
+        s(&[
+            ("Chase", &[5]),
+            ("Ninajirachi", &[0, 3, 7]),
+            ("Porter Robinson", &[1, 2, 3, 6, 7]),
+            ("Porter Robinson x Status", &[4]),
+            ("Someone Else", &[6, 7]),
+            ("Status", &[5]),
+            ("Unknown artist", &[8]),
+        ])
+    );
+    // What the actions menu offers to change: the collaboration crediting the folder's artist.
+    let rule = Collabs::default().rule(&lib);
+    assert_eq!(
+        collab_of(&lib.tracks[3], Some("ninajirachi"), &rule),
+        Some(("Ninajirachi & Porter Robinson".into(), true))
+    );
+    assert_eq!(collab_of(&lib.tracks[5], None, &rule), Some(("Chase & Status".into(), false)));
+    assert_eq!(collab_of(&lib.tracks[7], None, &rule), Some(("Ninajirachi & Porter Robinson".into(), true)));
+    assert_eq!(collab_of(&lib.tracks[0], None, &rule), None);
 }
 
 #[test]
@@ -68,7 +128,7 @@ fn sets_hold_their_tracks_on_the_drive_newest_first() {
     let typed = SetEntry::added("Floorplan - Never Grow Old");
     let corsica = set("3lzcorsica222", "2026-09-12", None, Some("Corsica Studios"), vec![typed, entry(1)]);
     let sets = [corsica, early, friday];
-    let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets);
+    let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets, &Collabs::default());
     let shown: Vec<_> = g.iter().map(|g| (g.key.as_str(), g.label.as_str(), g.tracks.clone(), g.left_out)).collect();
     assert_eq!(
         shown,
@@ -82,7 +142,10 @@ fn sets_hold_their_tracks_on_the_drive_newest_first() {
     // Beside the sessions, under Browse.
     let all = FxHashMap::from_iter([
         (Category::Sets, g),
-        (Category::History, groups(&lib, Category::History, &ids, &Problems::default(), None, &sets)),
+        (
+            Category::History,
+            groups(&lib, Category::History, &ids, &Problems::default(), None, &sets, &Collabs::default()),
+        ),
     ]);
     let t = tree(&lib, &FxHashSet::from_iter([NodeId::Browse, NodeId::Category(Category::Sets)]), &all);
     let names: Vec<String> = t.iter().map(|n| format!("{}{} {}", "-".repeat(n.depth), n.name, n.count)).collect();
@@ -97,15 +160,17 @@ fn sets_hold_their_tracks_on_the_drive_newest_first() {
         ]
     );
     // No store, or no sets in it: nothing to show.
-    assert!(groups(&lib, Category::Sets, &ids, &Problems::default(), None, &[]).is_empty());
+    assert!(groups(&lib, Category::Sets, &ids, &Problems::default(), None, &[], &Collabs::default()).is_empty());
 }
 
 #[test]
 fn tree_shows_categories_under_browse_and_the_playlists() {
     let lib = library();
     let ids = by_id(&lib);
-    let all: FxHashMap<Category, Vec<Group>> =
-        Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[]))).collect();
+    let all: FxHashMap<Category, Vec<Group>> = Category::ALL
+        .iter()
+        .map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[], &Collabs::default())))
+        .collect();
     let names = |t: &[Node]| t.iter().map(|n| format!("{}{}", "-".repeat(n.depth), n.name)).collect::<Vec<_>>();
     let closed = tree(&lib, &FxHashSet::default(), &all);
     assert_eq!(names(&closed), ["All tracks", "Browse", "Sets"]);
@@ -392,7 +457,7 @@ fn prop_every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
     let n = lib.tracks.len();
     let c = tc.draw(gs::sampled_from(&Category::ALL[..8]));
-    let gs = groups(&lib, c, &by_id(&lib), &Problems::default(), None, &[]);
+    let gs = groups(&lib, c, &by_id(&lib), &Problems::default(), None, &[], &Collabs::default());
     let mut seen: Vec<usize> = gs.iter().flat_map(|g| g.tracks.clone()).collect();
     seen.sort_unstable();
     assert_eq!(seen, (0..n).collect::<Vec<_>>(), "{c:?}: each track once");
@@ -468,7 +533,7 @@ fn prop_the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
         tags.by_id.insert(t.id, mine);
     }
     let read = tc.draw(gs::booleans());
-    let g = groups(&lib, Category::MyTags, &ids, &Problems::default(), read.then_some(&tags), &[]);
+    let g = groups(&lib, Category::MyTags, &ids, &Problems::default(), read.then_some(&tags), &[], &Collabs::default());
     let want: Vec<(String, Vec<usize>)> = (TAGS.iter().copied().collect::<std::collections::BTreeSet<_>>().into_iter())
         .filter(|_| read)
         .map(|tag| {
@@ -497,7 +562,7 @@ fn prop_the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
             s
         })
         .collect();
-    let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets);
+    let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets, &Collabs::default());
     assert_eq!(g.len(), sets.len());
     for w in g.windows(2) {
         let find = |key: &str| sets.iter().find(|s| s.id == key).unwrap();
@@ -512,7 +577,7 @@ fn prop_the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
         assert!(grp.label.starts_with(&s.date.to_string()) && grp.label.ends_with(s.name().unwrap_or("")));
     }
 
-    let g = groups(&lib, Category::History, &ids, &Problems::default(), None, &[]);
+    let g = groups(&lib, Category::History, &ids, &Problems::default(), None, &[], &Collabs::default());
     let lists: Vec<&Playlist> = lib.history.iter().filter(|h| !h.is_folder).collect();
     assert_eq!(g.len(), lists.len());
     for (grp, h) in g.iter().zip(lists) {
@@ -524,7 +589,7 @@ fn prop_the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
     let len = lib.tracks.len();
     let missing = tc.draw(gs::optional(gs::vecs(gs::booleans()).min_size(len).max_size(len)));
     let problems = Problems { missing, copy_of, copies };
-    let g = groups(&lib, Category::Problems, &ids, &problems, None, &[]);
+    let g = groups(&lib, Category::Problems, &ids, &problems, None, &[], &Collabs::default());
     let of = |key: &str| g.iter().find(|g| g.key == key).map(|g| g.tracks.clone()).unwrap_or_default();
     let gone: Vec<usize> = (0..lib.tracks.len()).filter(|&i| problems.is_missing(i)).collect();
     assert_eq!(of("missing"), gone);
@@ -549,8 +614,10 @@ fn prop_browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 6), ..library() };
     let ids = by_id(&lib);
-    let all: FxHashMap<Category, Vec<Group>> =
-        Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[]))).collect();
+    let all: FxHashMap<Category, Vec<Group>> = Category::ALL
+        .iter()
+        .map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[], &Collabs::default())))
+        .collect();
     let mut open = FxHashSet::default();
     if tc.draw(gs::booleans()) {
         open.insert(NodeId::Browse);

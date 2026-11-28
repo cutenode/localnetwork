@@ -2712,7 +2712,11 @@ fn background_results_are_shown_or_said() {
     assert_eq!(last_message(&app), "can't read the sets: a broken set book");
 
     // Another load's index is dropped; a details lookup for a track no longer asked about too.
-    let index = Index { ranks: vec![(SortField::Title, vec![0; 4])], groups: FxHashMap::default() };
+    let index = Index {
+        ranks: vec![(SortField::Title, vec![0; 4])],
+        groups: FxHashMap::default(),
+        collabs: Default::default(),
+    };
     app.handle_msg(Msg::Indexed(generation + 1, Box::new(index)));
     assert!(app.loaded.as_ref().unwrap().ranks.is_empty());
     let l = app.loaded.as_ref().unwrap();
@@ -4168,4 +4172,44 @@ fn the_picks_and_whats_played_come_back_next_run() {
     assert_eq!((t.title.as_str(), at), ("Never Grow Old", Duration::from_secs(30)));
     let saved = state::load(&app.store_root).expect("the saved state").queue.expect("the list");
     assert_eq!(saved.name, "All tracks");
+}
+
+/// The actions menu keeps a collaboration together as one artist, or counts it for each again:
+/// the choice is the store's, and Browse › Artist is grouped again at once.
+#[test]
+fn a_collaboration_is_kept_together_or_split_from_the_menu() {
+    use crate::tui::edits::Action;
+    let mut lib = library();
+    lib.tracks[1].artist = "Daft Punk & Floorplan".into();
+    let (mut app, _dir) = app_with(lib);
+    let artists = |app: &App| -> Vec<(String, NodeId)> {
+        let l = app.loaded.as_ref().unwrap();
+        l.tree
+            .iter()
+            .filter(|n| matches!(&n.id, NodeId::Group(Category::Artist, _)))
+            .map(|n| (n.name.clone(), n.id.clone()))
+            .collect()
+    };
+    select_tree(&mut app, NodeId::Browse);
+    select_tree(&mut app, NodeId::Category(Category::Artist));
+    let names = |app: &App| artists(app).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+    assert_eq!(names(&app), ["Daft Punk", "Floorplan"], "both are credited alone, so it splits");
+    let daft = artists(&app).into_iter().find(|(n, _)| n == "Daft Punk").unwrap().1;
+    select_tree(&mut app, daft);
+    let row = titles(&app).iter().position(|t| t == "Never Grow Old").unwrap();
+    app.track_state.select(Some(row));
+    let t = app.target().unwrap();
+    assert_eq!(t.collab, Some(("Daft Punk & Floorplan".into(), true)));
+    app.run_action(Action::Collab, t);
+    assert_eq!(names(&app), ["Daft Punk", "Daft Punk & Floorplan", "Floorplan"]);
+    assert_eq!(last_message(&app), "Daft Punk & Floorplan is one artist");
+
+    let together = artists(&app).into_iter().find(|(n, _)| n == "Daft Punk & Floorplan").unwrap().1;
+    select_tree(&mut app, together);
+    app.track_state.select(Some(0));
+    let t = app.target().unwrap();
+    assert_eq!(t.collab, Some(("Daft Punk & Floorplan".into(), false)));
+    app.run_action(Action::Collab, t);
+    assert_eq!(names(&app), ["Daft Punk", "Floorplan"]);
+    assert_eq!(last_message(&app), "Daft Punk & Floorplan counts for each artist");
 }

@@ -58,7 +58,13 @@ needs.
   **Browse**, at the top of the tree, groups the drive like a CDJ's top menu:
   by artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
   the store (newest first, each with its tracks on this drive in the order played, and a count of
-  the rest), the history lists players recorded, and problems.
+  the rest), the history lists players recorded, and problems. A track is under each artist it
+  credits and each remixer (its Remixer, else its title's "(… Remix)", Edit, Bootleg, Flip or
+  Rework): "Ninajirachi & Porter Robinson" and "Language (Porter Robinson Remix)" are both under
+  Porter Robinson. A collaboration (`A & B`, `A x B`, `A vs. B`, `A and B`) splits when one of its
+  artists is credited alone on the drive, so "Chase & Status" stays one artist; "keep … together"
+  or "count … for each artist" in the actions menu (`e`) changes that for a track's collaboration,
+  as `profile collab` does. Tags, rekordbox and the drive aren't changed.
 - **rekordbox's collection**: choose it in the Sources pane (then `enter`) to browse the collection
   rekordbox keeps on this computer, read from `master.db` as [`collection`](other-software.md#rekordboxs-collection)
   reads it: its playlists, folders and history lists, with each track played from where it is on

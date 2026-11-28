@@ -624,9 +624,167 @@ fn split_ci<'s>(s: &'s str, seps: &[&str]) -> Vec<&'s str> {
 pub fn artist_credits(artist: &str) -> Vec<String> {
     let seps = [",", ";", " feat. ", " feat ", " ft. ", " ft ", " featuring ", "(feat. ", "(ft. "];
     let mut out: Vec<String> = Vec::new();
-    for part in split_ci(artist, &seps) {
+    for (i, part) in split_ci(artist, &seps).into_iter().enumerate() {
         let name = part.trim_matches(|c: char| c.is_whitespace() || c == '(' || c == ')');
+        // "A, B, and C": the last name after the commas is C.
+        let name = match name.get(..4) {
+            Some(and) if i > 0 && and.eq_ignore_ascii_case("and ") => name[4..].trim_start(),
+            _ if i > 0 && name.starts_with("& ") => name[2..].trim_start(),
+            _ => name,
+        };
         if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// The acts one credit names when it's a collaboration: `A & B`, `A x B`, `A vs. B` and
+/// `A and B` split, ignoring case, each act once. A credit that isn't one is itself alone. Whether
+/// it really is a collaboration (`Chase & Status` is one act) is for the caller to tell
+/// ([`artist_credits_with`]).
+pub fn collab_parts(credit: &str) -> Vec<String> {
+    let seps = [" & ", " x ", " vs. ", " vs ", " and "];
+    let mut out: Vec<String> = Vec::new();
+    for part in split_ci(credit, &seps) {
+        let name = part.trim();
+        if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
+            out.push(name.to_string());
+        }
+    }
+    if out.len() < 2 { vec![credit.trim().to_string()] } else { out }
+}
+
+/// The artists a credit names, as [`artist_credits`] has them, with each collaboration among them
+/// split into its acts ([`collab_parts`]) where `split` says so: it's called with the credit and
+/// its acts, each as [`normalize`] has it. [`CollabRule`] is the rule the profile and Browse use.
+pub fn artist_credits_with(artist: &str, split: impl Fn(&str, &[String]) -> bool) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for credit in artist_credits(artist) {
+        let parts = collab_parts(&credit);
+        let keys: Vec<String> = parts.iter().map(|p| normalize(p)).collect();
+        let acts = if parts.len() > 1 && split(&normalize(&credit), &keys) { parts } else { vec![credit] };
+        for act in acts {
+            if !out.iter().any(|x| normalize(x) == normalize(&act)) {
+                out.push(act);
+            }
+        }
+    }
+    out
+}
+
+/// Every act a credit could name: [`artist_credits`] with each collaboration split
+/// ([`collab_parts`]), in order. What MusicBrainz IDs tagged one per act (Picard tags "A & B" with
+/// both artists' IDs) go with.
+pub fn collab_credits(artist: &str) -> Vec<String> {
+    artist_credits_with(artist, |_, _| true)
+}
+
+/// When a collaboration counts for each of its acts: when any one of them is credited alone
+/// (`solo`), so "Ninajirachi & Porter Robinson" counts for both, and so does "Porter Robinson &
+/// Status" when only Porter Robinson is known alone, while "Chase & Status" stays one act when
+/// neither is. The DJ's choices come first: credits kept `together` ("Above & Beyond", when
+/// something is credited to "Beyond" alone) and ones split `apart` whoever is known. Every name is
+/// as [`normalize`] has it.
+#[derive(Debug, Clone, Default)]
+pub struct CollabRule {
+    /// Artists credited alone.
+    pub solo: std::collections::HashSet<String>,
+    /// Collaborations kept as one act.
+    pub together: std::collections::HashSet<String>,
+    /// Collaborations split into their acts.
+    pub apart: std::collections::HashSet<String>,
+}
+
+impl CollabRule {
+    /// The rule for a collection whose tracks credit `artists`, with the DJ's choices.
+    pub fn new<'a>(artists: impl IntoIterator<Item = &'a str>, together: &[String], apart: &[String]) -> CollabRule {
+        let solo = artists
+            .into_iter()
+            .flat_map(artist_credits)
+            .filter(|c| collab_parts(c).len() == 1)
+            .map(|c| normalize(&c))
+            .collect();
+        let keys = |v: &[String]| v.iter().map(|c| normalize(c)).collect();
+        CollabRule { solo, together: keys(together), apart: keys(apart) }
+    }
+
+    /// Whether `credit`, a collaboration of `acts`, counts for each of them.
+    pub fn splits(&self, credit: &str, acts: &[String]) -> bool {
+        self.apart.contains(credit) || (!self.together.contains(credit) && acts.iter().any(|a| self.solo.contains(a)))
+    }
+
+    /// The artists `artist` credits, under this rule.
+    pub fn credits(&self, artist: &str) -> Vec<String> {
+        artist_credits_with(artist, |c, acts| self.splits(c, acts))
+    }
+}
+
+/// What a remix's name says the remixer did, last word first: `(Porter Robinson Remix)`.
+const REMIX_KINDS: [&str; 7] = ["remix", "edit", "bootleg", "flip", "rework", "refix", "remake"];
+
+/// Words before a remix's kind that name no one: `(Radio Edit)`, `(Extended Remix)`, `(Live Edit)`.
+const NOT_REMIXERS: [&str; 24] = [
+    "radio",
+    "extended",
+    "original",
+    "club",
+    "dub",
+    "instrumental",
+    "album",
+    "single",
+    "short",
+    "long",
+    "vocal",
+    "clean",
+    "explicit",
+    "main",
+    "official",
+    "vip",
+    "re",
+    "re-edit",
+    "live",
+    "acoustic",
+    "remastered",
+    "remaster",
+    "new",
+    "special",
+];
+
+/// Who remixed `t`, each credit as written: its Remixer when it has one, else what its title's
+/// brackets and its mix's name say (`Track (Porter Robinson Remix)`, `[Ninajirachi Edit]`,
+/// `(Madeon's Bootleg)`). A credit can name several ([`artist_credits`], [`CollabRule`]).
+pub fn remixers(t: &Track) -> Vec<String> {
+    if !t.remixer.trim().is_empty() {
+        return vec![t.remixer.trim().to_string()];
+    }
+    let mut named: Vec<&str> = Vec::new();
+    let mut rest = t.title.as_str();
+    while let Some(open) = rest.find(['(', '[']) {
+        let close = if rest.as_bytes()[open] == b'(' { ')' } else { ']' };
+        let Some(len) = rest[open + 1..].find(close) else { break };
+        named.push(&rest[open + 1..open + 1 + len]);
+        rest = &rest[open + 1 + len + 1..];
+    }
+    named.push(&t.mix_name);
+    let mut out: Vec<String> = Vec::new();
+    for s in named {
+        let s = s.trim();
+        let Some((name, kind)) = s.rsplit_once(char::is_whitespace) else { continue };
+        if !REMIX_KINDS.iter().any(|k| kind.eq_ignore_ascii_case(k)) {
+            continue;
+        }
+        let name = name.trim_end();
+        let name = ["'s", "’s", "'", "’"].iter().find_map(|x| name.strip_suffix(x)).unwrap_or(name).trim();
+        // "Porter Robinson 2024 Remake": the year it was remade is no part of who did.
+        let name = match name.rsplit_once(char::is_whitespace) {
+            Some((who, year)) if year.len() == 4 && year.bytes().all(|b| b.is_ascii_digit()) => who.trim_end(),
+            _ => name,
+        };
+        let key = normalize(name);
+        // A name has a letter: "2024 Remake" and "10/10 Remix" are a year and a score, not anyone.
+        let named = key.chars().any(char::is_alphabetic) && !NOT_REMIXERS.contains(&key.as_str());
+        if named && !out.iter().any(|o| normalize(o) == key) {
             out.push(name.to_string());
         }
     }

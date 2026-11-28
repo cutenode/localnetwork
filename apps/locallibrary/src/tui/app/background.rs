@@ -460,13 +460,14 @@ impl App {
             }
             Msg::Indexed(generation, index) => {
                 if let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) {
-                    let Index { ranks, groups } = *index;
+                    let Index { ranks, groups, collabs } = *index;
                     for (field, r) in ranks {
                         if !l.ranks.iter().any(|(f, _)| *f == field) {
                             l.ranks.push((field, r));
                         }
                     }
-                    for (c, g) in groups {
+                    // Artist as grouped before the DJ changed how a collaboration splits is stale.
+                    for (c, g) in groups.into_iter().filter(|(c, _)| *c != Category::Artist || collabs == l.collabs) {
                         l.groups.entry(c).or_insert(g);
                     }
                 }

@@ -285,11 +285,16 @@ fn fits_name(s: &str) -> bool {
 
 /// The artists `e` credits, one by one, as the profile counts them, with their MusicBrainz IDs
 /// when the set has as many as the credit names (Picard tags them in the credit's order, and an
-/// analyzer's `artists` role answers them in the names').
+/// analyzer's `artists` role answers them in the names'). A collaboration is split into its acts
+/// when the IDs are one per act ([`crate::model::collab_credits`]: Picard tags "A & B" with both).
 /// `None` when that says no more than the credit line: one artist, and no ID.
 fn artists(e: &SetEntry) -> Option<Vec<Value>> {
-    let names = crate::model::artist_credits(&e.artist);
     let ids = &e.musicbrainz.artists;
+    let names = crate::model::artist_credits(&e.artist);
+    let names = match crate::model::collab_credits(&e.artist) {
+        acts if ids.len() != names.len() && ids.len() == acts.len() => acts,
+        _ => names,
+    };
     let paired = ids.len() == names.len();
     let known = names.len() > 1 || (paired && !ids.is_empty());
     if !known || names.len() > ARTIST_LIMIT || !fits_name(e.artist.trim()) {

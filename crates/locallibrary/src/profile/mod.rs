@@ -43,7 +43,7 @@ use crate::device::Device;
 use crate::doctor::Databases;
 use crate::harmony::{Camelot, Relation, tempo_gap};
 use crate::hash::Hash;
-use crate::model::{BpmRange, Library, Track, artist_credits, normalize};
+use crate::model::{BpmRange, CollabRule, Library, Track, normalize};
 use crate::paths;
 use crate::plays::{self, DriveHistory, HistoryList};
 use crate::progress::{Ctx, Event, Phase, WarningLimiter};
@@ -80,6 +80,12 @@ pub struct ProfileOptions {
     /// The DJ's genre spellings, e.g. `{"dnb": "Drum & Bass"}` (see [`ProfilePrefs`]).
     #[serde(default)]
     pub genre_aliases: IndexMap<String, String>,
+    /// Collaborations kept as one act, and ones split, whoever is credited alone (see
+    /// [`ProfilePrefs`]).
+    #[serde(default)]
+    pub artists_together: Vec<String>,
+    #[serde(default)]
+    pub artists_apart: Vec<String>,
 }
 
 fn default_min_set_tracks() -> usize {
@@ -103,6 +109,8 @@ impl Default for ProfileOptions {
             top: DEFAULT_TOP,
             analysis: true,
             genre_aliases: IndexMap::new(),
+            artists_together: Vec::new(),
+            artists_apart: Vec::new(),
         }
     }
 }
@@ -1232,6 +1240,10 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
             tally(&mut l, &r.track.label);
         }
     }
+    // A collaboration counts for each act when one of them is credited alone ("A & B", "B x A"),
+    // and one that isn't ("Chase & Status") stays one act, unless the DJ says otherwise.
+    let rule =
+        CollabRule::new(owned.iter().map(|&i| recs[i].track.artist.as_str()), &o.artists_together, &o.artists_apart);
     for &i in &owned {
         let r = &recs[i];
         if !r.genres.is_empty() {
@@ -1240,7 +1252,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
                 tally(&mut g, name);
             }
         }
-        let credits = artist_credits(&r.track.artist);
+        let credits = rule.credits(&r.track.artist);
         if !credits.is_empty() {
             a_known += 1;
             for name in &credits {

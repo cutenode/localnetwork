@@ -69,6 +69,8 @@ pub struct Loaded {
     pub problems: Problems,
     pub my_tags: MyTags,
     pub fields: Fields,
+    /// How Browse › Artist splits collaborations: the store's choices, read when the drive is.
+    pub(in crate::tui) collabs: browse::Collabs,
     /// The store's sets, for Browse › Sets: `None` until first read (see `App::read_sets`).
     pub(super) sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
@@ -106,6 +108,7 @@ impl Loaded {
             my_tags: MyTags::Unread,
             fields: Fields::Unread,
             sets: None,
+            collabs: browse::Collabs::default(),
             stale: false,
             collection: None,
             collection_cues: None,
@@ -130,7 +133,7 @@ impl Loaded {
                 _ => None,
             };
             let sets = self.sets.as_deref().unwrap_or_default();
-            let g = browse::groups(&self.library, c, &self.by_id, &self.problems, tags.as_deref(), sets);
+            let g = browse::groups(&self.library, c, &self.by_id, &self.problems, tags.as_deref(), sets, &self.collabs);
             self.groups.insert(c, g);
         }
     }
@@ -423,4 +426,6 @@ pub(in crate::tui) fn drive_bands(root: &Path) -> Option<BandMode> {
 pub struct Index {
     pub(super) ranks: Vec<(SortField, Vec<u32>)>,
     pub(super) groups: FxHashMap<Category, Vec<Group>>,
+    /// The collaboration choices the groups were made with: Artist's are only kept for these.
+    pub(super) collabs: browse::Collabs,
 }

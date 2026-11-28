@@ -94,6 +94,16 @@ enum PrecisionArg {
     Exact,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum CollabArg {
+    /// One act, whoever is credited alone
+    Together,
+    /// Each of its acts, whoever is credited alone
+    Apart,
+    /// Each of its acts when one of them is credited alone (the default)
+    Auto,
+}
+
 impl From<PrecisionArg> for Precision {
     fn from(p: PrecisionArg) -> Self {
         match p {
@@ -191,6 +201,14 @@ enum ProfileCommand {
         from: String,
         /// The genre to show
         to: Option<String>,
+    },
+    /// How a collaboration (`A & B`, `A x B`) counts, here and in the player's Browse:
+    /// `collab "Above & Beyond" together`. Tags are never changed.
+    Collab {
+        /// The credit, as tagged
+        credit: String,
+        #[arg(value_enum)]
+        how: CollabArg,
     },
     /// Your own one-line description (without text: back to the generated one)
     Headline { text: Option<String> },
@@ -311,6 +329,23 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         ProfileCommand::Alias { from, to: None } => {
             let msg = format!("forgot the alias for {from:?}");
             update(store_path, PrefsUpdate { unalias: vec![from], ..Default::default() }, out, &msg)?;
+        }
+        ProfileCommand::Collab { credit, how } => {
+            let (u, msg) = match how {
+                CollabArg::Together => {
+                    let msg = format!("{credit} counts as one act");
+                    (PrefsUpdate { together: vec![credit], ..Default::default() }, msg)
+                }
+                CollabArg::Apart => {
+                    let msg = format!("{credit} counts for each of its acts");
+                    (PrefsUpdate { apart: vec![credit], ..Default::default() }, msg)
+                }
+                CollabArg::Auto => {
+                    let msg = format!("{credit} splits when one of its acts is credited alone");
+                    (PrefsUpdate { unsplit: vec![credit], ..Default::default() }, msg)
+                }
+            };
+            update(store_path, u, out, &msg)?;
         }
         ProfileCommand::Headline { text } => {
             let msg = if text.as_deref().is_some_and(|t| !t.trim().is_empty()) {
@@ -890,7 +925,14 @@ fn render_prefs(p: &ProfilePrefs) {
     if let Some(h) = &p.headline {
         say!("  headline: {h}");
     }
-    for (label, list) in [("pinned", &p.pinned), ("hidden tracks", &p.hidden), ("hidden artists", &p.hidden_artists)] {
+    let lists = [
+        ("pinned", &p.pinned),
+        ("hidden tracks", &p.hidden),
+        ("hidden artists", &p.hidden_artists),
+        ("collaborations kept together", &p.artists_together),
+        ("collaborations split", &p.artists_apart),
+    ];
+    for (label, list) in lists {
         if !list.is_empty() {
             say!("  {label}:");
             for x in list {

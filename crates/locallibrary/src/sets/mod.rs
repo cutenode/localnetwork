@@ -34,7 +34,7 @@ use uuid::Uuid;
 use crate::fields::FieldValue;
 use crate::fields::roles::{Role, RoleValues};
 use crate::local_time;
-use crate::model::{Track, artist_credits, isrc};
+use crate::model::{Track, artist_credits, collab_credits, isrc};
 use crate::profile::ProfilePrefs;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
@@ -321,8 +321,8 @@ impl MusicBrainzIds {
     /// The IDs `values` (an analyzer's for [`Self::ROLES`]) give `e`, once they're for its ISRC:
     /// the recording and the release each when it's a UUID, and the artists only when every one
     /// is, they're for its credit, and there's one for each name [`artist_credits`] splits its
-    /// artist into, since they're paired with those names in that order. Anything else is left
-    /// out.
+    /// artist into, or for each act with its collaborations split too ([`collab_credits`]), since
+    /// they're paired with those names in that order. Anything else is left out.
     pub fn from_roles(values: &RoleValues, e: &SetEntry) -> MusicBrainzIds {
         let (ids, credited) = Self::worked_out_for(values, e);
         if !ids {
@@ -336,7 +336,8 @@ impl MusicBrainzIds {
             Some(FieldValue::Strings(ids)) if credited => ids.iter().map(|s| Uuid::parse_str(s.trim()).ok()).collect(),
             _ => None,
         };
-        let artists = artists.filter(|ids| ids.len() == artist_credits(&e.artist).len()).unwrap_or_default();
+        let named = |n: usize| n == artist_credits(&e.artist).len() || n == collab_credits(&e.artist).len();
+        let artists = artists.filter(|ids| named(ids.len())).unwrap_or_default();
         MusicBrainzIds { recording: id(Role::Recording), release: id(Role::Release), artists }
     }
 

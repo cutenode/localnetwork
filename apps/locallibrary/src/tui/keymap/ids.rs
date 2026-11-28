@@ -252,6 +252,7 @@ fn edit_id(a: Action) -> Option<Cow<'static, str>> {
         | Action::Restore
         | Action::Tag
         | Action::PlayNext
+        | Action::Collab
         | Action::Plugin(..)
         | Action::Fetch(_) => None,
     }

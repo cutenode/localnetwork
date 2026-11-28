@@ -9,6 +9,63 @@ fn artists_are_credited_once_each() {
     assert_eq!(artist_credits("Röyksopp (feat. Robyn)"), ["Röyksopp", "Robyn"]);
     assert_eq!(artist_credits("İzel, Ölgü"), ["İzel", "Ölgü"]);
     assert_eq!(artist_credits(""), Vec::<String>::new());
+    assert_eq!(artist_credits("Kano, Ghetts, and Skepta"), ["Kano", "Ghetts", "Skepta"]);
+    assert_eq!(artist_credits("Kano, Ghetts & Skepta"), ["Kano", "Ghetts & Skepta"]);
+    assert_eq!(artist_credits("And One"), ["And One"]);
+}
+
+#[test]
+fn a_collaboration_splits_when_any_act_is_credited_alone() {
+    let solo = ["Ninajirachi", "Porter Robinson", "Madeon feat. Skrillex", "Beyond"];
+    let rule = CollabRule::new(solo, &[], &[]);
+    let credits = |a: &str| rule.credits(a);
+    assert_eq!(credits("Ninajirachi & Porter Robinson"), ["Ninajirachi", "Porter Robinson"]);
+    assert_eq!(credits("Porter Robinson x NINAJIRACHI"), ["Porter Robinson", "NINAJIRACHI"]);
+    assert_eq!(credits("Porter Robinson AND Madeon feat. Skrillex"), ["Porter Robinson", "Madeon", "Skrillex"]);
+    assert_eq!(credits("Madeon, Porter Robinson & Madeon"), ["Madeon", "Porter Robinson"]);
+    // One act known alone is enough; neither is not.
+    assert_eq!(credits("Porter Robinson & Status"), ["Porter Robinson", "Status"]);
+    assert_eq!(credits("Chase & Status"), ["Chase & Status"]);
+    assert_eq!(credits("Malcolm X"), ["Malcolm X"]);
+    assert_eq!(credits("Above & Beyond"), ["Above", "Beyond"]);
+    // The DJ's choices come first, in any case or spacing.
+    let rule = CollabRule::new(solo, &["above  & BEYOND".into()], &["Chase & Status".into()]);
+    assert_eq!(rule.credits("Above & Beyond"), ["Above & Beyond"]);
+    assert_eq!(rule.credits("Chase & Status"), ["Chase", "Status"]);
+    assert_eq!(collab_credits("Chase & Status feat. Plan B"), ["Chase", "Status", "Plan B"]);
+    assert_eq!(collab_parts("A vs. B vs C"), ["A", "B", "C"]);
+    assert_eq!(collab_parts(" A&B "), ["A&B"]);
+}
+
+#[test]
+fn a_remix_names_its_remixer() {
+    let t = |title: &str, mix: &str, remixer: &str| Track {
+        title: title.into(),
+        mix_name: mix.into(),
+        remixer: remixer.into(),
+        ..Track::default()
+    };
+    assert_eq!(remixers(&t("Language (Porter Robinson Remix)", "", "")), ["Porter Robinson"]);
+    assert_eq!(remixers(&t("Language [Ninajirachi edit] (Madeon's Bootleg)", "", "")), ["Ninajirachi", "Madeon"]);
+    assert_eq!(remixers(&t("Language", "Ninajirachi & Porter Robinson Remix", "")), ["Ninajirachi & Porter Robinson"]);
+    assert_eq!(remixers(&t("Language (Porter Robinson Remix)", "", "Someone Else")), ["Someone Else"]);
+    let nobodies = [
+        "Language (Radio Edit)",
+        "Language (Extended Mix)",
+        "Language (Remix)",
+        "Language (VIP Edit)",
+        "Language (2024 Remake)",
+        "Language (10/10 Remix)",
+        "Language [2.0 Edit]",
+        "Language (Live Edit)",
+        "Language (Re-Edit)",
+    ];
+    for nobody in nobodies {
+        assert_eq!(remixers(&t(nobody, "Original Mix", "")), Vec::<String>::new(), "{nobody}");
+    }
+    assert_eq!(remixers(&t("Language (Porter Robinson 2024 Remake)", "", "")), ["Porter Robinson"]);
+    assert_eq!(remixers(&t("Language (Blink-182 Edit)", "", "")), ["Blink-182"]);
+    assert_eq!(remixers(&t("Broken (Porter Robinson Remix", "", "")), Vec::<String>::new());
 }
 
 #[test]

@@ -62,7 +62,53 @@ local function isrc(value)
 	return value and #value == 12 and value:match('^%w+$') or nil
 end
 
--- The artists a track credits: one by one when the writer told them apart, otherwise its whole credit as one.
+-- `s` cut wherever one of `seps` (Lua patterns, matched in lowercase) is, its pieces trimmed of spaces and brackets,
+-- without empty ones or a repeat (by normalize()), in order. Lowercasing is ASCII only, so it keeps every byte where
+-- it was, and gmatch finds the pieces, since a loop over every byte costs a long tracklist too many instructions.
+local function cut(s, seps)
+	local marks = s:lower()
+	for _, sep in ipairs(seps) do
+		marks = marks:gsub(sep, function(m)
+			return ('\31'):rep(#m)
+		end)
+	end
+	local out, seen = {}, {}
+	for first, after in marks:gmatch('()[^\31]+()') do
+		local name = s:sub(first, after - 1):match('^[%s()]*(.-)[%s()]*$')
+		-- "A, B, and C": the last name after the commas is C.
+		if first > 1 then name = name:gsub('^[Aa][Nn][Dd]%s+', ''):gsub('^&%s+', '') end
+		local key = normalize(name)
+		if key ~= '' and not seen[key] then
+			seen[key] = true
+			out[#out + 1] = name
+		end
+	end
+	return out
+end
+
+-- Where a credit line names one artist after another, as loclib-model's artist_credits splits it: commas, semicolons
+-- and featuring credits ("A, B feat. C", "A (ft. B)").
+local CREDITS = { ',', ';', '%s*%(?%f[%w]featuring%s+', '%s*%(?%f[%w]feat%.?%s+', '%s*%(?%f[%w]ft%.?%s+' }
+
+-- Where a collaboration's credit names one act after another: "A & B", "A x B", "A vs. B", "A and B", as
+-- loclib-model's collab_parts splits them.
+local COLLAB = { '%s+&%s+', '%s+x%s+', '%s+vs%.?%s+', '%s+and%s+' }
+
+-- The acts `name` credits when it's a collaboration, each as an artist (a name and its key), or nil when it names
+-- one. The queries count it for each act only when one of them is credited alone somewhere (lib/directory.lua), so
+-- "Chase & Status" stays one act.
+local function parts(name)
+	local acts = cut(name, COLLAB)
+	if #acts < 2 then return nil end
+	local out = {}
+	for i, act in ipairs(acts) do
+		out[i] = { artistName = act, key = normalize(act) }
+	end
+	return json.to_array(out)
+end
+
+-- The artists a track credits: one by one as the writer told them apart, otherwise as its credit line names them. One
+-- without a MusicBrainz ID (which says who they are) keeps the acts it could be a collaboration of.
 local function credits(value, credit)
 	local out = {}
 	if type(value.artists) == 'table' then
@@ -71,13 +117,33 @@ local function credits(value, credit)
 			local key = name and normalize(name)
 			local id = name and mbid(artist.artistMbId)
 			if key and key ~= '' and not PLACEHOLDER[key] and not PLACEHOLDER[id] then
-				out[#out + 1] = { artistName = name, artistMbId = id, key = key }
+				out[#out + 1] = { artistName = name, artistMbId = id, key = key, parts = not id and parts(name) or nil }
 			end
 		end
 	end
 	local key = credit and normalize(credit)
-	if #out == 0 and key and key ~= '' and not PLACEHOLDER[key] then out[1] = { artistName = credit, key = key } end
+	if #out == 0 and key and key ~= '' and not PLACEHOLDER[key] then
+		for _, name in ipairs(cut(credit, CREDITS)) do
+			key = normalize(name)
+			if not PLACEHOLDER[key] then out[#out + 1] = { artistName = name, key = key, parts = parts(name) } end
+		end
+	end
 	return json.to_array(out)
+end
+
+-- Every act a credit line names, wherever it puts them, sorted: what a track without IDs is told apart by, so
+-- "A & B", "B x A" and "B feat. A" credit one pair.
+local ACTS = { table.unpack(CREDITS) }
+for _, sep in ipairs(COLLAB) do
+	ACTS[#ACTS + 1] = sep
+end
+local function actsKey(line)
+	local acts = cut(line, ACTS)
+	for i, act in ipairs(acts) do
+		acts[i] = normalize(act)
+	end
+	table.sort(acts)
+	return table.concat(acts, ', ')
 end
 
 -- What the support queries need of a track, or nil for one without a real title and artist, which nobody could be
@@ -99,9 +165,10 @@ local function track(value)
 			keys[i] = artist.key
 		end
 		line = table.concat(keys, ', ')
-		-- At most a credit line's length, so a track's id (supportedTrack's, at most 6006 bytes) fits its title too.
-		if #line > 3000 then return nil end
 	end
+	line = actsKey(line)
+	-- At most a credit line's length, so a track's id (supportedTrack's, at most 6006 bytes) fits its title too.
+	if #line > 3000 then return nil end
 	local start = value.startSeconds
 	return {
 		title = title,
