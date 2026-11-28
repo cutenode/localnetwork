@@ -303,3 +303,16 @@ fn a_cue_not_saved_after_the_track_changed_leaves_the_deck_be() {
     assert_eq!(on_deck(&app).len(), 1, "the other track's cues aren't touched");
     assert_eq!(last_message(&app), "hot cue A: not saved");
 }
+
+/// Setting a hot cue leaves the others in their order: a pad two cues claim still plays the first.
+#[test]
+fn a_cue_set_leaves_the_others_in_their_order() {
+    let cues = vec![cue(Some(2), 1, None), cue(Some(2), 0, None)];
+    let (mut app, _dir) = playing(TrackAnalysis { cues, ..Default::default() });
+    app.now.as_mut().unwrap().opening = true;
+    press(&mut app, "f");
+    press(&mut app, "1");
+    app.pending_seek = None;
+    press(&mut app, "3");
+    assert_eq!(app.pending_seek, Some(Duration::from_millis(1)));
+}

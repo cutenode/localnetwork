@@ -280,8 +280,8 @@ pub fn set_hot_cue(app: &mut App, slot: u8) {
         active_loop: false,
     };
     let colour = theme::palette().cue_color(&cue);
+    // After the others, which keep their order: a pad plays the first hot cue it has.
     now.analysis.cues.push(cue.clone());
-    now.analysis.cues.sort_by_key(|c| c.start_ms);
     let set = SetCue {
         hot_cue: Some(HotCue(slot)),
         at: CuePosition::Ms(ms),
