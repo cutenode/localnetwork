@@ -6,18 +6,20 @@ import { load } from './+page.server.ts';
 
 const app = { config: { publicUrl: 'https://localnetwork.computer' } };
 
-it('lists the tools with only what the deck shows, under the canonical /tools address', async () => {
+it('lists the tools in order with only what their sections show, under the canonical /tools address', async () => {
 	const data = await loadRoute<PageServerData>(load, { app, url: '/tools' });
 
 	expect(data.tools.map((tool) => tool.id)).toEqual(tools.map((tool) => tool.id));
-	expect(Object.keys(data.tools[0]).sort()).toEqual(['cues', 'id', 'kind', 'name']);
+	expect(Object.keys(data.tools[0]).sort()).toEqual(['cues', 'guide', 'id', 'look', 'name', 'pitch']);
 	expect(data.meta).toMatchObject({ title: 'Tools', url: 'https://localnetwork.computer/tools' });
 });
 
-it("places one cue on the demo track for each of the tools' cues, inside the track", async () => {
+it('shows locallibrary as hot cues and localtoolbox as its menu, each with its Guides button on its first guide', async () => {
 	const data = await loadRoute<PageServerData>(load, { app, url: '/tools' });
 
-	expect(data.track.durationSecs).toBe(demoTrack.durationSecs);
-	expect(data.track.cues).toHaveLength(tools.flatMap((tool) => tool.cues).length);
-	expect(data.track.cues.every((cue) => cue >= 0 && cue < demoTrack.durationSecs)).toBe(true);
+	expect(data.tools.map(({ id, look, guide }) => ({ id, look, guide }))).toEqual([
+		{ id: 'locallibrary', look: 'rekordbox', guide: '/tools/locallibrary/docs/readme' },
+		{ id: 'localtoolbox', look: 'soundcloud', guide: '/tools/localtoolbox/docs/overview' }
+	]);
+	expect(data.track).toEqual(demoTrack);
 });

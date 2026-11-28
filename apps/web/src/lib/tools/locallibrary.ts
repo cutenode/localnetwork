@@ -23,6 +23,7 @@ export const locallibrary: Tool = {
 	name: 'locallibrary',
 	kind: 'Terminal app for macOS, experimental on Linux and Windows',
 	tagline: 'Keeps your rekordbox USB drives in sync, backed up and edited.',
+	pitch: 'A terminal app that keeps your rekordbox USB drives in sync, backed up and edited.',
 	summary:
 		'A command line tool and terminal player for DJs who export from rekordbox to a stick and play it on CDJs or XDJs. Every change shows its plan and asks first, and undo takes the last one back.',
 	cues: [

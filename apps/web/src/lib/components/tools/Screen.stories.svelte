@@ -6,8 +6,8 @@
 	import { tools } from '#lib/tools/index.ts';
 	import Screen from './Screen.svelte';
 
-	/** The deck's screen: the picked cue's capture, fitted to one fixed shape. */
-	const { Story } = defineMeta({ title: 'Patterns/Tool deck screen', component: Screen, tags: ['autodocs'] });
+	/** A tool's screen: the picked capture, fitted to one fixed shape. */
+	const { Story } = defineMeta({ title: 'Patterns/Tool screen', component: Screen, tags: ['autodocs'] });
 
 	const captures = tools[0].cues.map((cue) => cue.capture);
 

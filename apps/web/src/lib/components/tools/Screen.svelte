@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { Capture as CaptureData } from '#lib/tools/types.ts';
-	import Capture from '../Capture.svelte';
+	import Capture from './Capture.svelte';
 
 	/**
-	 * The deck's screen: a box of one fixed shape, so nothing moves when the picked capture changes,
+	 * A tool's screen: a box of one fixed shape, so nothing moves when the picked capture changes,
 	 * with each capture fitted inside it. A capture loads once it's picked, and the one showing stays
 	 * up until the next has settled (loaded, or failed and left its alt text), so switching never
 	 * flashes an empty screen. The first one counts as settled, since the page opens on it.

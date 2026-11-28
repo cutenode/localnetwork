@@ -30,6 +30,8 @@ export type Tool = {
 	/** What sort of thing it is, such as a Chrome extension. */
 	kind: string;
 	tagline: string;
+	/** What it is and does, in one sentence: its section's lede on /tools. */
+	pitch: string;
 	summary: string;
 	/** What it does, in the order its page's hot cues show it. The first is the hero on /tools. */
 	cues: [Cue, ...Cue[]];

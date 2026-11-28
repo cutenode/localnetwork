@@ -245,14 +245,18 @@ test.describe('public pages', () => {
 
 		await page.goto('/tools');
 		await hydrated(page);
-		// The deck opens on its first cue, and a capture loads once its cue is picked.
+		// locallibrary's hot cues open on the first, and a number picks another with nothing focused.
 		await loaded(/^locallibrary playing a track/);
-		await page.getByRole('tab', { name: 'A Marks' }).click();
-		await expect(page.getByRole('tabpanel').getByRole('heading', { name: 'Marks' })).toBeVisible();
+		await page.keyboard.press('4');
+		await expect(page.getByRole('tab', { name: 'D Check' })).toHaveAttribute('aria-selected', 'true');
+		// localtoolbox's menu opens on its first tool, and its marks show apart.
+		await loaded(/^localtoolbox turning a SoundCloud playlist/);
 		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
+		await page.getByRole('tab', { name: /^Manager/ }).click();
+		await loaded(/^localtoolbox's manager/);
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'locallibrary', exact: true }).click();
-		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
+		await page.getByRole('link', { name: 'Install locallibrary' }).click();
+		await expect(page).toHaveURL(/\/tools\/locallibrary#install$/);
 		await hydrated(page);
 
 		const panel = page.getByRole('tabpanel');
