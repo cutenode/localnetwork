@@ -152,7 +152,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             out.emit_paged(&c.library.playlists, |_| crate::render::playlist_tree(&c.library));
         }
         CollectionCommand::Export { drive, playlists, all, replace, dry_run, from, grants, options } => {
-            let export = CollectionExportOptions { playlists, all, replace, overwrite_archive: false };
+            let export = CollectionExportOptions { playlists, all, replace, overwrite_archive: false, queue: None };
             locallibrary::op::allow_measuring(out.will_decide(dry_run));
             let plan = match from {
                 Some(_) if req.db.is_some() || req.key.is_some() => {

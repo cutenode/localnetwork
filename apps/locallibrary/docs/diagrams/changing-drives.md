@@ -410,6 +410,7 @@ The three commands that write a library from another one, and how they differ fr
 
 ```mermaid
 flowchart TD
+    queue["The player's queue from rekordbox's collection,<br/>exported to a folder here"] --> merge
     merge["merge: another library's tracks into this one"] --> present{"Target has the track?<br/>Same path and size, or artist, title, duration"}
     present -->|yes| keep["Keep the target's. The plan<br/>lists those that differ"]
     present -->|no| add["Copy audio, analysis, artwork,<br/>add a row to each database"]

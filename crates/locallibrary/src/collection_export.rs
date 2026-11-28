@@ -83,6 +83,20 @@ pub struct CollectionExportOptions {
     /// Write to an archive or retired drive (see [`crate::fleet::check_target`]).
     #[serde(default)]
     pub overwrite_archive: bool,
+    /// Export these tracks as one playlist instead of the collection's playlists (a queue
+    /// arranged in the player). Not with `playlists` or `all`.
+    #[serde(default)]
+    pub queue: Option<QueueExport>,
+}
+
+/// Tracks of the collection to export as one playlist of their own, in their order: a queue
+/// arranged in the player, which the collection has no playlist for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct QueueExport {
+    /// The playlist's path on the target, like `Sets/2026-11-27`: the folders above it are made.
+    pub playlist: String,
+    /// The collection's track ids, in playlist order (a track queued twice is listed once).
+    pub tracks: Vec<u32>,
 }
 
 /// What a target was exported from, kept on the target.
@@ -104,6 +118,9 @@ pub struct CollectionExportRecord {
     /// takes away the rules of those it no longer has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub smart: Vec<String>,
+    /// The queue exported instead of playlists, so exporting again writes it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue: Option<QueueExport>,
 }
 
 pub fn record(device: &Device) -> Result<Option<CollectionExportRecord>> {
@@ -125,8 +142,12 @@ pub struct CollectionExportPlan {
     pub source: Option<String>,
     pub target: String,
     pub target_root: PathBuf,
-    /// The playlists chosen; empty for the whole collection.
+    /// The playlists chosen (a queue's: the playlist it's written as); empty for the whole
+    /// collection.
     pub playlists: Vec<String>,
+    /// The queue exported instead of the collection's playlists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue: Option<QueueExport>,
     pub tracks: usize,
     /// Playlists exported (not counting folders).
     pub playlist_count: usize,
@@ -321,13 +342,26 @@ pub(crate) fn plan_from(
     // An export cut off before it recorded itself counts as one.
     let interrupted = target.state().and_then(|s| s.pending.as_ref()).is_some_and(|p| p.op == LineageOp::Export);
     let exported = previous.is_some() || interrupted;
-    let playlists = match (&opts.playlists[..], &previous) {
+    if opts.queue.is_some() && (opts.all || !opts.playlists.is_empty()) {
+        return Err(Error::invalid("a queue is exported on its own, without playlists or all"));
+    }
+    // The last export's queue, when nothing else is asked for.
+    let queue = match (&opts.queue, &previous) {
+        (Some(q), _) => Some(q.clone()),
+        (None, Some(r)) if !opts.all && opts.playlists.is_empty() => r.queue.clone(),
+        _ => None,
+    };
+    let playlists = match (&queue, &opts.playlists[..], &previous) {
+        (Some(q), ..) => vec![q.playlist.clone()],
         _ if opts.all => Vec::new(),
-        ([], Some(r)) => r.playlists.clone(),
-        (p, _) => p.to_vec(),
+        (None, [], Some(r)) => r.playlists.clone(),
+        (None, p, _) => p.to_vec(),
     };
     let mut warnings = Vec::new();
-    let (chosen, smart) = choose(from, &playlists, chrono::Local::now().date_naive(), &mut warnings)?;
+    let (chosen, smart) = match &queue {
+        Some(q) => (queued(&from.library, q, &mut warnings)?, Vec::new()),
+        None => choose(from, &playlists, chrono::Local::now().date_naive(), &mut warnings)?,
+    };
     let smart_gone = previous
         .as_ref()
         .map(|r| r.smart.iter().filter(|p| !smart.iter().any(|s| &s.path == *p)).cloned().collect())
@@ -444,6 +478,7 @@ pub(crate) fn plan_from(
         target: target.name(),
         target_root: target.root().to_path_buf(),
         playlists,
+        queue,
         tracks: library.tracks.len(),
         playlist_count: library.playlists.iter().filter(|p| !p.is_folder).count(),
         library_bytes: written.library_bytes,
@@ -549,6 +584,38 @@ fn choose(
         }
     };
     Ok((Library { tracks, playlists: chosen, ..Default::default() }, smart))
+}
+
+/// The queue `q` as a library of its own: its tracks (those still in the collection `lib`, said
+/// of the others), in one playlist at its path, in the folders that path names.
+fn queued(lib: &Library, q: &QueueExport, warnings: &mut Vec<String>) -> Result<Library> {
+    let names: Vec<&str> = q.playlist.split('/').map(str::trim).filter(|n| !n.is_empty()).collect();
+    let Some((name, folders)) = names.split_last() else {
+        return Err(Error::invalid("the queue's playlist needs a name"));
+    };
+    let by_id: FxHashMap<u32, &Track> = lib.tracks.iter().map(|t| (t.id, t)).collect();
+    let mut seen = FxHashSet::default();
+    let ids: Vec<u32> = q.tracks.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let (track_ids, gone): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| by_id.contains_key(id));
+    if track_ids.is_empty() {
+        return Err(Error::invalid("none of the queue's tracks are in rekordbox's collection"));
+    }
+    if !gone.is_empty() {
+        warnings.push(format!("{} queued track(s) aren't in rekordbox's collection any more", gone.len()));
+    }
+    let node = |id: u32, name: &str, is_folder: bool, track_ids: Vec<u32>| crate::model::Playlist {
+        id,
+        parent_id: id.checked_sub(1).filter(|&p| p > 0),
+        name: name.to_string(),
+        is_folder,
+        sort_order: 0,
+        track_ids,
+    };
+    let mut playlists: Vec<_> =
+        (folders.iter().enumerate()).map(|(i, f)| node(i as u32 + 1, f, true, Vec::new())).collect();
+    let tracks = track_ids.iter().map(|id| by_id[id].clone()).collect();
+    playlists.push(node(folders.len() as u32 + 1, name, false, track_ids));
+    Ok(Library { tracks, playlists, ..Default::default() })
 }
 
 /// The tracks each intelligent playlist in `keep` holds on `today`, by id, as its rules match
@@ -904,6 +971,7 @@ pub fn apply(
         at: Utc::now(),
         artwork: plan.artwork.clone(),
         smart: plan.smart.iter().map(|s| s.path.clone()).collect(),
+        queue: plan.queue.clone(),
     };
     fsutil::write_json_atomic(&target.state_dir().join(RECORD_FILE), &rec)?;
     crate::pack::forget(target)?;
