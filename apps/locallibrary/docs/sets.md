@@ -282,7 +282,7 @@ deleted, nor one track logged twice.
 | Keys, Labels | what you play: the Camelot wheel, labels | never |
 | Energy | rekordbox's phrase mood (high, mid, low) across the collection's tracks that have phrase analysis, and the mood through a set | by default |
 | Genres, Era | the genres in your collection, and when its music was released, by decade | by default |
-| Artists | the artists in your collection, most tracks first | if you include it |
+| Artists | the artists in your collection, most tracks first: a track counts for each artist it credits, a collaboration (`A & B`, `A x B`) for each act when one of them is credited alone in your collection (`profile collab` chooses otherwise) | if you include it |
 | Signature tracks | tracks in two or more sets, moves played again and again, openers and closers | never |
 | Prep, Player style | how many tracks have cues and loops, My Settings such as quantize and jog mode | never |
 | Collection | the collection's size | if you include it |
@@ -303,6 +303,8 @@ locallibrary profile sections                  # what each section reveals, and 
 locallibrary profile include artists           # the artists in your collection, most tracks first
 locallibrary profile hide "Rihanna" --artist   # never name an artist, wherever they're credited
 locallibrary profile alias dnb "Drum & Bass"   # spell a genre your way
+locallibrary profile collab "Above & Beyond" together  # one artist, whoever is credited alone
+locallibrary profile collab "Porter Robinson & Status" apart  # each of them (auto: as the rule says)
 locallibrary profile precision exact           # or rounded, the default
 ```
 

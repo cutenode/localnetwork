@@ -716,8 +716,12 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         assert_eq!(t.get("recordingMbId").cloned(), mbid(e.musicbrainz.recording));
         assert_eq!(t.get("releaseMbId").cloned(), mbid(e.musicbrainz.release));
         // Artists one by one, as the profile counts them, when the credit names more than one or
-        // the tags identify its one; their IDs only when the tags have one for each.
-        let (names, ids) = (locallibrary::model::artist_credits(&e.artist), &e.musicbrainz.artists);
+        // the tags identify its one; their IDs only when the tags have one for each, its
+        // collaborations split into their acts when that's what the IDs are one for.
+        let ids = &e.musicbrainz.artists;
+        let names = locallibrary::model::artist_credits(&e.artist);
+        let acts = locallibrary::model::collab_credits(&e.artist);
+        let names = if ids.len() != names.len() && ids.len() == acts.len() { acts } else { names };
         let paired = ids.len() == names.len();
         match t.get("artists") {
             None => assert!(names.len() < 2 && !(paired && names.len() == 1), "{names:?} {ids:?}"),

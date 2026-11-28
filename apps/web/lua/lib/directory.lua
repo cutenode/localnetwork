@@ -353,21 +353,39 @@ local DJS = [[djs AS (
 
 -- What follows the sets CTE in queryPlays(): every named track of the current DJs' sets as a play, a row per play
 -- and artist it credits, with the track and the artist it counts for. A track is its recording MBID, else its ISRC,
--- else its credit and title; an artist is their MBID, else their name. A play without an ID takes the one other
+-- else its credit and title; an artist is their MBID, else their name. A collaboration ("A & B", "B x A") counts for
+-- each of its acts when one of them is credited alone somewhere and nothing gives the whole credit an MBID, so
+-- "Chase & Status" stays one act unless a set credits "Chase" or "Status" alone. A play without an ID takes the one other
 -- plays have when only one fits (an ISRC's recording, a title's recording or ISRC, a name's artist), so sets
 -- published before their writer filled in IDs count with the ones after. It reads every set each time, so each query
 -- builds it once: Postgres materializes a CTE used more than once. Writing MATERIALIZED would fail, since HappyView
 -- parses raw SQL with sqlparser's generic dialect and refuses what it can't parse as a write. Each play keeps its
 -- track's JSON (`track`), since going back to a record for a track means Postgres parsing the whole record text,
 -- tracklist and all, again: dozens of times slower over long sets. A named track or its artists that aren't a list count for nothing, where SQLite read whatever was there.
-local PLAYS = [[, credits AS (
+local PLAYS = [[, listed AS (
 	SELECT s.uri AS setUri, t.position, s.did, s.act, s.date, s.city, s.country,
 		(t.value ->> 'startSeconds')::bigint AS startSeconds, t.value ->> 'recordingMbId' AS mbid,
 		t.value ->> 'isrc' AS isrc, t.value ->> 'key' AS name,
 		a.value ->> 'artistMbId' AS artistMbid, a.value ->> 'key' AS artistKey,
-		a.value ->> 'artistName' AS artistName, t.value AS track
+		a.value ->> 'artistName' AS artistName, t.value AS track,
+		CASE WHEN left((a.value -> 'parts')::text, 1) = '[' THEN a.value -> 'parts' END AS parts
 	FROM sets AS s, jsonb_array_elements(s.named) WITH ORDINALITY AS t(value, position),
 		jsonb_array_elements(CASE WHEN left((t.value -> 'artists')::text, 1) = '[' THEN t.value -> 'artists' END) AS a
+), collabs AS (
+	SELECT DISTINCT c.artistKey FROM listed AS c
+	WHERE c.parts IS NOT NULL
+		AND c.artistKey NOT IN (SELECT artistKey FROM listed WHERE artistMbid IS NOT NULL)
+		AND EXISTS (SELECT 1 FROM jsonb_array_elements(c.parts) AS p
+			WHERE p.value ->> 'key' IN (SELECT artistKey FROM listed WHERE parts IS NULL))
+), credits AS (
+	SELECT setUri, position, did, act, date, city, country, startSeconds, mbid, isrc, name, artistMbid, artistKey,
+		artistName, track
+	FROM listed WHERE artistKey NOT IN (SELECT artistKey FROM collabs)
+	UNION ALL
+	SELECT c.setUri, c.position, c.did, c.act, c.date, c.city, c.country, c.startSeconds, c.mbid, c.isrc, c.name,
+		NULL, p.value ->> 'key', p.value ->> 'artistName', c.track
+	FROM listed AS c, jsonb_array_elements(c.parts) AS p
+	WHERE c.artistKey IN (SELECT artistKey FROM collabs)
 ), isrcMbids AS (
 	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
 	GROUP BY isrc HAVING count(DISTINCT mbid) = 1

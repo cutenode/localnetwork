@@ -96,3 +96,21 @@ fn choices_are_said_as_they_are_made_and_shown_in_the_report() {
     let out = env.ok(&["profile", "document", d, "-o", path(&file)]);
     assert_eq!(out, format!("v wrote {}\n", file.display()));
 }
+
+#[test]
+fn a_collaboration_is_kept_together_split_or_left_to_the_rule() {
+    let env = Env::ascii();
+    let out = env.ok(&["profile", "collab", "Above & Beyond", "together"]);
+    assert_eq!(out, "v Above & Beyond counts as one act\n");
+    let out = env.ok(&["profile", "collab", "Bicep x Hammer", "apart"]);
+    assert_eq!(out, "v Bicep x Hammer counts for each of its acts\n");
+    let out = env.ok(&["profile", "prefs"]);
+    assert!(out.contains("  collaborations kept together:\n    Above & Beyond\n"), "{out}");
+    assert!(out.contains("  collaborations split:\n    Bicep x Hammer\n"), "{out}");
+
+    let out = env.ok(&["profile", "collab", "above & beyond", "auto"]);
+    assert_eq!(out, "v above & beyond splits when one of its acts is credited alone\n");
+    assert!(!env.ok(&["profile", "prefs"]).contains("kept together"));
+    let err = env.fails(1, &["profile", "collab", "Bicep", "together"]);
+    assert!(err.contains("\"Bicep\" isn't a collaboration"), "{err}");
+}

@@ -11,7 +11,9 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
   some playlists writes, numbering tracks only OneLibrary has for files (`ONELIBRARY_ONLY`),
   `LibraryDiff` between two exports of one library, `untangle` for a playlist tree read from a
   damaged file, `artist_credits`, the artists a credit names, one by one (as a published set lists
-  them), and `isrc`, a tag as an ISRC.
+  them), `collab_parts`, `artist_credits_with` and `CollabRule`, a collaboration (`A & B`) split
+  into its acts where one of them is known alone, `remixers`, who a track's Remixer or title
+  says remixed it, and `isrc`, a tag as an ISRC.
 - `diff`: `PlaylistDiff`, how the playlists of two libraries differ entry by entry (added,
   removed and moved), for the whole tree or one playlist or folder.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and

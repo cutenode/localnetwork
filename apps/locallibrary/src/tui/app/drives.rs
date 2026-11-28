@@ -330,6 +330,7 @@ impl App {
         // The store's sets go with every drive: the ones read last stand in until they're read
         // again, so a set shown doesn't empty meanwhile.
         new.sets = self.loaded.as_mut().and_then(|l| l.sets.take());
+        new.collabs = browse::Collabs::load(&self.store_root);
         self.crate_list.refresh(new.root(), &new.library);
         self.queue_changed();
         self.loaded = Some(new);
@@ -414,14 +415,15 @@ impl App {
     fn index_library(&mut self) {
         let Some(l) = &self.loaded else { return };
         let (lib, generation, by_id) = (l.library.clone(), l.generation, l.by_id.clone());
+        let collabs = l.collabs.clone();
         self.spawn(move || {
             let ranks = browse::SORT_FIELDS.iter().map(|&f| (f, browse::ranks(&lib, f))).collect();
             // Problems waits for the file check, and is quick; My Tags and Sets wait for their reads.
             let later = |c: &Category| matches!(c, Category::Problems | Category::MyTags | Category::Sets);
             let groups = (Category::ALL.into_iter().filter(|c| !later(c)))
-                .map(|c| (c, browse::groups(&lib, c, &by_id, &Problems::default(), None, &[])))
+                .map(|c| (c, browse::groups(&lib, c, &by_id, &Problems::default(), None, &[], &collabs)))
                 .collect();
-            Msg::Indexed(generation, Box::new(Index { ranks, groups }))
+            Msg::Indexed(generation, Box::new(Index { ranks, groups, collabs }))
         });
     }
 

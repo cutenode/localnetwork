@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{Basis, ProfileReport, credited_artists};
-use crate::model::{artist_credits, normalize};
+use crate::model::{artist_credits, collab_parts, normalize};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -210,6 +210,13 @@ pub struct ProfilePrefs {
     /// The DJ's genre spellings: genre text as tagged → genre as shown.
     #[serde(default)]
     pub genre_aliases: IndexMap<String, String>,
+    /// Collaborations kept as one act whoever is credited alone ("Above & Beyond"), here and in
+    /// the player's Browse ([`crate::model::CollabRule`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artists_together: Vec<String>,
+    /// Collaborations split into their acts whoever is credited alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artists_apart: Vec<String>,
     /// The DJ's own one-line description, instead of the generated one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
@@ -359,6 +366,26 @@ impl ProfilePrefs {
                 return Err(Error::NotFound(format!("no genre alias for {from:?}")));
             }
         }
+        for (credit, together) in u.together.iter().map(|c| (c, true)).chain(u.apart.iter().map(|c| (c, false))) {
+            let credit = credit.trim();
+            if collab_parts(credit).len() < 2 {
+                return Err(Error::invalid(format!(
+                    "{credit:?} isn't a collaboration: it names one act (`A & B`, `A x B`, `A vs. B` and `A and B` are)"
+                )));
+            }
+            let n = normalize(credit);
+            self.artists_together.retain(|c| normalize(c) != n);
+            self.artists_apart.retain(|c| normalize(c) != n);
+            if together { &mut self.artists_together } else { &mut self.artists_apart }.push(credit.to_string());
+        }
+        for credit in &u.unsplit {
+            let (n, before) = (normalize(credit), self.artists_together.len() + self.artists_apart.len());
+            self.artists_together.retain(|c| normalize(c) != n);
+            self.artists_apart.retain(|c| normalize(c) != n);
+            if self.artists_together.len() + self.artists_apart.len() == before {
+                return Err(Error::NotFound(format!("{credit:?} isn't kept together or split")));
+            }
+        }
         if let Some(h) = &u.headline {
             let h = h.trim();
             self.headline = (!h.is_empty()).then(|| h.to_string());
@@ -401,6 +428,15 @@ pub struct PrefsUpdate {
     pub alias: IndexMap<String, String>,
     #[serde(default)]
     pub unalias: Vec<String>,
+    /// Collaborations to keep as one act whoever is credited alone.
+    #[serde(default)]
+    pub together: Vec<String>,
+    /// Collaborations to split into their acts whoever is credited alone.
+    #[serde(default)]
+    pub apart: Vec<String>,
+    /// Collaborations to split as the rule says again.
+    #[serde(default)]
+    pub unsplit: Vec<String>,
     /// The DJ's own headline (empty: back to the generated one).
     #[serde(default)]
     pub headline: Option<String>,

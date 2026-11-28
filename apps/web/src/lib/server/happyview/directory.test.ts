@@ -399,7 +399,7 @@ describe('set record script', () => {
 				{ title: long(3001), artist: 'A' },
 				{ title: 'Credit', artist: long(3001) },
 				{ title: 'Names', artists: [{ artistName: long(2561) }, { artistName: 'B' }] },
-				{ title: 'Pair', artists: [{ artistName: long(2000) }, { artistName: long(2000) }] },
+				{ title: 'Pair', artists: [{ artistName: long(2000) }, { artistName: 'y'.repeat(2000) }] },
 				{ title: 'Kept', artist: 'C' }
 			]
 		});
@@ -877,6 +877,59 @@ describe('getCharts', () => {
 		expect(charts.tracks).toHaveLength(1);
 		expect(charts.tracks[0]).toMatchObject({ id: `mbid:${mbid(1)}`, recordingMbId: mbid(1), supports: 4 });
 		expect(charts.artists).toEqual([{ name: 'Two Rooms', mbid: mbid(9), supports: 4, djCount: 4 }]);
+	});
+
+	it('counts a collaboration for each act when one is credited alone, as one track whatever order it names them in', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c', 'd');
+
+		const together = [
+			{ title: 'Together', artist: 'Ninajirachi & Porter Robinson' },
+			{ title: 'together', artist: 'Porter Robinson x NINAJIRACHI' },
+			{ title: 'Together', artist: 'Porter Robinson feat. Ninajirachi' },
+			{ title: 'Together', artists: [{ artistName: 'Porter Robinson' }, { artistName: 'Ninajirachi' }] }
+		];
+
+		for (const [i, dj] of ['a', 'b', 'c', 'd'].entries()) {
+			await publishSet(hv, `did:plc:${dj}`, {
+				tracks: [
+					together[i]!,
+					{ title: 'Duo', artist: 'Chase & Status' },
+					{ title: 'Guest', artist: 'Status x Madeon' }
+				]
+			});
+		}
+
+		// Each is credited alone somewhere, and so is Madeon; nobody is credited as Chase or Status alone.
+		await publishSet(hv, 'did:plc:a', {
+			tracks: [
+				{ title: 'Solo', artist: 'Ninajirachi' },
+				{ title: 'Also Solo', artist: 'Porter Robinson' },
+				{ title: 'Madeon Alone', artist: 'Madeon' }
+			]
+		});
+
+		const charts = await query<Charts>(hv, 'getCharts');
+		expect(charts.tracks.map((track) => [track.id, track.supports])).toEqual([
+			['name:chase, status\nduo', 4],
+			['name:madeon, status\nguest', 4],
+			['name:ninajirachi, porter robinson\ntogether', 4]
+		]);
+		// Madeon alone is enough to split "Status x Madeon"; "Chase & Status" has neither alone.
+		expect(charts.artists).toEqual([
+			{ name: 'Chase & Status', supports: 4, djCount: 4 },
+			{ name: 'Madeon', supports: 4, djCount: 4 },
+			{ name: 'Ninajirachi', supports: 4, djCount: 4 },
+			{ name: 'Porter Robinson', supports: 4, djCount: 4 },
+			{ name: 'Status', supports: 4, djCount: 4 }
+		]);
+		const porter = await query<Artist>(hv, 'getArtist', { name: 'porter robinson' });
+		expect(porter.artist).toEqual({ name: 'Porter Robinson', supports: 5, djCount: 4 });
+		expect(porter.tracks.map((track) => track.plays.length)).toEqual([4, 1]);
+
+		// A credit line's last name after the commas, "and" and all.
+		await publishSet(hv, 'did:plc:a', { tracks: [{ title: 'Grime', artist: 'Kano, Ghetts, and Skepta' }] });
+		expect((await query<Artist>(hv, 'getArtist', { name: 'skepta' })).artist).toMatchObject({ name: 'Skepta' });
 	});
 });
 

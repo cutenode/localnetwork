@@ -58,7 +58,7 @@ fn deciles_spread_a_set() {
 // Properties: a report worked out from random libraries and sets, against a model of them
 // -----------------------------------------------------------------------------------------
 
-use crate::model::TrackColor;
+use crate::model::{TrackColor, artist_credits};
 use crate::sets::EntryOrigin;
 use hegel::TestCase;
 use hegel::generators as gs;
@@ -232,6 +232,7 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
         top: s.top,
         analysis: false,
         genre_aliases: IndexMap::new(),
+        ..ProfileOptions::default()
     };
     let mut b = builder(&o);
     let tracks: Vec<Track> = s.tracks.iter().enumerate().map(|(i, g)| gen_track(i, g)).collect();
@@ -659,6 +660,7 @@ fn prefs_for(tc: &TestCase, r: &ProfileReport) -> ProfilePrefs {
         hidden_artists: some(artists, 3),
         genre_aliases: IndexMap::new(),
         headline: None,
+        ..ProfilePrefs::default()
     }
 }
 
@@ -837,6 +839,71 @@ fn genres_artists_era_and_energy_count_each_collection_track_once() {
     assert_eq!((r.sets.plays, r.tempo.tracks, r.tempo.max), (18, 18, Some(170.0)));
 }
 
+/// A collaboration counts for each of its acts, whatever order it names them in, when the
+/// collection credits each alone; a duo nobody is credited half of stays one act.
+#[test]
+fn a_collaboration_counts_for_each_act_credited_alone() {
+    let o = ProfileOptions::default();
+    let mut b = builder(&o);
+    let (lib, _) = library_of(&[
+        ("Ninajirachi", "Solo", "", 0, None),
+        ("Porter Robinson", "Also Solo", "", 0, None),
+        ("Ninajirachi & Porter Robinson", "Together", "", 0, None),
+        ("Porter Robinson x Ninajirachi", "Together Again", "", 0, None),
+        ("Chase & Status", "Duo", "", 0, None),
+        ("Porter Robinson & Status", "Guest", "", 0, None),
+    ]);
+    b.add_collection(&lib, Origin::Drive(0));
+    let shares = |r: &ProfileReport| -> Vec<(String, usize)> {
+        r.artists.top.iter().map(|x| (x.name.clone(), x.count)).collect()
+    };
+    let r = compute(&b, Basis::Plays, 0, Utc::now());
+    assert_eq!(r.artists.known, 6);
+    // Porter Robinson alone is enough to split "Porter Robinson & Status"; Chase & Status has neither.
+    let want = [("Porter Robinson", 4), ("Ninajirachi", 3), ("Chase & Status", 1), ("Status", 1)];
+    assert_eq!(shares(&r), want.map(|(n, c)| (n.to_string(), c)));
+
+    // The DJ's choices come first.
+    let o = ProfileOptions {
+        artists_together: vec!["porter robinson & STATUS".into()],
+        artists_apart: vec!["Chase & Status".into()],
+        ..ProfileOptions::default()
+    };
+    let mut b = builder(&o);
+    b.add_collection(&lib, Origin::Drive(0));
+    let r = compute(&b, Basis::Plays, 0, Utc::now());
+    let want =
+        [("Ninajirachi", 3), ("Porter Robinson", 3), ("Chase", 1), ("Porter Robinson & Status", 1), ("Status", 1)];
+    assert_eq!(shares(&r), want.map(|(n, c)| (n.to_string(), c)));
+}
+
+/// A collaboration is kept together or split by its credit, in any case or spacing, one choice at
+/// a time; only a collaboration can be, and only a choice made can be taken back.
+#[test]
+fn collaborations_are_kept_together_or_split_as_chosen() {
+    let mut p = ProfilePrefs::default();
+    let u = |together: &[&str], apart: &[&str], unsplit: &[&str]| PrefsUpdate {
+        together: together.iter().map(|s| s.to_string()).collect(),
+        apart: apart.iter().map(|s| s.to_string()).collect(),
+        unsplit: unsplit.iter().map(|s| s.to_string()).collect(),
+        ..Default::default()
+    };
+    p.apply(&u(&["Above & Beyond"], &["Chase & Status"], &[])).unwrap();
+    assert_eq!(
+        (p.artists_together.as_slice(), p.artists_apart.as_slice()),
+        (&["Above & Beyond".to_string()][..], &["Chase & Status".to_string()][..])
+    );
+    // Choosing again moves it.
+    p.apply(&u(&[], &["above  & beyond"], &[])).unwrap();
+    assert!(p.artists_together.is_empty());
+    assert_eq!(p.artists_apart, ["Chase & Status", "above  & beyond"]);
+    p.apply(&u(&[], &[], &["Above & Beyond", "CHASE & STATUS"])).unwrap();
+    assert!(p.artists_apart.is_empty());
+    assert!(matches!(p.apply(&u(&[], &[], &["Above & Beyond"])), Err(Error::NotFound(_))));
+    let one = p.apply(&u(&["Bicep"], &[], &[])).unwrap_err().to_string();
+    assert!(one.contains("isn't a collaboration"), "{one}");
+}
+
 /// A document says when it was made to the millisecond, whatever the clock's resolution: the
 /// same report written twice is the same length (chrono's own format drops trailing zeros).
 #[hegel::test(test_cases = 100)]
@@ -848,6 +915,7 @@ fn prop_a_document_is_dated_to_the_millisecond(tc: TestCase) {
         top: 5,
         analysis: false,
         genre_aliases: IndexMap::new(),
+        ..ProfileOptions::default()
     };
     let second = |nanos| DateTime::from_timestamp(1_760_000_000, nanos).unwrap().naive_utc();
     let at = tc.draw(gs::default::<DateTime<Utc>>().min_value(second(0)).max_value(second(999_999_999)));
@@ -873,8 +941,11 @@ fn prop_options_left_out_take_their_defaults(tc: TestCase) {
             true => IndexMap::from([("dnb".to_string(), "DnB".to_string())]),
             false => IndexMap::new(),
         },
+        artists_together: tc.draw(gs::vecs(gs::sampled_from(vec!["Above & Beyond".to_string()])).max_size(1)),
+        artists_apart: tc.draw(gs::vecs(gs::sampled_from(vec!["Chase & Status".to_string()])).max_size(1)),
     };
-    let fields = ["since", "until", "min_set_tracks", "top", "analysis", "genre_aliases"];
+    let fields =
+        ["since", "until", "min_set_tracks", "top", "analysis", "genre_aliases", "artists_together", "artists_apart"];
     let left_out: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(fields.to_vec())).max_size(fields.len()));
     let mut json = serde_json::to_value(&given).unwrap();
     let defaults = serde_json::to_value(ProfileOptions::default()).unwrap();
